@@ -21,8 +21,30 @@ createApp({
     DateFilterPanel,
   },
   setup() {
+    const readUrlState = () => {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        view: params.get('view'),
+        tab: params.get('tab'),
+        from: params.get('from'),
+        to: params.get('to'),
+        accounts: params.get('accounts')?.split(',').filter(Boolean) || null,
+        neutralize: params.get('neutralize'),
+        category: params.get('category'),
+        q: params.get('q'),
+        pivotDepth: params.get('pivotDepth'),
+        breakoutGranularityMode: params.get('breakoutGranularityMode'),
+        breakoutShowIncome: params.get('breakoutShowIncome'),
+        breakoutShowExpenses: params.get('breakoutShowExpenses'),
+        transactionPage: params.get('transactionPage'),
+      };
+    };
+
+    const initialUrlState = readUrlState();
+    let isHydratingFromUrl = true;
+
     // ── State ────────────────────────────────────────────────────────────────
-    const view = ref('report');
+    const view = ref(initialUrlState.view || 'report');
     const meta = reactive({ accounts: [], min_date: '', max_date: '' });
     const filters = reactive({
       from: '',
@@ -30,26 +52,26 @@ createApp({
       accounts: [],
       neutralize: true,
     });
-    const tab = ref('expense');
+    const tab = ref(initialUrlState.tab || 'expense');
     const summary = ref(null);
     const tree = ref(null);
     const pivot = ref(null);
     const cashflow = ref(null);
     const breakout = ref(null);
-    const breakoutGranularityMode = ref('auto');
-    const breakoutShowIncome = ref(true);
-    const breakoutShowExpenses = ref(true);
-    const pivotDepth = ref('1');
+    const breakoutGranularityMode = ref(initialUrlState.breakoutGranularityMode || 'auto');
+    const breakoutShowIncome = ref(initialUrlState.breakoutShowIncome !== 'false');
+    const breakoutShowExpenses = ref(initialUrlState.breakoutShowExpenses !== 'false');
+    const pivotDepth = ref(initialUrlState.pivotDepth || '1');
     const transactions = ref(null);
-    const selectedCategory = ref(null);
+    const selectedCategory = ref(initialUrlState.category || null);
     const yearButtons = ref([]);
     const categoryColorMap = reactive({});
     const reportText = ref('');
     const copyLabel = ref('Copy to clipboard');
     const pivotCopyLabel = ref('MD');
     const transactionsCopyLabel = ref('MD');
-    const searchQuery = ref('');
-    const currentTransactionPage = ref(1);
+    const searchQuery = ref(initialUrlState.q || '');
+    const currentTransactionPage = ref(Math.max(1, parseInt(initialUrlState.transactionPage || '1', 10) || 1));
     const transactionSort = reactive({ key: 'booking_date', direction: 'desc' });
     const monthRangeAnchor = ref(null);
     let searchTimer = null;
@@ -109,6 +131,7 @@ createApp({
 
     // ── API ──────────────────────────────────────────────────────────────────
     const api = createApi({
+      view,
       filters,
       tab,
       selectedCategory,
@@ -126,7 +149,6 @@ createApp({
       renderTreemap,
       renderSankey,
       renderBreakout,
-      resetTransactionWindow: resetTransactionPagination,
       nextTick,
     });
 
@@ -140,6 +162,26 @@ createApp({
       loadTransactions,
       loadAll,
     } = api;
+
+    const loadTransactionsForCurrentView = async ({ resetPage = false } = {}) => {
+      if (resetPage) {
+        resetTransactionPagination();
+      }
+      await loadTransactions();
+    };
+
+    const loadCurrentViewData = async ({ resetTransactionsPage = false } = {}) => {
+      if (isHydratingFromUrl) return;
+
+      if (view.value === 'transactions') {
+        await loadTransactionsForCurrentView({ resetPage: resetTransactionsPage });
+        return;
+      }
+
+      if (view.value === 'report') {
+        await loadAll();
+      }
+    };
 
     // ── Account Toggle ───────────────────────────────────────────────────────
     const toggleAccount = (account) => {
@@ -172,19 +214,30 @@ createApp({
     const applyCategorySelection = async (category) => {
       selectedCategory.value = category;
       searchQuery.value = '';
+
+      if (view.value === 'transactions') {
+        await loadTransactionsForCurrentView({ resetPage: true });
+        return;
+      }
+
       if (tab.value === 'expense' || tab.value === 'income') {
-        await Promise.all([loadTree(), loadPivot(), loadTransactions()]);
+        await Promise.all([loadTree(), loadPivot()]);
         return;
       }
+
       if (tab.value === 'cashflow') {
-        await Promise.all([loadCashflow(), loadTransactions()]);
+        await loadCashflow();
         return;
       }
+
       if (tab.value === 'breakout') {
-        await Promise.all([loadBreakout(), loadTransactions()]);
+        await loadBreakout();
         return;
       }
-      await loadTransactions();
+
+      if (tab.value === 'report') {
+        await loadReport();
+      }
     };
 
     const clearSelection = () => {
@@ -366,29 +419,23 @@ createApp({
     watch(
       () => [filters.from, filters.to, filters.accounts.join(','), filters.neutralize],
       () => {
-        loadAll();
+        loadCurrentViewData({ resetTransactionsPage: true });
       }
     );
 
     watch(tab, () => {
-      if (tab.value === 'cashflow') {
-        loadCashflow();
-        loadTransactions();
-      } else if (tab.value === 'breakout') {
-        loadBreakout();
-        loadTransactions();
-      } else if (tab.value === 'report') {
-        loadReport();
-      } else {
-        loadTree();
-        loadPivot();
-        loadTransactions();
-      }
+      if (isHydratingFromUrl || view.value !== 'report') return;
+      loadAll();
+    });
+
+    watch(view, () => {
+      loadCurrentViewData();
     });
 
     watch(searchQuery, () => {
+      if (isHydratingFromUrl || view.value !== 'transactions') return;
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => loadTransactions(), 250);
+      searchTimer = setTimeout(() => loadTransactionsForCurrentView({ resetPage: true }), 250);
     });
 
     watch(totalTransactionPages, (pageCount) => {
@@ -397,15 +444,63 @@ createApp({
       }
     });
 
+    const syncUrlState = () => {
+      if (isHydratingFromUrl) return;
+
+      const params = new URLSearchParams();
+      params.set('view', view.value);
+      params.set('tab', tab.value);
+
+      if (filters.from) params.set('from', filters.from);
+      if (filters.to) params.set('to', filters.to);
+      params.set('accounts', filters.accounts.join(','));
+      params.set('neutralize', String(filters.neutralize));
+
+      if (selectedCategory.value) params.set('category', selectedCategory.value);
+      if (searchQuery.value) params.set('q', searchQuery.value);
+
+      params.set('pivotDepth', pivotDepth.value);
+      params.set('breakoutGranularityMode', breakoutGranularityMode.value);
+      params.set('breakoutShowIncome', String(breakoutShowIncome.value));
+      params.set('breakoutShowExpenses', String(breakoutShowExpenses.value));
+      params.set('transactionPage', String(currentTransactionPage.value));
+
+      const query = params.toString();
+      const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+      window.history.replaceState(null, '', nextUrl);
+    };
+
+    watch(
+      () => [
+        view.value,
+        tab.value,
+        filters.from,
+        filters.to,
+        filters.accounts.join(','),
+        filters.neutralize,
+        selectedCategory.value,
+        searchQuery.value,
+        pivotDepth.value,
+        breakoutGranularityMode.value,
+        breakoutShowIncome.value,
+        breakoutShowExpenses.value,
+        currentTransactionPage.value,
+      ],
+      syncUrlState
+    );
+
     watch(pivotDepth, () => {
+      if (isHydratingFromUrl || view.value !== 'report') return;
       if (tab.value === 'expense' || tab.value === 'income') loadPivot();
     });
 
     watch(breakoutGranularityMode, () => {
+      if (isHydratingFromUrl || view.value !== 'report') return;
       if (tab.value === 'breakout') loadBreakout();
     });
 
     watch([breakoutShowIncome, breakoutShowExpenses], () => {
+      if (isHydratingFromUrl || view.value !== 'report') return;
       if (tab.value === 'breakout') renderBreakout();
     });
 
@@ -419,10 +514,18 @@ createApp({
       yearButtons.value = computeYearButtons(m.min_date, m.max_date);
 
       const defaultRange = computeDefaultDateRange(m.max_date);
-      filters.from = defaultRange.from;
-      filters.to = defaultRange.to;
-      filters.accounts = [...m.accounts];
-      filters.neutralize = true;
+      filters.from = initialUrlState.from || defaultRange.from;
+      filters.to = initialUrlState.to || defaultRange.to;
+      filters.accounts = initialUrlState.accounts
+        ? initialUrlState.accounts.filter((account) => m.accounts.includes(account))
+        : [...m.accounts];
+      filters.neutralize = initialUrlState.neutralize == null
+        ? true
+        : initialUrlState.neutralize !== 'false';
+
+      isHydratingFromUrl = false;
+      syncUrlState();
+      await loadCurrentViewData();
     });
 
     // ── Expose ───────────────────────────────────────────────────────────────

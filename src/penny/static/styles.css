@@ -671,6 +671,16 @@ tbody tr:hover {
   border-color: var(--accent);
 }
 
+.date-input {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  background: var(--panel);
+  color: var(--ink);
+}
+
 /* ── Breakout Chart ────────────────────────────────────────────────────────── */
 
 .breakout-header {

@@ -1,6 +1,7 @@
 """FastAPI web server for Penny."""
 
 from pathlib import Path
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,11 +44,14 @@ def apply_filters(query, params, from_date=None, to_date=None, accounts=None, ne
         conditions.append("booking_date <= ?")
         params.append(to_date)
 
-    if accounts:
-        account_list = accounts.split(',')
-        placeholders = ','.join('?' * len(account_list))
-        conditions.append(f"account IN ({placeholders})")
-        params.extend(account_list)
+    if accounts is not None:
+        account_list = [account for account in accounts.split(',') if account]
+        if account_list:
+            placeholders = ','.join('?' * len(account_list))
+            conditions.append(f"account IN ({placeholders})")
+            params.extend(account_list)
+        else:
+            conditions.append("1 = 0")
 
     if neutralize:
         conditions.append("(neutralization_id IS NULL OR neutralization_id = '')")
@@ -64,6 +68,73 @@ def apply_filters(query, params, from_date=None, to_date=None, accounts=None, ne
         query += " WHERE " + " AND ".join(conditions)
 
     return query
+
+
+def format_currency(cents: int) -> str:
+    """Format cents as EUR using German separators."""
+    amount = abs(cents) / 100
+    formatted = f"{amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    sign = "-" if cents < 0 else ""
+    return f"{sign}{formatted} €"
+
+
+def parse_booking_date(value: str) -> datetime.date:
+    """Parse booking date from ISO text."""
+    return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def category_bucket(category: Optional[str], selected_category: Optional[str] = None) -> str:
+    """Group categories at the first visible level for charts."""
+    cat = category or "uncategorized"
+    if selected_category:
+        prefix = selected_category.rstrip("/")
+        if cat == prefix:
+            return prefix
+        if cat.startswith(f"{prefix}/"):
+            child = cat[len(prefix) + 1 :].split("/")[0]
+            return f"{prefix}/{child}"
+        return cat
+    return cat.split("/")[0]
+
+
+def period_key(booking_date: str, granularity: str) -> str:
+    """Return the period key used for breakout grouping."""
+    date = parse_booking_date(booking_date)
+    if granularity == "day":
+        return date.isoformat()
+    if granularity == "week":
+        iso_year, iso_week, _ = date.isocalendar()
+        return f"{iso_year}-W{iso_week:02d}"
+    return f"{date.year}-{date.month:02d}"
+
+
+def period_label(key: str, granularity: str) -> str:
+    """Return a human-friendly period label."""
+    if granularity == "day":
+        date = parse_booking_date(key)
+        return date.strftime("%d %b %Y")
+    if granularity == "week":
+        year, week = key.split("-W")
+        return f"W{week} {year}"
+    year, month = key.split("-")
+    return datetime(int(year), int(month), 1).strftime("%b %Y")
+
+
+def sort_period_keys(keys: list[str], granularity: str) -> list[str]:
+    """Sort breakout periods chronologically."""
+    if granularity == "day":
+        return sorted(keys)
+    if granularity == "week":
+        return sorted(keys, key=lambda key: (int(key.split("-W")[0]), int(key.split("-W")[1])))
+    return sorted(keys)
+
+
+def roll_up_top_buckets(bucket_totals: dict[str, int], limit: int, other_label: str) -> list[str]:
+    """Keep the largest buckets and collapse the tail into an optional other bucket."""
+    ordered = sorted(bucket_totals.items(), key=lambda item: item[1], reverse=True)
+    if len(ordered) <= limit:
+        return [name for name, _ in ordered]
+    return [name for name, _ in ordered[:limit]] + [other_label]
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────────
@@ -115,7 +186,7 @@ async def meta():
 async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
 ):
     """Return expense/income summary."""
@@ -153,7 +224,7 @@ async def tree(
     tab: str = Query("expense"),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
 ):
@@ -213,7 +284,7 @@ async def pivot(
     depth: str = Query("1"),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
 ):
@@ -279,28 +350,59 @@ async def pivot(
 async def cashflow(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
 ):
-    """Return Sankey diagram data."""
+    """Return Sankey diagram data derived from filtered transactions."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    params = []
+    query = "SELECT category, amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    income_buckets = defaultdict(int)
+    expense_buckets = defaultdict(int)
+
+    for row in rows:
+        bucket = category_bucket(row[0], category)
+        amount = row[1]
+        if amount > 0:
+            income_buckets[bucket] += amount
+        elif amount < 0:
+            expense_buckets[bucket] += abs(amount)
+
+    total_expense = sum(expense_buckets.values())
+
+    visible_income = roll_up_top_buckets(income_buckets, 6, "other income")
+    visible_expense = roll_up_top_buckets(expense_buckets, 8, "other expenses")
+
+    def bucket_value(name: str, buckets: dict[str, int], visible_names: list[str]) -> int:
+        if name not in visible_names:
+            return 0
+        if name.startswith("other "):
+            return sum(value for bucket, value in buckets.items() if bucket not in visible_names[:-1])
+        return buckets[name]
+
+    links = []
+    for name in visible_income:
+        value = bucket_value(name, income_buckets, visible_income)
+        if value > 0:
+            links.append({"source": f"{name} (in)", "target": "Budget", "value": value})
+
+    for name in visible_expense:
+        value = bucket_value(name, expense_buckets, visible_expense)
+        if value > 0:
+            links.append({"source": "Budget", "target": f"{name} (out)", "value": value})
+
     return {
-        "total_expense": 15321,
-        "nodes": [
-            {"name": "salary"},
-            {"name": "Budget"},
-            {"name": "food"},
-            {"name": "shopping"},
-            {"name": "transport"},
-            {"name": "subscriptions"},
-        ],
-        "links": [
-            {"source": "salary", "target": "Budget", "value": 350000},
-            {"source": "Budget", "target": "food", "value": 4523},
-            {"source": "Budget", "target": "shopping", "value": 2999},
-            {"source": "Budget", "target": "transport", "value": 6500},
-            {"source": "Budget", "target": "subscriptions", "value": 1299},
-        ],
+        "total_expense": total_expense,
+        "nodes": [{"name": link["source"]} for link in links] + [{"name": link["target"]} for link in links],
+        "links": links,
     }
 
 
@@ -309,23 +411,64 @@ async def breakout(
     granularity: str = Query("month"),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
 ):
     """Return time-series breakout data."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    params = []
+    query = "SELECT booking_date, category, amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    period_totals = defaultdict(lambda: defaultdict(int))
+    bucket_totals = defaultdict(int)
+    periods = set()
+    income_total = 0
+    expense_total = 0
+
+    for row in rows:
+        key = period_key(row[0], granularity)
+        bucket = category_bucket(row[1], category)
+        amount = row[2]
+        period_totals[bucket][key] += amount
+        bucket_totals[bucket] += abs(amount)
+        periods.add(key)
+        if amount > 0:
+            income_total += amount
+        elif amount < 0:
+            expense_total += abs(amount)
+
+    ordered_periods = sort_period_keys(list(periods), granularity)
+    labels = [period_label(key, granularity) for key in ordered_periods]
+    visible_buckets = roll_up_top_buckets(bucket_totals, 8, "other")
+
+    categories = []
+    for bucket_name in visible_buckets:
+        values = []
+        for key in ordered_periods:
+            if bucket_name == "other":
+                value = sum(
+                    totals.get(key, 0)
+                    for name, totals in period_totals.items()
+                    if name not in visible_buckets[:-1]
+                )
+            else:
+                value = period_totals[bucket_name].get(key, 0)
+            values.append(value)
+        categories.append({"name": bucket_name, "values": values})
+
     return {
-        "periods": ["2024-01", "2024-02", "2024-03"],
-        "labels": ["Jan 2024", "Feb 2024", "Mar 2024"],
-        "income_total": 350000,
-        "expense_total": 15321,
-        "categories": [
-            {"name": "salary", "values": [350000, 350000, 350000]},
-            {"name": "food", "values": [-4000, -4200, -4523]},
-            {"name": "shopping", "values": [-1500, -2000, -2999]},
-            {"name": "transport", "values": [-5000, -6000, -6500]},
-            {"name": "subscriptions", "values": [-1299, -1299, -1299]},
-        ],
+        "periods": ordered_periods,
+        "labels": labels,
+        "income_total": income_total,
+        "expense_total": expense_total,
+        "categories": categories,
     }
 
 
@@ -333,40 +476,67 @@ async def breakout(
 async def report(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
 ):
     """Return plain text financial report."""
-    return """
-═══════════════════════════════════════════════════════════════════════════════
-                              PENNY FINANCE REPORT
-═══════════════════════════════════════════════════════════════════════════════
+    conn = get_db()
+    cursor = conn.cursor()
 
-Period: 2024-01-01 to 2024-03-31
-Accounts: private, shared
+    params = []
+    query = "SELECT booking_date, account, category, amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize)
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
 
-───────────────────────────────────────────────────────────────────────────────
-SUMMARY
-───────────────────────────────────────────────────────────────────────────────
+    expense_total = sum(abs(row[3]) for row in rows if row[3] < 0)
+    income_total = sum(row[3] for row in rows if row[3] > 0)
+    net_flow = income_total - expense_total
 
-  Total Income:     3.500,00 €
-  Total Expenses:     153,21 €
-  ─────────────────────────────
-  Net Flow:         3.346,79 €
+    expense_categories = defaultdict(int)
+    income_categories = defaultdict(int)
+    for row in rows:
+        bucket = category_bucket(row[2])
+        if row[3] < 0:
+            expense_categories[bucket] += abs(row[3])
+        elif row[3] > 0:
+            income_categories[bucket] += row[3]
 
-───────────────────────────────────────────────────────────────────────────────
-TOP EXPENSE CATEGORIES
-───────────────────────────────────────────────────────────────────────────────
+    top_expenses = sorted(expense_categories.items(), key=lambda item: item[1], reverse=True)[:5]
+    top_income = sorted(income_categories.items(), key=lambda item: item[1], reverse=True)[:5]
+    account_label = ", ".join(account for account in (accounts or "").split(",") if account) or "all"
+    period_label = f"{from_date or 'beginning'} to {to_date or 'today'}"
 
-  1. transport          65,00 €   (42%)
-  2. food               45,23 €   (30%)
-  3. shopping           29,99 €   (20%)
-  4. subscriptions      12,99 €    (8%)
+    lines = [
+        "═══════════════════════════════════════════════════════════════════════════════",
+        "                              PENNY FINANCE REPORT",
+        "═══════════════════════════════════════════════════════════════════════════════",
+        "",
+        f"Period:   {period_label}",
+        f"Accounts: {account_label}",
+        "",
+        "SUMMARY",
+        "───────",
+        f"  Transactions:    {len(rows)}",
+        f"  Total Income:    {format_currency(income_total)}",
+        f"  Total Expenses:  {format_currency(expense_total)}",
+        f"  Net Flow:        {format_currency(net_flow)}",
+    ]
 
-───────────────────────────────────────────────────────────────────────────────
+    if top_expenses:
+        lines.extend(["", "TOP EXPENSE CATEGORIES", "──────────────────────"])
+        for index, (name, value) in enumerate(top_expenses, start=1):
+            share = round((value / expense_total) * 100) if expense_total else 0
+            lines.append(f"  {index}. {name:<20} {format_currency(value):>12}  ({share:>2}%)")
 
-Report generated by Penny v0.1.0
-"""
+    if top_income:
+        lines.extend(["", "TOP INCOME CATEGORIES", "─────────────────────"])
+        for index, (name, value) in enumerate(top_income, start=1):
+            share = round((value / income_total) * 100) if income_total else 0
+            lines.append(f"  {index}. {name:<20} {format_currency(value):>12}  ({share:>2}%)")
+
+    lines.extend(["", "Report generated by Penny v0.1.0"])
+    return "\n".join(lines)
 
 
 @app.get("/api/transactions")
@@ -374,7 +544,7 @@ async def transactions(
     tab: str = Query(None),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    accounts: str = Query(""),
+    accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
