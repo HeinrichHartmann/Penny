@@ -161,7 +161,7 @@
         :is-active-month="isActiveMonth"
         @update:from="filters.from = $event"
         @update:to="filters.to = $event"
-      />
+      ></date-filter-panel>
 
       <!-- Transaction Table -->
       <div class="panel transactions-panel">
@@ -258,7 +258,7 @@
       :is-active-month="isActiveMonth"
       @update:from="filters.from = $event"
       @update:to="filters.to = $event"
-    />
+    ></date-filter-panel>
 
     <!-- Summary -->
     <div class="summary-grid" v-if="summary">

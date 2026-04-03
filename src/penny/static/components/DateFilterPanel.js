@@ -17,10 +17,9 @@ export const DateFilterPanel = {
     isActiveYear: { type: Function, required: true },
     isActiveMonth: { type: Function, required: true },
   },
-  setup(props) {
+  setup() {
     return {
       monthButtons: MONTH_BUTTONS,
-      ...props,
     };
   },
   template: `
