@@ -1,6 +1,6 @@
 """Entry point for python -m penny."""
 
-from penny.launcher import main
+from penny.launcher import run
 
 if __name__ == "__main__":
-    main().main_loop()
+    run()

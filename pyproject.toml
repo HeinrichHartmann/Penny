@@ -5,13 +5,15 @@ description = "Penny - Personal finance tracking and analysis"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "click>=8.1.8",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "toga>=0.4.0",
 ]
 
 [project.scripts]
-penny = "penny.launcher:main"
+penny = "penny.cli:main"
+penny-gui = "penny.launcher:run"
 
 [build-system]
 requires = ["hatchling"]

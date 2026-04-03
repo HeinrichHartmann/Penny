@@ -155,5 +155,10 @@ def main():
     )
 
 
-if __name__ == "__main__":
+def run():
+    """Launch the GUI app."""
     main().main_loop()
+
+
+if __name__ == "__main__":
+    run()
