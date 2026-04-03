@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Penny</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --panel: #fffaf2;
+      --ink: #1d1b17;
+      --muted: #6f675a;
+      --line: #d8ccb7;
+      --accent: #845b31;
+      --accent-soft: #eadfce;
+      --expense-color: #845b31;
+      --income-color: #2d6a4f;
+      --chart-left: 64px;
+      --chart-right: 24px;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, #fff7ea 0%, transparent 30%),
+        linear-gradient(180deg, #f2ecdf 0%, #f8f2e8 100%);
+      min-height: 100vh;
+    }
+    .page { max-width: 1480px; margin: 0 auto; padding: 24px; }
+    .panel {
+      background: rgba(255, 250, 242, 0.9);
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 24px rgba(76, 56, 28, 0.06);
+      border-radius: 6px;
+      padding: 16px 20px;
+    }
+    h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: 16px; }
+    .filters { display: flex; flex-wrap: wrap; gap: 20px; align-items: end; margin-bottom: 20px; }
+    .filters label.group-label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+    .filters input[type="date"] {
+      border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px;
+      font-family: inherit; font-size: 0.85rem; background: var(--panel); color: var(--ink);
+    }
+    .filters .check-group { display: flex; gap: 10px; }
+    .filters .check-group label { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--ink); cursor: pointer; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+    .summary-card .label { font-size: 0.8rem; color: var(--muted); }
+    .summary-card .value { font-size: 1.3rem; font-weight: 700; margin-top: 2px; }
+    .summary-card .sub { font-size: 0.75rem; color: var(--muted); }
+    .expense-color { color: var(--expense-color); }
+    .income-color { color: var(--income-color); }
+    .tabs {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: -1px;
+      position: relative;
+      z-index: 1;
+    }
+    .tab-group { display: flex; gap: 2px; }
+    .tab-btn {
+      padding: 8px 20px; font-size: 0.85rem; font-family: inherit; cursor: pointer;
+      background: transparent; color: var(--muted); border: 1px solid transparent;
+      border-radius: 6px 6px 0 0; transition: all 0.15s;
+    }
+    .tab-btn:hover { color: var(--ink); }
+    .tab-btn.active {
+      background: var(--panel); color: var(--ink); font-weight: 600;
+      border-color: var(--line); border-bottom-color: var(--panel);
+    }
+    .tab-btn.active[data-tab="expense"] { border-top: 2px solid var(--expense-color); }
+    .tab-btn.active[data-tab="income"] { border-top: 2px solid var(--income-color); }
+    .tab-btn.active[data-tab="breakout"] { border-top: 2px solid #c67b47; }
+    .tab-btn.active[data-tab="cashflow"] { border-top: 2px solid var(--accent); }
+    .tab-btn.active[data-tab="report"] { border-top: 2px solid #6e7b8b; }
+    .tab-content { border-top: 1px solid var(--line); }
+    .txn-header { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .txn-header .sub { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+    .filter-tag {
+      font-size: 0.8rem; color: var(--muted); margin-bottom: 8px;
+    }
+    .filter-tag code { font-family: "SF Mono", Menlo, monospace; font-size: 0.78rem; }
+    .filter-tag button {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      font-family: inherit; font-size: 0.8rem; margin-left: 6px; text-decoration: underline;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead th { text-align: left; color: var(--muted); font-weight: 400; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    .sortable-th {
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .sortable-th:hover { color: var(--ink); }
+    .sort-marker {
+      display: inline-block;
+      min-width: 1em;
+      margin-left: 4px;
+      color: var(--ink);
+    }
+    tbody td { padding: 5px 8px; border-bottom: 1px solid #eee3d2; }
+    tbody tr:hover { background: #fcf4e8; }
+    .text-right { text-align: right; }
+    .mono { font-family: "SF Mono", Menlo, monospace; font-size: 0.78rem; }
+    .btn-group { display: flex; gap: 2px; }
+    .range-picker { display: flex; flex-direction: column; gap: 6px; }
+    .btn-group.wrap { flex-wrap: wrap; }
+    .shortcut-btn {
+      padding: 4px 10px; font-size: 0.8rem; font-family: inherit; cursor: pointer;
+      background: transparent; color: var(--muted); border: 1px solid var(--line);
+      border-radius: 3px; transition: all 0.12s;
+    }
+    .shortcut-btn:hover { background: var(--accent-soft); color: var(--ink); }
+    .shortcut-btn.active { background: var(--ink); color: #fff8ef; border-color: var(--ink); }
+    .shortcut-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+      background: transparent;
+      color: var(--muted);
+    }
+    .txn-header-bar { display: flex; align-items: baseline; gap: 16px; margin-bottom: 10px; flex-wrap: wrap; }
+    .cat-badge {
+      font-family: "SF Mono", Menlo, monospace; font-size: 0.78rem;
+      border-left: 3px solid; padding-left: 6px;
+    }
+    .category-breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .category-breadcrumb.compact { margin-top: 0; }
+    .breadcrumb-link {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
+    .breadcrumb-link:hover { color: var(--ink); }
+    .breadcrumb-link.active {
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .breadcrumb-sep { color: var(--line); }
+    .cat-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      margin-right: 4px; vertical-align: middle;
+    }
+    .desc-cell {
+      max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .report-text {
+      font-family: "SF Mono", Menlo, "Courier New", monospace;
+      font-size: 0.82rem; line-height: 1.5;
+      white-space: pre; overflow-x: auto;
+      color: var(--ink); background: transparent;
+      margin: 0; padding: 0;
+    }
+    .copy-btn {
+      padding: 5px 14px; font-size: 0.8rem; font-family: inherit; cursor: pointer;
+      background: var(--ink); color: #fff8ef; border: none; border-radius: 4px;
+      transition: opacity 0.15s;
+    }
+    .copy-btn:hover { opacity: 0.85; }
+    .search-input {
+      border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px;
+      font-family: inherit; font-size: 0.82rem; background: var(--panel); color: var(--ink);
+      width: 220px; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .txn-table-wrap {
+      max-height: 560px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 250, 242, 0.72);
+    }
+    .txn-table-wrap table { margin: 0; }
+    .txn-table-wrap thead th {
+      position: sticky;
+      top: 0;
+      background: var(--panel);
+      z-index: 1;
+    }
+    .txn-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .breakout-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .breakout-middle {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .breakout-net {
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+    .breakout-net-caption {
+      margin-top: 12px;
+      padding-left: var(--chart-left);
+      padding-right: var(--chart-right);
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .breakout-net-row {
+      display: grid;
+      gap: 8px;
+      margin-top: 6px;
+      padding-top: 10px;
+      padding-left: var(--chart-left);
+      padding-right: var(--chart-right);
+      border-top: 1px solid var(--line);
+      align-items: start;
+    }
+    .breakout-net-cell {
+      text-align: center;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 0.78rem;
+      color: var(--ink);
+    }
+    .pivot-row { cursor: pointer; }
+    .pivot-row.active { background: #f3e6d3; }
+    .pivot-row:hover { background: #fcf4e8; }
+    .share-cell { color: var(--muted); }
+    .icon-btn {
+      width: 30px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      font-size: 0.72rem;
+      font-family: "SF Mono", Menlo, monospace;
+      letter-spacing: 0.03em;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="page">
+
+    <h1>Penny</h1>
+
+    <!-- Filters -->
+    <div class="panel filters" style="margin-bottom: 20px;">
+      <div>
+        <label class="group-label">From</label>
+        <input type="date" v-model="filters.from">
+      </div>
+      <div>
+        <label class="group-label">To</label>
+        <input type="date" v-model="filters.to">
+      </div>
+      <div>
+        <label class="group-label">Range</label>
+        <div class="range-picker">
+          <div class="btn-group wrap">
+            <button @click="setAll()"
+              :class="['shortcut-btn', filters.from === meta.min_date && filters.to === meta.max_date ? 'active' : '']">
+              All
+            </button>
+            <button v-for="y in yearButtons" :key="y" @click="setYear(y)"
+              :class="['shortcut-btn', isActiveYear(y) ? 'active' : '']">
+              {{ y }}
+            </button>
+          </div>
+          <div class="btn-group wrap">
+            <button @click="setYearAllMonths()"
+              :class="['shortcut-btn', monthShortcutYear !== null
+                && filters.from === monthShortcutYear+'-01-01'
+                && filters.to === monthShortcutYear+'-12-31' ? 'active' : '']">
+              All
+            </button>
+            <button v-for="m in monthButtons" :key="m.value" @click="setMonth($event, m.value)"
+              :disabled="monthShortcutYear === null"
+              :class="['shortcut-btn', isActiveMonth(m.value) ? 'active' : '']">
+              {{ m.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <label class="group-label">Accounts</label>
+        <div class="check-group">
+          <label v-for="acct in meta.accounts" :key="acct">
+            <input type="checkbox" :value="acct" v-model="filters.accounts">
+            {{ acct }}
+          </label>
+        </div>
+      </div>
+      <div>
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem; cursor:pointer;">
+          <input type="checkbox" v-model="filters.neutralize">
+          Neutralize transfers
+        </label>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-grid" v-if="summary">
+      <div class="panel summary-card">
+        <div class="label">Expenses</div>
+        <div class="value expense-color">{{ fmt(summary.expense.total_cents) }}</div>
+        <div class="sub">{{ summary.expense.count }} transactions</div>
+      </div>
+      <div class="panel summary-card">
+        <div class="label">Income</div>
+        <div class="value income-color">{{ fmt(summary.income.total_cents) }}</div>
+        <div class="sub">{{ summary.income.count }} transactions</div>
+      </div>
+      <div class="panel summary-card">
+        <div class="label">Net Flow</div>
+        <div class="value" :class="summary.net_flow >= 0 ? 'income-color' : 'expense-color'">
+          {{ fmt(summary.net_flow) }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab-group">
+        <button v-for="t in ['expense', 'income', 'cashflow', 'breakout']" :key="t"
+          @click="tab = t" :data-tab="t"
+          :class="['tab-btn', tab === t ? 'active' : '']">
+          {{ {expense:'Expense', income:'Income', cashflow:'Cash Flow', breakout:'Breakout'}[t] }}
+        </button>
+      </div>
+      <div class="tab-group">
+        <button @click="tab = 'report'" data-tab="report"
+          :class="['tab-btn', tab === 'report' ? 'active' : '']">
+          Report
+        </button>
+      </div>
+    </div>
+
+    <div class="tab-content">
+      <!-- Treemap chart (expense / income tabs) -->
+      <div v-if="tab === 'expense' || tab === 'income'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
+        <div ref="treemapEl" style="width:100%; height:500px;"></div>
+        <div class="category-breadcrumb">
+          <button @click="clearSelection()"
+            :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
+            All Categories
+          </button>
+          <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
+            <span class="breadcrumb-sep">/</span>
+            <button @click="applyCategorySelection(crumb.path)"
+              :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
+              {{ crumb.label }}
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Breakout chart -->
+      <div v-if="tab === 'breakout'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
+        <div class="breakout-header">
+          <div class="txn-header" style="margin:0;">
+            {{ breakoutGranularityLabel(breakoutGranularity) }} Breakout
+            <span class="sub" v-if="breakout">
+              — inflows {{ fmt(breakout.income_total) }}, outflows {{ fmt(breakout.expense_total) }}
+            </span>
+          </div>
+          <div class="breakout-middle">
+            <div class="check-group">
+              <label>
+                <input type="checkbox" v-model="breakoutShowIncome">
+                Income
+              </label>
+              <label>
+                <input type="checkbox" v-model="breakoutShowExpenses">
+                Expenses
+              </label>
+            </div>
+          </div>
+          <div class="btn-group wrap">
+            <button @click="breakoutGranularityMode = 'auto'"
+              :class="['shortcut-btn', breakoutGranularityMode === 'auto' ? 'active' : '']">
+              Auto
+            </button>
+            <button @click="breakoutGranularityMode = 'month'"
+              :class="['shortcut-btn', breakoutGranularityMode === 'month' ? 'active' : '']">
+              Month
+            </button>
+            <button @click="breakoutGranularityMode = 'week'"
+              :class="['shortcut-btn', breakoutGranularityMode === 'week' ? 'active' : '']">
+              Week
+            </button>
+            <button @click="breakoutGranularityMode = 'day'"
+              :class="['shortcut-btn', breakoutGranularityMode === 'day' ? 'active' : '']">
+              Day
+            </button>
+          </div>
+        </div>
+        <div ref="breakoutEl" style="width:100%; height:520px;"></div>
+        <div class="category-breadcrumb">
+          <button @click="clearSelection()"
+            :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
+            All Categories
+          </button>
+          <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
+            <span class="breadcrumb-sep">/</span>
+            <button @click="applyCategorySelection(crumb.path)"
+              :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
+              {{ crumb.label }}
+            </button>
+          </template>
+        </div>
+        <div v-if="breakout && breakoutNetByPeriod.length" class="breakout-net-caption">Balance</div>
+        <div v-if="breakout && breakoutNetByPeriod.length" class="breakout-net-row"
+          :style="{ gridTemplateColumns: `repeat(${breakoutNetByPeriod.length}, minmax(0, 1fr))` }">
+          <div v-for="(net, index) in breakoutNetByPeriod" :key="`${breakout.periods[index]}-net`"
+            class="breakout-net-cell" :style="{ color: net < 0 ? '#c1121f' : 'var(--ink)' }">
+            {{ fmtCompactSigned(net) }}
+          </div>
+        </div>
+        <div class="breakout-net" v-if="breakoutNet !== null">
+          Net:
+          <span :style="{ color: breakoutNet < 0 ? '#c1121f' : 'var(--ink)' }">
+            {{ fmt(breakoutNet) }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Sankey chart (cashflow tab) -->
+      <div v-if="tab === 'cashflow'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
+        <div ref="sankeyEl" style="width:100%; height:500px;"></div>
+        <div class="category-breadcrumb">
+          <button @click="clearSelection()"
+            :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
+            All Categories
+          </button>
+          <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
+            <span class="breadcrumb-sep">/</span>
+            <button @click="applyCategorySelection(crumb.path)"
+              :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
+              {{ crumb.label }}
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Text report (report tab) -->
+      <div v-if="tab === 'report'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <span class="txn-header" style="margin:0">Text Report</span>
+          <button class="copy-btn" @click="copyReport">{{ copyLabel }}</button>
+        </div>
+        <pre class="report-text">{{ reportText || 'Loading...' }}</pre>
+      </div>
+    </div>
+
+    <!-- Pivot table (expense / income tabs) -->
+    <div v-if="(tab === 'expense' || tab === 'income') && pivot" class="panel" style="margin-top:20px;">
+      <div class="txn-header-bar">
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <div class="txn-header">
+            Pivot Table
+            <span class="sub">
+              — {{ pivot.count }} rows, {{ fmt(pivot.total_cents) }}
+            </span>
+          </div>
+          <button class="shortcut-btn icon-btn" @click="copyPivotTable" title="Copy as Markdown">
+            {{ pivotCopyLabel }}
+          </button>
+        </div>
+        <div class="btn-group wrap">
+          <button @click="pivotDepth = '1'"
+            :class="['shortcut-btn', pivotDepth === '1' ? 'active' : '']">
+            1
+          </button>
+          <button @click="pivotDepth = '2'"
+            :class="['shortcut-btn', pivotDepth === '2' ? 'active' : '']">
+            2
+          </button>
+          <button @click="pivotDepth = '*'"
+            :class="['shortcut-btn', pivotDepth === '*' ? 'active' : '']">
+            *
+          </button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Category
+              <span class="sub" style="margin-left:6px;">Depth {{ pivotDepth }}</span>
+            </th>
+            <th style="width:90px">Count</th>
+            <th style="width:90px">Share</th>
+            <th class="text-right" style="width:120px">Total</th>
+            <th class="text-right" style="width:120px">Weekly Avg</th>
+            <th class="text-right" style="width:120px">Monthly Avg</th>
+            <th class="text-right" style="width:120px">Yearly Avg</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in pivot.categories" :key="row.category"
+            @click="applyCategorySelection(row.category)"
+            :class="['pivot-row', selectedMatchesCategory(row.category) ? 'active' : '']">
+            <td>
+              <span class="cat-dot" :style="{ background: categoryColor(row.category) || 'var(--muted)' }"></span>
+              <span class="mono">{{ row.category }}</span>
+            </td>
+            <td>{{ row.txn_count }}</td>
+            <td class="share-cell">{{ Math.round(row.share * 100) }}%</td>
+            <td class="text-right">{{ fmt(row.total_cents) }}</td>
+            <td class="text-right">{{ fmt(row.weekly_avg_cents) }}</td>
+            <td class="text-right">{{ fmt(row.monthly_avg_cents) }}</td>
+            <td class="text-right">{{ fmt(row.yearly_avg_cents) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Transactions table (hidden on report tab) -->
+    <div v-if="tab !== 'report'" class="panel" style="margin-top:20px;">
+      <div class="txn-header-bar">
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <div class="txn-header">
+            Transactions
+            <span class="sub" v-if="transactions">
+              — {{ transactions.count }} rows, {{ fmt(transactions.total_cents) }},
+              showing {{ visibleTransactions.length }}
+            </span>
+          </div>
+          <button class="shortcut-btn icon-btn" @click="copyTransactionsTable" title="Copy as Markdown">
+            {{ transactionsCopyLabel }}
+          </button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" v-model="searchQuery" placeholder="Search transactions…"
+            class="search-input">
+          <div class="category-breadcrumb compact">
+            <button @click="clearSelection()"
+              :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
+              All Categories
+            </button>
+            <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
+              <span class="breadcrumb-sep">/</span>
+              <button @click="applyCategorySelection(crumb.path)"
+                :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
+                {{ crumb.label }}
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+      <div v-if="transactions" class="txn-table-wrap" ref="transactionListEl" @scroll="onTransactionScroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable-th" style="width:90px" @click="toggleTransactionSort('booking_date')">
+                Date<span class="sort-marker">{{ transactionSortMarker('booking_date') }}</span>
+              </th>
+              <th class="sortable-th" style="width:70px" @click="toggleTransactionSort('account')">
+                Account<span class="sort-marker">{{ transactionSortMarker('account') }}</span>
+              </th>
+              <th class="sortable-th" @click="toggleTransactionSort('description')">
+                Description<span class="sort-marker">{{ transactionSortMarker('description') }}</span>
+              </th>
+              <th class="sortable-th" style="width:140px" @click="toggleTransactionSort('merchant')">
+                Merchant<span class="sort-marker">{{ transactionSortMarker('merchant') }}</span>
+              </th>
+              <th class="sortable-th" style="width:180px" @click="toggleTransactionSort('category')">
+                Category<span class="sort-marker">{{ transactionSortMarker('category') }}</span>
+              </th>
+              <th class="sortable-th text-right" style="width:100px" @click="toggleTransactionSort('amount_cents')">
+                Amount<span class="sort-marker">{{ transactionSortMarker('amount_cents') }}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="tx in visibleTransactions" :key="tx.fp">
+              <td>{{ tx.booking_date }}</td>
+              <td>{{ tx.account }}</td>
+              <td class="desc-cell">{{ tx.description }}</td>
+              <td>{{ tx.merchant }}</td>
+              <td>
+                <span class="cat-dot" :style="{ background: categoryColor(tx.category) || 'var(--muted)' }"></span>
+                <span class="mono">{{ tx.category }}</span>
+              </td>
+              <td class="text-right" :style="{ color: tx.amount_cents >= 0 ? 'var(--income-color)' : '#c1121f' }">
+                {{ fmt(tx.amount_cents) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="transactions" class="txn-footer">
+        <span>
+          {{ visibleTransactions.length < transactions.count
+            ? 'Scroll to load more rows.'
+            : 'All matching rows are loaded.' }}
+        </span>
+        <button v-if="visibleTransactions.length < transactions.count" class="shortcut-btn" @click="growTransactionWindow()">
+          Load More
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

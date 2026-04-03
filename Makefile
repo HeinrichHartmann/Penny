@@ -30,9 +30,9 @@ app-open:
 # Build macOS app using briefcase
 build: install
 	@echo "Building macOS app..."
-	yes | uv run briefcase create macOS app
-	uv run briefcase build macOS app
-	uv run briefcase package macOS app --adhoc-sign
+	yes | uv run python -m briefcase create macOS app
+	uv run python -m briefcase build macOS app
+	uv run python -m briefcase package macOS app --adhoc-sign
 	@echo ""
 	@echo "Build complete!"
 	@echo "  App:  build/penny/macos/app/Penny.app"
@@ -41,12 +41,12 @@ build: install
 
 # Build without packaging (faster iteration)
 build-dev: install
-	uv run briefcase dev
+	uv run python -m briefcase dev
 
 # Update existing build (faster than full rebuild)
 update: install
-	uv run briefcase update macOS app
-	uv run briefcase build macOS app
+	uv run python -m briefcase update macOS app
+	uv run python -m briefcase build macOS app
 
 # Clean build artifacts
 clean:
