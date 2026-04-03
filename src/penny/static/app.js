@@ -12,7 +12,7 @@ import {
   computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
-import { fetchMeta, fetchAccounts, uploadCsv, updateAccount, createApi } from './api.js';
+import { fetchMeta, fetchAccounts, uploadCsv, updateAccount, fetchRules, saveRules, createApi } from './api.js';
 import { createChartManager } from './charts.js';
 import { DateFilterPanel } from './components/DateFilterPanel.js';
 
@@ -90,6 +90,19 @@ createApp({
     const accountsLoading = ref(false);
     const editingAccountId = ref(null);
     const editingAccountName = ref('');
+
+    // Rules state
+    const rulesState = reactive({
+      path: '',
+      directory: '',
+      exists: false,
+      content: '',
+      originalContent: '',
+      loading: false,
+      saving: false,
+      error: null,
+      saveMessage: null,
+    });
 
     // Chart element refs
     const treemapEl = ref(null);
@@ -526,6 +539,50 @@ createApp({
       }
     };
 
+    // ── Rules Functions ─────────────────────────────────────────────────────
+    const loadRules = async () => {
+      rulesState.loading = true;
+      rulesState.error = null;
+      try {
+        const data = await fetchRules();
+        rulesState.path = data.path;
+        rulesState.directory = data.directory;
+        rulesState.exists = data.exists;
+        rulesState.content = data.content || '';
+        rulesState.originalContent = data.content || '';
+      } catch (error) {
+        rulesState.error = error.message;
+      } finally {
+        rulesState.loading = false;
+      }
+    };
+
+    const saveRulesContent = async () => {
+      rulesState.saving = true;
+      rulesState.error = null;
+      rulesState.saveMessage = null;
+      try {
+        await saveRules(rulesState.content);
+        rulesState.originalContent = rulesState.content;
+        rulesState.saveMessage = 'Saved successfully';
+        setTimeout(() => {
+          rulesState.saveMessage = null;
+        }, 3000);
+      } catch (error) {
+        rulesState.error = error.message;
+      } finally {
+        rulesState.saving = false;
+      }
+    };
+
+    const reloadRules = async () => {
+      await loadRules();
+    };
+
+    const rulesHasChanges = computed(() => {
+      return rulesState.content !== rulesState.originalContent;
+    });
+
     // ── Watchers ─────────────────────────────────────────────────────────────
     watch(
       () => [filters.from, filters.to, filters.accounts.join(','), filters.neutralize],
@@ -546,6 +603,8 @@ createApp({
         // Reset import state when entering import view
         importState.lastResult = null;
         importState.error = null;
+      } else if (view.value === 'rules') {
+        await loadRules();
       } else {
         loadCurrentViewData();
       }
@@ -746,6 +805,13 @@ createApp({
       startEditingAccount,
       cancelEditingAccount,
       saveAccountName,
+
+      // Rules
+      rulesState,
+      loadRules,
+      saveRulesContent,
+      reloadRules,
+      rulesHasChanges,
     };
   },
 }).mount('#app');

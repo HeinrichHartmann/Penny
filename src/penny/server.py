@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from typing import Optional
 import sqlite3
 from collections import defaultdict
+from pydantic import BaseModel
 
 from penny.accounts.storage import default_db_path, AccountStorage
 from penny.accounts.models import Account
@@ -296,6 +297,124 @@ async def delete_account(account_id: int):
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     return {"status": "deleted", "account_id": account_id}
+
+
+# ── Rules API ────────────────────────────────────────────────────────────────
+
+def get_rules_path() -> Path:
+    """Get the rules file path in the XDG data directory."""
+    # Always use the XDG data directory (same as penny.db)
+    data_dir = default_db_path().parent
+    return data_dir / "rules.py"
+
+
+MINIMAL_RULES_TEMPLATE = '''\
+"""Classification rules for Penny.
+
+Define rules using the @rule decorator. Each rule function receives a transaction
+object with these attributes:
+- payee: Extracted payee/merchant name
+- memo: Additional transaction details
+- raw_buchungstext: Original bank description
+- amount_cents: Transaction amount in cents
+- date: Transaction date
+"""
+from penny.classify import contains, is_, rule
+
+
+def payee_is(tx, *values):
+    """Match if payee exactly equals any of the given values (case-insensitive)."""
+    return any(is_(tx.payee, value) for value in values)
+
+
+def payee_contains(tx, *needles):
+    """Match if payee contains any of the given substrings."""
+    return any(contains(tx.payee, needle) for needle in needles)
+
+
+def memo_contains(tx, *needles):
+    """Match if memo contains any of the given substrings."""
+    return any(contains(tx.memo, needle) for needle in needles)
+
+
+def raw_contains(tx, *needles):
+    """Match if raw bank description contains any of the given substrings."""
+    return any(contains(tx.raw_buchungstext, needle) for needle in needles)
+
+
+def text_contains(tx, *needles):
+    """Match if any text field contains the given substrings."""
+    return payee_contains(tx, *needles) or memo_contains(tx, *needles) or raw_contains(tx, *needles)
+
+
+# ── Example Rules ─────────────────────────────────────────────────────────────
+# Uncomment and modify these examples to create your own rules.
+
+# @rule("groceries")
+# def grocery_stores(tx):
+#     return payee_contains(tx, "REWE", "EDEKA", "ALDI", "LIDL")
+
+# @rule("transport/fuel")
+# def gas_stations(tx):
+#     return payee_contains(tx, "ARAL", "SHELL", "ESSO")
+
+# @rule("subscriptions/streaming")
+# def streaming_services(tx):
+#     return payee_contains(tx, "NETFLIX", "SPOTIFY", "DISNEY")
+'''
+
+
+@app.get("/api/rules")
+async def get_rules():
+    """Get the current rules file content and path."""
+    rules_path = get_rules_path()
+
+    if not rules_path.exists():
+        # Create minimal template
+        rules_path.parent.mkdir(parents=True, exist_ok=True)
+        rules_path.write_text(MINIMAL_RULES_TEMPLATE, encoding="utf-8")
+        return {
+            "path": str(rules_path),
+            "directory": str(rules_path.parent),
+            "exists": True,
+            "content": MINIMAL_RULES_TEMPLATE,
+            "created": True,
+        }
+
+    try:
+        content = rules_path.read_text(encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read rules file: {e}")
+
+    return {
+        "path": str(rules_path),
+        "directory": str(rules_path.parent),
+        "exists": True,
+        "content": content,
+    }
+
+
+class RulesUpdate(BaseModel):
+    content: str
+
+
+@app.put("/api/rules")
+async def save_rules(update: RulesUpdate):
+    """Save the rules file content."""
+    rules_path = get_rules_path()
+
+    # Ensure directory exists
+    rules_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        rules_path.write_text(update.content, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save rules file: {e}")
+
+    return {
+        "status": "saved",
+        "path": str(rules_path),
+    }
 
 
 # ── Import API ───────────────────────────────────────────────────────────────
@@ -792,8 +911,8 @@ async def transactions(
         account_lookup[row[0]] = row[2] or f"{row[1]} #{row[0]}"
 
     params = []
-    # New schema: fingerprint, date, account_id, payee, memo, category, amount_cents
-    query = "SELECT fingerprint, date, account_id, payee, memo, category, amount_cents FROM transactions"
+    # New schema: fingerprint, date, account_id, payee, memo, category, amount_cents, raw_buchungstext
+    query = "SELECT fingerprint, date, account_id, payee, memo, category, amount_cents, raw_buchungstext FROM transactions"
     query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     # Filter by tab (expense/income)
@@ -820,6 +939,7 @@ async def transactions(
             "merchant": row[3] or "",  # payee used as merchant too
             "category": row[5] or "uncategorized",
             "amount_cents": row[6],
+            "raw_description": row[7] or "",  # raw_buchungstext
         }
         for row in rows
     ]

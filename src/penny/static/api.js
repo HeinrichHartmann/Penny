@@ -71,6 +71,33 @@ export const updateAccount = async (accountId, updates) => {
 };
 
 /**
+ * Fetch the rules file content and path.
+ * @returns {Promise<{ path: string, directory: string, exists: boolean, content: string|null }>}
+ */
+export const fetchRules = async () => {
+  const resp = await fetch('/api/rules');
+  return resp.json();
+};
+
+/**
+ * Save the rules file content.
+ * @param {string} content
+ * @returns {Promise<object>}
+ */
+export const saveRules = async (content) => {
+  const resp = await fetch('/api/rules', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Save failed');
+  }
+  return resp.json();
+};
+
+/**
  * Upload a CSV file for import.
  * @param {File} file
  * @returns {Promise<object>}

@@ -298,14 +298,11 @@
                 <th class="sortable-th" style="width:90px" @click="toggleTransactionSort('booking_date')">
                   Date<span class="sort-marker">{{ transactionSortMarker('booking_date') }}</span>
                 </th>
-                <th class="sortable-th" style="width:80px" @click="toggleTransactionSort('account')">
+                <th class="sortable-th" style="width:100px" @click="toggleTransactionSort('account')">
                   Account<span class="sort-marker">{{ transactionSortMarker('account') }}</span>
                 </th>
                 <th class="sortable-th" @click="toggleTransactionSort('description')">
                   Description<span class="sort-marker">{{ transactionSortMarker('description') }}</span>
-                </th>
-                <th class="sortable-th" style="width:120px" @click="toggleTransactionSort('merchant')">
-                  Merchant<span class="sort-marker">{{ transactionSortMarker('merchant') }}</span>
                 </th>
                 <th class="sortable-th" style="width:180px" @click="toggleTransactionSort('category')">
                   Category<span class="sort-marker">{{ transactionSortMarker('category') }}</span>
@@ -319,8 +316,7 @@
               <tr v-for="tx in visibleTransactions" :key="tx.fp">
                 <td>{{ tx.booking_date }}</td>
                 <td>{{ tx.account }}</td>
-                <td class="desc-cell">{{ tx.description }}</td>
-                <td class="truncate-cell">{{ tx.merchant }}</td>
+                <td class="desc-cell" style="font-size: 0.85rem;">{{ tx.raw_description || tx.description }}</td>
                 <td>
                   <span class="category-entry">
                     <span class="cat-dot" :style="{ background: categoryColor(tx.category) || 'var(--muted)' }"></span>
@@ -368,9 +364,71 @@
     <!-- Rules View -->
     <div v-if="view === 'rules'">
       <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Classification Rules</h2>
-      <div class="panel" style="padding: 40px; text-align: center;">
-        <p style="color: var(--muted); margin-bottom: 12px;">Manage classification rules for automatic categorization</p>
-        <p style="color: var(--muted); font-size: 0.85rem;">Rules can be edited externally and hot-reloaded</p>
+
+      <!-- File Path Header -->
+      <div class="panel" style="padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 2px;">Rules File</div>
+          <div style="font-family: monospace; font-size: 0.85rem; word-break: break-all;">{{ rulesState.path }}</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button
+            @click="reloadRules"
+            :disabled="rulesState.loading"
+            style="padding: 6px 12px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.85rem;"
+            title="Reload from disk">
+            {{ rulesState.loading ? 'Loading...' : 'Reload' }}
+          </button>
+          <button
+            @click="saveRulesContent"
+            :disabled="rulesState.saving || !rulesHasChanges"
+            :style="{
+              padding: '6px 12px',
+              background: rulesHasChanges ? 'var(--accent)' : 'var(--panel-bg)',
+              color: rulesHasChanges ? 'white' : 'var(--muted)',
+              border: rulesHasChanges ? 'none' : '1px solid var(--border)',
+              borderRadius: '4px',
+              cursor: rulesHasChanges ? 'pointer' : 'not-allowed',
+              fontSize: '0.85rem'
+            }"
+            title="Save changes">
+            {{ rulesState.saving ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Status Messages -->
+      <div v-if="rulesState.error" class="panel" style="padding: 12px 16px; margin-bottom: 16px; background: #fee; border-left: 3px solid #c00;">
+        <strong style="color: #c00;">Error:</strong> {{ rulesState.error }}
+      </div>
+      <div v-if="rulesState.saveMessage" class="panel" style="padding: 12px 16px; margin-bottom: 16px; background: #efe; border-left: 3px solid #0a0;">
+        {{ rulesState.saveMessage }}
+      </div>
+      <div v-if="rulesHasChanges" style="margin-bottom: 8px; font-size: 0.8rem; color: var(--accent);">
+        Unsaved changes
+      </div>
+
+      <!-- Loading State -->
+      <div v-if="rulesState.loading" class="panel" style="padding: 40px; text-align: center;">
+        <p style="color: var(--muted);">Loading rules...</p>
+      </div>
+
+      <!-- No Rules File -->
+      <div v-else-if="!rulesState.exists" class="panel" style="padding: 40px; text-align: center;">
+        <p style="color: var(--muted); margin-bottom: 12px;">No rules file found at:</p>
+        <p style="font-family: monospace; font-size: 0.85rem;">{{ rulesState.path }}</p>
+        <p style="color: var(--muted); margin-top: 12px; font-size: 0.85rem;">
+          Create a rules.py file to define classification rules.
+        </p>
+      </div>
+
+      <!-- Rules Editor -->
+      <div v-else class="panel" style="padding: 0; overflow: hidden;">
+        <textarea
+          v-model="rulesState.content"
+          style="width: 100%; height: 600px; padding: 16px; border: none; resize: vertical; font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 13px; line-height: 1.5; background: var(--panel-bg); color: var(--text); outline: none;"
+          spellcheck="false"
+        ></textarea>
       </div>
     </div>
 
