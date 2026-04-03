@@ -9,7 +9,7 @@ With account detection and registry in place (ADR-003, ADR-005), Penny needs to 
 
 **Reference Implementation:** [You Need A Parser (YNAP)](https://github.com/leolabs/you-need-a-parser) - TypeScript project supporting 110+ bank formats. We port the Comdirect parser logic directly where it fits the Penny account model.
 
-**Local source:** `~/Project/Finance/src/you-need-another-parser/packages/ynap-parsers/src/de/comdirect/comdirect.ts`
+**Local source:** `src/you-need-a-parser/packages/ynap-parsers/src/de/comdirect/comdirect.ts`
 
 ## Decision
 
@@ -100,6 +100,23 @@ This is required because Comdirect section layouts differ.
 ```
 
 **Implication:** The parser must locate the header row inside each section, build a header map, and then read fields by semantic column name.
+
+#### Column Mapping per Section Type
+
+| Transaction Field | Giro/Tagesgeld | Visa |
+|-------------------|----------------|------|
+| `date` | Buchungstag | Buchungstag |
+| `value_date` | Wertstellung (Valuta) | Umsatztag |
+| `transaction_type` | Vorgang | Vorgang |
+| `memo` | Buchungstext → extract | Buchungstext |
+| `payee` | Buchungstext → extract | Buchungstext (or merchant name) |
+| `reference` | Buchungstext → extract `Ref.` | Referenz column |
+| `amount_cents` | Umsatz in EUR | Umsatz in EUR |
+
+**Notes:**
+- Giro `Buchungstext` is structured (contains `Auftraggeber:`, `Buchungstext:`, `Ref.` markers) → requires field extraction
+- Visa `Buchungstext` is typically plain merchant text → use directly as memo/payee
+- Visa has explicit `Referenz` column → use directly, no extraction needed
 
 ```python
 def parse_comdirect(filename: str, content: str, account_id: int) -> list[Transaction]:
@@ -328,6 +345,6 @@ def read_file_with_encoding(path: Path) -> str:
 ## References
 
 - YNAP: https://github.com/leolabs/you-need-a-parser
-- Local parser reference: `~/Project/Finance/src/you-need-another-parser/`
+- Local parser reference: `src/you-need-a-parser/`
 - ADR-003: CSV Import Plugin Architecture
 - ADR-005: Account Register

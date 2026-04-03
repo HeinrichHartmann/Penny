@@ -1,0 +1,17 @@
+;
+"Umsätze Girokonto";"Zeitraum: 01.01.2026 - 31.03.2026";
+"Neuer Kontostand";"16,94 EUR";
+
+"Buchungstag";"Wertstellung (Valuta)";"Vorgang";"Buchungstext";"Umsatz in EUR";
+"offen";"--";"Kartenverfügung";"Buchungstext: SHOULD SKIP";"-15,99";
+"27.02.2026";"27.02.2026";"Lastschrift / Belastung";"Auftraggeber: AMAZON PAYMENTS EUROPE S.C.A. Buchungstext: 028-7214985-6053918 AMZN Mktp DE Ref. 9L2C28W229K9DKRY/41682";"-37,99";
+"01.03.2026";"01.03.2026";"Gutschrift";"Zahlungspflichtiger: Example Employer Buchungstext: Payroll March Ref. PAYROLL/2026-03";"1800,00";
+
+"Alter Kontostand";"16,89 EUR";
+
+"Umsätze Visa-Karte";"Zeitraum: 01.01.2026 - 31.03.2026";
+
+"Buchungstag";"Umsatztag";"Vorgang";"Referenz";"Buchungstext";"Umsatz in EUR";
+"28.02.2026";"26.02.2026";"Visa-Umsatz";"VISA-REF-123";"HOTEL EXAMPLE BERLIN";"-45,67";
+
+"Alter Kontostand";"0,00 EUR";
