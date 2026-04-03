@@ -31,10 +31,61 @@ export const fetchJson = async (path, filters) => {
 
 /**
  * Fetch metadata.
- * @returns {Promise<{ accounts: string[], min_date: string, max_date: string }>}
+ * @returns {Promise<{ accounts: object[], min_date: string, max_date: string }>}
  */
 export const fetchMeta = async () => {
   const resp = await fetch('/api/meta');
+  return resp.json();
+};
+
+/**
+ * Fetch all accounts.
+ * @returns {Promise<{ accounts: object[] }>}
+ */
+export const fetchAccounts = async () => {
+  const resp = await fetch('/api/accounts');
+  return resp.json();
+};
+
+/**
+ * Update an account.
+ * @param {number} accountId
+ * @param {object} updates - { display_name?, iban?, holder?, notes? }
+ * @returns {Promise<object>}
+ */
+export const updateAccount = async (accountId, updates) => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined && value !== null) {
+      params.set(key, value);
+    }
+  }
+  const resp = await fetch(`/api/accounts/${accountId}?${params}`, {
+    method: 'PATCH',
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Update failed');
+  }
+  return resp.json();
+};
+
+/**
+ * Upload a CSV file for import.
+ * @param {File} file
+ * @returns {Promise<object>}
+ */
+export const uploadCsv = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const resp = await fetch('/api/import', {
+    method: 'POST',
+    body: formData,
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Import failed');
+  }
   return resp.json();
 };
 

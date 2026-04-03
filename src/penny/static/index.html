@@ -97,10 +97,62 @@
     <!-- Import View -->
     <div v-if="view === 'import'">
       <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Import</h2>
-      <div class="panel" style="padding: 60px 40px; text-align: center;">
-        <div style="font-size: 3rem; margin-bottom: 16px; opacity: 0.3;">📂</div>
-        <p style="color: var(--muted); margin-bottom: 12px;">Drag & drop CSV files from your bank</p>
-        <p style="color: var(--muted); font-size: 0.85rem;">Supports: Comdirect, Sparkasse, and more</p>
+
+      <!-- Drop Zone -->
+      <div
+        class="panel"
+        :style="{
+          padding: '60px 40px',
+          textAlign: 'center',
+          border: importState.isDragging ? '2px dashed var(--accent)' : '2px dashed transparent',
+          background: importState.isDragging ? 'rgba(132, 91, 49, 0.05)' : 'var(--panel-bg)',
+          transition: 'all 0.2s'
+        }"
+        @dragover="handleDragOver"
+        @dragleave="handleDragLeave"
+        @drop="handleDrop"
+      >
+        <div v-if="importState.isUploading" style="font-size: 1.2rem; color: var(--accent);">
+          Importing...
+        </div>
+        <template v-else>
+          <div style="font-size: 3rem; margin-bottom: 16px; opacity: 0.4;">
+            {{ importState.isDragging ? '📥' : '📂' }}
+          </div>
+          <p style="color: var(--muted); margin-bottom: 12px;">
+            Drag & drop CSV files from your bank
+          </p>
+          <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 16px;">
+            Supports: Comdirect, Sparkasse, and more
+          </p>
+          <label style="display: inline-block; padding: 8px 16px; background: var(--accent); color: white; border-radius: 4px; cursor: pointer;">
+            Choose Files
+            <input type="file" accept=".csv" multiple @change="handleFileSelect" style="display: none;">
+          </label>
+        </template>
+      </div>
+
+      <!-- Error Message -->
+      <div v-if="importState.error" class="panel" style="margin-top: 16px; padding: 16px; background: #fee; border-left: 3px solid #c00;">
+        <strong style="color: #c00;">Import Error:</strong> {{ importState.error }}
+      </div>
+
+      <!-- Import Result -->
+      <div v-if="importState.lastResult" class="panel" style="margin-top: 16px; padding: 20px;">
+        <h3 style="margin-bottom: 12px; color: var(--accent);">Import Successful</h3>
+        <div style="display: grid; gap: 8px; font-size: 0.9rem;">
+          <div><strong>File:</strong> {{ importState.lastResult.filename }}</div>
+          <div><strong>Parser:</strong> {{ importState.lastResult.parser }}</div>
+          <div><strong>Account:</strong> {{ importState.lastResult.account?.label }}</div>
+          <div v-if="importState.lastResult.account?.is_new" style="color: var(--accent);">
+            (New account created)
+          </div>
+          <div style="margin-top: 8px;">
+            <strong>Transactions:</strong>
+            {{ importState.lastResult.transactions?.new }} new,
+            {{ importState.lastResult.transactions?.duplicates }} duplicates skipped
+          </div>
+        </div>
       </div>
     </div>
 
@@ -108,34 +160,82 @@
     <div v-if="view === 'accounts'">
       <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Accounts</h2>
 
-      <div v-if="meta.accounts.length === 0" class="panel" style="padding: 40px; text-align: center;">
+      <div v-if="accountsLoading" class="panel" style="padding: 40px; text-align: center;">
+        <p style="color: var(--muted);">Loading accounts...</p>
+      </div>
+
+      <div v-else-if="accountsList.length === 0" class="panel" style="padding: 40px; text-align: center;">
         <p style="color: var(--muted);">No accounts imported yet. Import CSVs to see your accounts here.</p>
       </div>
 
-      <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
-        <div v-for="acc in meta.accounts" :key="acc"
-          @click="toggleAccount(acc)"
-          :class="['panel', 'account-card', filters.accounts.includes(acc) ? 'active' : 'inactive']"
-          style="cursor: pointer; padding: 24px; transition: all 0.2s;">
-          <div style="display: flex; align-items: center; gap: 16px;">
-            <div :style="{
-              width: '56px',
-              height: '56px',
-              borderRadius: '8px',
-              background: filters.accounts.includes(acc) ? 'linear-gradient(135deg, #845b31 0%, #6b4a29 100%)' : '#e8dcc8',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '2rem',
-              transition: 'all 0.2s',
-              boxShadow: filters.accounts.includes(acc) ? '0 4px 12px rgba(132, 91, 49, 0.3)' : 'none'
-            }">
-              {{ filters.accounts.includes(acc) ? '💳' : '🔒' }}
+      <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
+        <div v-for="acc in accountsList" :key="acc.id"
+          :class="['panel', 'account-card', filters.accounts.includes(acc.id) ? 'active' : 'inactive']"
+          style="padding: 24px; transition: all 0.2s;">
+          <div style="display: flex; align-items: flex-start; gap: 16px;">
+            <!-- Account Icon - clickable to toggle -->
+            <div
+              @click="toggleAccount(acc.id)"
+              :style="{
+                width: '56px',
+                height: '56px',
+                borderRadius: '8px',
+                background: filters.accounts.includes(acc.id) ? 'linear-gradient(135deg, #845b31 0%, #6b4a29 100%)' : '#e8dcc8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '1.5rem',
+                transition: 'all 0.2s',
+                flexShrink: 0,
+                cursor: 'pointer',
+                boxShadow: filters.accounts.includes(acc.id) ? '0 4px 12px rgba(132, 91, 49, 0.3)' : 'none'
+              }">
+              {{ filters.accounts.includes(acc.id) ? '💳' : '🔒' }}
             </div>
-            <div style="flex: 1;">
-              <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px;">{{ acc }}</div>
-              <div style="font-size: 0.8rem; color: var(--muted);">
-                {{ filters.accounts.includes(acc) ? 'Active' : 'Inactive' }}
+            <div style="flex: 1; min-width: 0;">
+              <!-- Editing mode -->
+              <div v-if="editingAccountId === acc.id" style="margin-bottom: 8px;">
+                <input
+                  v-model="editingAccountName"
+                  type="text"
+                  :placeholder="acc.bank + ' #' + acc.id"
+                  @keyup.enter="saveAccountName(acc.id)"
+                  @keyup.escape="cancelEditingAccount"
+                  style="width: 100%; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 4px; font-size: 1rem; font-weight: 600;"
+                  autofocus
+                >
+                <div style="margin-top: 8px; display: flex; gap: 8px;">
+                  <button
+                    @click="saveAccountName(acc.id)"
+                    style="padding: 4px 12px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
+                    Save
+                  </button>
+                  <button
+                    @click="cancelEditingAccount"
+                    style="padding: 4px 12px; background: var(--muted); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+              <!-- Display mode -->
+              <div v-else>
+                <div
+                  @click.stop="startEditingAccount(acc)"
+                  style="font-weight: 600; font-size: 1rem; margin-bottom: 4px; cursor: pointer;"
+                  title="Click to edit name">
+                  {{ acc.display_name || acc.bank + ' #' + acc.id }}
+                  <span style="font-size: 0.7rem; color: var(--muted); margin-left: 4px;">✏️</span>
+                </div>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 8px;">
+                {{ acc.bank }}
+                <span v-if="acc.iban"> · {{ acc.iban.slice(-8) }}</span>
+              </div>
+              <div style="display: flex; gap: 16px; font-size: 0.75rem; color: var(--muted);">
+                <span>{{ acc.transaction_count }} transactions</span>
+                <span v-if="acc.subaccounts?.length">
+                  {{ acc.subaccounts.join(', ') }}
+                </span>
               </div>
             </div>
           </div>

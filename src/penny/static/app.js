@@ -12,7 +12,7 @@ import {
   computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
-import { fetchMeta, createApi } from './api.js';
+import { fetchMeta, fetchAccounts, uploadCsv, updateAccount, createApi } from './api.js';
 import { createChartManager } from './charts.js';
 import { DateFilterPanel } from './components/DateFilterPanel.js';
 
@@ -76,6 +76,20 @@ createApp({
     const monthRangeAnchor = ref(null);
     let searchTimer = null;
     const TRANSACTIONS_PER_PAGE = 100;
+
+    // Import state
+    const importState = reactive({
+      isDragging: false,
+      isUploading: false,
+      lastResult: null,
+      error: null,
+    });
+
+    // Accounts state
+    const accountsList = ref([]);
+    const accountsLoading = ref(false);
+    const editingAccountId = ref(null);
+    const editingAccountName = ref('');
 
     // Chart element refs
     const treemapEl = ref(null);
@@ -184,10 +198,12 @@ createApp({
     };
 
     // ── Account Toggle ───────────────────────────────────────────────────────
-    const toggleAccount = (account) => {
-      const index = filters.accounts.indexOf(account);
+    const toggleAccount = (accountId) => {
+      // accountId can be either an integer ID or an object with id property
+      const id = typeof accountId === 'object' ? accountId.id : accountId;
+      const index = filters.accounts.indexOf(id);
       if (index === -1) {
-        filters.accounts.push(account);
+        filters.accounts.push(id);
       } else {
         filters.accounts.splice(index, 1);
       }
@@ -415,6 +431,101 @@ createApp({
       }
     };
 
+    // ── Import Functions ────────────────────────────────────────────────────
+    const handleDragOver = (event) => {
+      event.preventDefault();
+      importState.isDragging = true;
+    };
+
+    const handleDragLeave = () => {
+      importState.isDragging = false;
+    };
+
+    const handleDrop = async (event) => {
+      event.preventDefault();
+      importState.isDragging = false;
+
+      const files = Array.from(event.dataTransfer.files).filter(
+        (file) => file.name.endsWith('.csv')
+      );
+
+      if (files.length === 0) {
+        importState.error = 'Please drop CSV files only';
+        return;
+      }
+
+      await uploadFiles(files);
+    };
+
+    const handleFileSelect = async (event) => {
+      const files = Array.from(event.target.files);
+      if (files.length > 0) {
+        await uploadFiles(files);
+      }
+      event.target.value = ''; // Reset input
+    };
+
+    const uploadFiles = async (files) => {
+      importState.isUploading = true;
+      importState.error = null;
+      importState.lastResult = null;
+
+      try {
+        // Upload files sequentially
+        const results = [];
+        for (const file of files) {
+          const result = await uploadCsv(file);
+          results.push(result);
+        }
+        importState.lastResult = results.length === 1 ? results[0] : results;
+
+        // Refresh accounts list and meta
+        await Promise.all([loadAccounts(), refreshMeta()]);
+      } catch (error) {
+        importState.error = error.message;
+      } finally {
+        importState.isUploading = false;
+      }
+    };
+
+    // ── Accounts Functions ──────────────────────────────────────────────────
+    const loadAccounts = async () => {
+      accountsLoading.value = true;
+      try {
+        const data = await fetchAccounts();
+        accountsList.value = data.accounts;
+      } finally {
+        accountsLoading.value = false;
+      }
+    };
+
+    const refreshMeta = async () => {
+      const m = await fetchMeta();
+      meta.accounts = m.accounts;
+      meta.min_date = m.min_date;
+      meta.max_date = m.max_date;
+    };
+
+    const startEditingAccount = (account) => {
+      editingAccountId.value = account.id;
+      editingAccountName.value = account.display_name || '';
+    };
+
+    const cancelEditingAccount = () => {
+      editingAccountId.value = null;
+      editingAccountName.value = '';
+    };
+
+    const saveAccountName = async (accountId) => {
+      try {
+        await updateAccount(accountId, { display_name: editingAccountName.value || null });
+        await Promise.all([loadAccounts(), refreshMeta()]);
+        cancelEditingAccount();
+      } catch (error) {
+        console.error('Failed to update account:', error);
+      }
+    };
+
     // ── Watchers ─────────────────────────────────────────────────────────────
     watch(
       () => [filters.from, filters.to, filters.accounts.join(','), filters.neutralize],
@@ -428,8 +539,16 @@ createApp({
       loadAll();
     });
 
-    watch(view, () => {
-      loadCurrentViewData();
+    watch(view, async () => {
+      if (view.value === 'accounts') {
+        await loadAccounts();
+      } else if (view.value === 'import') {
+        // Reset import state when entering import view
+        importState.lastResult = null;
+        importState.error = null;
+      } else {
+        loadCurrentViewData();
+      }
     });
 
     watch(searchQuery, () => {
@@ -507,7 +626,7 @@ createApp({
     // ── Init ─────────────────────────────────────────────────────────────────
     onMounted(async () => {
       const m = await fetchMeta();
-      meta.accounts = m.accounts;
+      meta.accounts = m.accounts;  // Now array of account objects with id, label, etc.
       meta.min_date = m.min_date;
       meta.max_date = m.max_date;
 
@@ -516,9 +635,12 @@ createApp({
       const defaultRange = computeDefaultDateRange(m.max_date);
       filters.from = initialUrlState.from || defaultRange.from;
       filters.to = initialUrlState.to || defaultRange.to;
+
+      // Extract account IDs (meta.accounts now contains objects)
+      const allAccountIds = m.accounts.map((acc) => acc.id);
       filters.accounts = initialUrlState.accounts
-        ? initialUrlState.accounts.filter((account) => m.accounts.includes(account))
-        : [...m.accounts];
+        ? initialUrlState.accounts.map(Number).filter((id) => allAccountIds.includes(id))
+        : [...allAccountIds];
       filters.neutralize = initialUrlState.neutralize == null
         ? true
         : initialUrlState.neutralize !== 'false';
@@ -607,6 +729,23 @@ createApp({
       copyReport,
       copyPivotTable,
       copyTransactionsTable,
+
+      // Import
+      importState,
+      handleDragOver,
+      handleDragLeave,
+      handleDrop,
+      handleFileSelect,
+
+      // Accounts
+      accountsList,
+      accountsLoading,
+      loadAccounts,
+      editingAccountId,
+      editingAccountName,
+      startEditingAccount,
+      cancelEditingAccount,
+      saveAccountName,
     };
   },
 }).mount('#app');

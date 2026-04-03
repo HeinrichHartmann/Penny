@@ -2,12 +2,18 @@
 
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Optional
 import sqlite3
 from collections import defaultdict
+
+from penny.accounts.storage import default_db_path, AccountStorage
+from penny.accounts.models import Account
+from penny.accounts.registry import AccountRegistry
+from penny.import_.detection import match_file, DetectionError
+from penny.transactions.storage import TransactionStorage
 
 app = FastAPI(title="Penny")
 
@@ -20,8 +26,8 @@ FRONTEND_INDEX_PATH = FRONTEND_DIST_DIR / "index.html"
 app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets", check_dir=False), name="assets")
 app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
-# Database path - look for demo.db in project root
-DB_PATH = Path(__file__).parent.parent.parent / "demo.db"
+# Database path - use same path as CLI (supports PENNY_DATA_DIR env var)
+DB_PATH = default_db_path()
 
 def get_db():
     """Get database connection."""
@@ -33,35 +39,45 @@ def get_db():
 # ── Helper Functions ────────────────────────────────────────────────────────
 
 def apply_filters(query, params, from_date=None, to_date=None, accounts=None, neutralize=True, category=None, q=None):
-    """Apply common filters to a query."""
+    """Apply common filters to a query.
+
+    Schema mapping (new schema):
+    - date (was booking_date)
+    - account_id (was account, now integer FK)
+    - payee (was description/merchant)
+    - category (unchanged)
+    - neutralization: skipped for now (show all transactions)
+    """
     conditions = []
 
     if from_date:
-        conditions.append("booking_date >= ?")
+        conditions.append("date >= ?")
         params.append(from_date)
 
     if to_date:
-        conditions.append("booking_date <= ?")
+        conditions.append("date <= ?")
         params.append(to_date)
 
     if accounts is not None:
-        account_list = [account for account in accounts.split(',') if account]
+        account_list = [a for a in accounts.split(',') if a]
         if account_list:
+            # Account IDs are now integers
             placeholders = ','.join('?' * len(account_list))
-            conditions.append(f"account IN ({placeholders})")
-            params.extend(account_list)
+            conditions.append(f"account_id IN ({placeholders})")
+            params.extend([int(a) for a in account_list])
         else:
             conditions.append("1 = 0")
 
-    if neutralize:
-        conditions.append("(neutralization_id IS NULL OR neutralization_id = '')")
+    # Neutralization filter skipped for now (per design decision)
+    # Future: add neutralization support via classification
 
     if category:
         conditions.append("category LIKE ?")
         params.append(f"{category}%")
 
     if q:
-        conditions.append("(description LIKE ? OR merchant LIKE ? OR category LIKE ?)")
+        # Search in payee and category (no separate merchant field in new schema)
+        conditions.append("(payee LIKE ? OR category LIKE ? OR memo LIKE ?)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
 
     if conditions:
@@ -78,8 +94,8 @@ def format_currency(cents: int) -> str:
     return f"{sign}{formatted} €"
 
 
-def parse_booking_date(value: str) -> datetime.date:
-    """Parse booking date from ISO text."""
+def parse_date(value: str) -> datetime.date:
+    """Parse date from ISO text."""
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
@@ -99,7 +115,7 @@ def category_bucket(category: Optional[str], selected_category: Optional[str] = 
 
 def period_key(booking_date: str, granularity: str) -> str:
     """Return the period key used for breakout grouping."""
-    date = parse_booking_date(booking_date)
+    date = parse_date(booking_date)
     if granularity == "day":
         return date.isoformat()
     if granularity == "week":
@@ -111,7 +127,7 @@ def period_key(booking_date: str, granularity: str) -> str:
 def period_label(key: str, granularity: str) -> str:
     """Return a human-friendly period label."""
     if granularity == "day":
-        date = parse_booking_date(key)
+        date = parse_date(key)
         return date.strftime("%d %b %Y")
     if granularity == "week":
         year, week = key.split("-W")
@@ -157,20 +173,237 @@ async def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
+# ── Accounts API ─────────────────────────────────────────────────────────────
+
+def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
+    """Convert Account model to JSON-serializable dict."""
+    return {
+        "id": account.id,
+        "bank": account.bank,
+        "display_name": account.display_name,
+        "iban": account.iban,
+        "holder": account.holder,
+        "notes": account.notes,
+        "balance_cents": account.balance_cents,
+        "balance_date": account.balance_date.isoformat() if account.balance_date else None,
+        "subaccounts": list(account.subaccounts.keys()),
+        "transaction_count": transaction_count,
+        "label": account.display_name or f"{account.bank} #{account.id}",
+    }
+
+
+@app.get("/api/accounts")
+async def list_accounts(include_hidden: bool = Query(False)):
+    """List all bank accounts."""
+    storage = AccountStorage()
+    accounts = storage.list_accounts(include_hidden=include_hidden)
+
+    # Get transaction counts per account
+    conn = get_db()
+    cursor = conn.cursor()
+    counts = {
+        row[0]: row[1]
+        for row in cursor.execute(
+            "SELECT account_id, COUNT(*) FROM transactions GROUP BY account_id"
+        ).fetchall()
+    }
+    conn.close()
+
+    return {
+        "accounts": [
+            _account_to_dict(account, counts.get(account.id, 0))
+            for account in accounts
+        ]
+    }
+
+
+@app.get("/api/accounts/{account_id}")
+async def get_account(account_id: int):
+    """Get a single account by ID."""
+    storage = AccountStorage()
+    account = storage.get_account(account_id)
+
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+
+    # Get transaction count
+    conn = get_db()
+    cursor = conn.cursor()
+    count = cursor.execute(
+        "SELECT COUNT(*) FROM transactions WHERE account_id = ?", (account_id,)
+    ).fetchone()[0]
+    conn.close()
+
+    return _account_to_dict(account, count)
+
+
+@app.patch("/api/accounts/{account_id}")
+async def update_account(
+    account_id: int,
+    display_name: Optional[str] = None,
+    iban: Optional[str] = None,
+    holder: Optional[str] = None,
+    notes: Optional[str] = None,
+):
+    """Update account metadata."""
+    storage = AccountStorage()
+    account = storage.get_account(account_id)
+
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+
+    # Update via direct SQL (AccountStorage doesn't have update method yet)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    updates = []
+    params = []
+    if display_name is not None:
+        updates.append("display_name = ?")
+        params.append(display_name)
+    if iban is not None:
+        updates.append("iban = ?")
+        params.append(iban)
+    if holder is not None:
+        updates.append("holder = ?")
+        params.append(holder)
+    if notes is not None:
+        updates.append("notes = ?")
+        params.append(notes)
+
+    if updates:
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(account_id)
+
+        cursor.execute(
+            f"UPDATE accounts SET {', '.join(updates)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+
+    conn.close()
+
+    # Return updated account
+    return await get_account(account_id)
+
+
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(account_id: int):
+    """Soft-delete an account (hide it)."""
+    storage = AccountStorage()
+    if not storage.soft_delete_account(account_id):
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+
+    return {"status": "deleted", "account_id": account_id}
+
+
+# ── Import API ───────────────────────────────────────────────────────────────
+
+@app.post("/api/import")
+async def import_csv(file: UploadFile = File(...)):
+    """Import transactions from a CSV file.
+
+    This endpoint mirrors the CLI `penny import` command:
+    1. Detect the bank format from filename and content
+    2. Reconcile or create the bank account
+    3. Parse transactions
+    4. Store with deduplication
+    """
+    # Read file content
+    content_bytes = await file.read()
+
+    # Try UTF-8 first, fall back to CP1252 (common for German bank CSVs)
+    try:
+        content = content_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        content = content_bytes.decode("cp1252")
+
+    filename = file.filename or "upload.csv"
+
+    # Detect parser
+    try:
+        parser = match_file(filename, content)
+    except DetectionError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not detect CSV format: {e}",
+        )
+
+    # Detect account info
+    detection = parser.detect(filename, content)
+
+    # Reconcile account (find existing or create new)
+    registry = AccountRegistry(AccountStorage())
+    try:
+        account = registry.reconcile(detection)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Account reconciliation failed: {e}",
+        )
+
+    # Parse transactions
+    parsed_transactions = parser.parse(filename, content, account_id=account.id)
+
+    # Store transactions with deduplication
+    tx_storage = TransactionStorage()
+    new_count, duplicate_count = tx_storage.store_transactions(
+        parsed_transactions,
+        source_file=filename,
+    )
+
+    # Build section summary
+    from collections import Counter
+    section_counts = Counter(tx.subaccount_type for tx in parsed_transactions)
+
+    return {
+        "status": "success",
+        "filename": filename,
+        "parser": detection.parser_name,
+        "account": {
+            "id": account.id,
+            "bank": account.bank,
+            "display_name": account.display_name,
+            "label": account.display_name or f"{account.bank} #{account.id}",
+            "is_new": account.created_at == account.updated_at,  # New if timestamps match
+        },
+        "sections": [
+            {"type": section, "count": count}
+            for section, count in sorted(section_counts.items())
+        ],
+        "transactions": {
+            "new": new_count,
+            "duplicates": duplicate_count,
+            "total_parsed": len(parsed_transactions),
+        },
+    }
+
+
 @app.get("/api/meta")
 async def meta():
     """Return metadata about available data."""
     conn = get_db()
     cursor = conn.cursor()
 
-    # Get distinct accounts
-    accounts = [row[0] for row in cursor.execute(
-        "SELECT DISTINCT account FROM transactions ORDER BY account"
-    ).fetchall()]
+    # Get accounts from accounts table
+    account_rows = cursor.execute(
+        "SELECT id, bank, display_name, iban FROM accounts WHERE hidden = 0 ORDER BY id"
+    ).fetchall()
+    accounts = [
+        {
+            "id": row[0],
+            "bank": row[1],
+            "display_name": row[2],
+            "iban": row[3],
+            "label": row[2] or f"{row[1]} #{row[0]}",  # Display name or fallback
+        }
+        for row in account_rows
+    ]
 
-    # Get date range
+    # Get date range from transactions
     date_range = cursor.execute(
-        "SELECT MIN(booking_date), MAX(booking_date) FROM transactions"
+        "SELECT MIN(date), MAX(date) FROM transactions"
     ).fetchone()
 
     conn.close()
@@ -233,7 +466,7 @@ async def tree(
     cursor = conn.cursor()
 
     params = []
-    query = "SELECT category, merchant, amount_cents FROM transactions"
+    query = "SELECT category, payee, amount_cents FROM transactions"
     query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
 
     # Filter by tab
@@ -420,7 +653,7 @@ async def breakout(
     cursor = conn.cursor()
 
     params = []
-    query = "SELECT booking_date, category, amount_cents FROM transactions"
+    query = "SELECT date, category, amount_cents FROM transactions"
     query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
 
     rows = cursor.execute(query, params).fetchall()
@@ -484,7 +717,7 @@ async def report(
     cursor = conn.cursor()
 
     params = []
-    query = "SELECT booking_date, account, category, amount_cents FROM transactions"
+    query = "SELECT date, account_id, category, amount_cents FROM transactions"
     query = apply_filters(query, params, from_date, to_date, accounts, neutralize)
     rows = cursor.execute(query, params).fetchall()
     conn.close()
@@ -504,7 +737,7 @@ async def report(
 
     top_expenses = sorted(expense_categories.items(), key=lambda item: item[1], reverse=True)[:5]
     top_income = sorted(income_categories.items(), key=lambda item: item[1], reverse=True)[:5]
-    account_label = ", ".join(account for account in (accounts or "").split(",") if account) or "all"
+    account_label = ", ".join(a for a in (accounts or "").split(",") if a) or "all"
     period_label = f"{from_date or 'beginning'} to {to_date or 'today'}"
 
     lines = [
@@ -553,8 +786,14 @@ async def transactions(
     conn = get_db()
     cursor = conn.cursor()
 
+    # Build account lookup for display names
+    account_lookup = {}
+    for row in cursor.execute("SELECT id, bank, display_name FROM accounts").fetchall():
+        account_lookup[row[0]] = row[2] or f"{row[1]} #{row[0]}"
+
     params = []
-    query = "SELECT fp, booking_date, account, description, merchant, category, amount_cents FROM transactions"
+    # New schema: fingerprint, date, account_id, payee, memo, category, amount_cents
+    query = "SELECT fingerprint, date, account_id, payee, memo, category, amount_cents FROM transactions"
     query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     # Filter by tab (expense/income)
@@ -565,18 +804,20 @@ async def transactions(
         query += " AND " if " WHERE " in query else " WHERE "
         query += "amount_cents > 0"
 
-    query += " ORDER BY booking_date DESC"
+    query += " ORDER BY date DESC"
 
     rows = cursor.execute(query, params).fetchall()
     conn.close()
 
+    # Map to frontend-compatible format
     txns = [
         {
-            "fp": row[0],
-            "booking_date": row[1],
-            "account": row[2],
-            "description": row[3],
-            "merchant": row[4] or "",
+            "fp": row[0],  # fingerprint -> fp for frontend compatibility
+            "booking_date": row[1],  # date -> booking_date for frontend compatibility
+            "account": account_lookup.get(row[2], f"Account #{row[2]}"),  # account_id -> account name
+            "account_id": row[2],  # Also include raw ID
+            "description": row[3],  # payee -> description for frontend compatibility
+            "merchant": row[3] or "",  # payee used as merchant too
             "category": row[5] or "uncategorized",
             "amount_cents": row[6],
         }
