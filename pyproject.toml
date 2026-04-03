@@ -1,0 +1,53 @@
+[project]
+name = "f4u"
+version = "0.1.0"
+description = "Finance For You - Personal finance analysis app"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "toga>=0.4.0",
+]
+
+[project.scripts]
+f4u = "f4u.launcher:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/f4u"]
+
+# Briefcase configuration for native app packaging
+[tool.briefcase]
+project_name = "F4U"
+bundle = "com.hartmann.f4u"
+version = "0.1.0"
+url = "https://github.com/hhartmann/f4u"
+license.text = "MIT"
+author = "Heinrich Hartmann"
+
+[tool.briefcase.app.f4u]
+formal_name = "Finance For You"
+description = "Personal finance analysis application"
+icon = "resources/icon"
+sources = ["src/f4u"]
+requires = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "toga>=0.4.0",
+]
+
+[tool.briefcase.app.f4u.macOS]
+requires = []
+
+[tool.briefcase.app.f4u.linux]
+requires = []
+
+[dependency-groups]
+dev = [
+    "briefcase>=0.3.21",
+    "pytest>=8.0",
+]
