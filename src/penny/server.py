@@ -150,62 +150,53 @@ async def tree(
     category: Optional[str] = Query(None),
 ):
     """Return hierarchical category tree for treemap."""
-    # Build mock tree structure
-    if tab == "income":
-        return {
-            "name": "root",
-            "children": [
-                {
-                    "name": "salary",
-                    "value": 350000,
-                    "children": [
-                        {"name": "(uncategorized)", "value": 350000, "children": []}
-                    ]
-                }
-            ]
-        }
+    conn = get_db()
+    cursor = conn.cursor()
 
-    return {
-        "name": "root",
-        "children": [
-            {
-                "name": "food",
-                "value": 4523,
-                "children": [
-                    {"name": "groceries", "value": 4523, "children": [
-                        {"name": "REWE", "value": 4523}
-                    ]}
-                ]
-            },
-            {
-                "name": "shopping",
-                "value": 2999,
-                "children": [
-                    {"name": "online", "value": 2999, "children": [
-                        {"name": "Amazon", "value": 2999}
-                    ]}
-                ]
-            },
-            {
-                "name": "transport",
-                "value": 6500,
-                "children": [
-                    {"name": "fuel", "value": 6500, "children": [
-                        {"name": "Shell", "value": 6500}
-                    ]}
-                ]
-            },
-            {
-                "name": "subscriptions",
-                "value": 1299,
-                "children": [
-                    {"name": "streaming", "value": 1299, "children": [
-                        {"name": "Netflix", "value": 1299}
-                    ]}
-                ]
-            },
-        ]
-    }
+    params = []
+    query = "SELECT category, merchant, amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+
+    # Filter by tab
+    if tab == "expense":
+        query += " AND " if " WHERE " in query else " WHERE "
+        query += "amount_cents < 0"
+    elif tab == "income":
+        query += " AND " if " WHERE " in query else " WHERE "
+        query += "amount_cents > 0"
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    # Build tree from categories
+    tree_data = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+
+    for row in rows:
+        cat = row[0] or "uncategorized"
+        merchant = row[1] or "unknown"
+        amount = abs(row[2])
+
+        parts = cat.split("/")
+        level1 = parts[0] if parts else "uncategorized"
+        level2 = parts[1] if len(parts) > 1 else "(uncategorized)"
+
+        tree_data[level1][level2][merchant] += amount
+
+    # Convert to tree structure
+    children = []
+    for l1, l2_data in sorted(tree_data.items()):
+        l1_value = sum(sum(merchants.values()) for merchants in l2_data.values())
+        l2_children = []
+        for l2, merchants in sorted(l2_data.items()):
+            l2_value = sum(merchants.values())
+            l3_children = [{"name": m, "value": v} for m, v in sorted(merchants.items(), key=lambda x: x[1], reverse=True)]
+            l2_children.append({"name": l2, "value": l2_value, "children": l3_children})
+        children.append({"name": l1, "value": l1_value, "children": l2_children})
+
+    # Sort by value
+    children.sort(key=lambda x: x["value"], reverse=True)
+
+    return {"name": "root", "children": children}
 
 
 @app.get("/api/pivot")
@@ -219,40 +210,59 @@ async def pivot(
     category: Optional[str] = Query(None),
 ):
     """Return pivot table data."""
-    if tab == "income":
-        return {
-            "count": 1,
-            "total_cents": 350000,
-            "categories": [
-                {
-                    "category": "salary",
-                    "txn_count": 1,
-                    "share": 1.0,
-                    "total_cents": 350000,
-                    "weekly_avg_cents": 87500,
-                    "monthly_avg_cents": 350000,
-                    "yearly_avg_cents": 4200000,
-                }
-            ]
-        }
+    conn = get_db()
+    cursor = conn.cursor()
 
-    total = 4523 + 2999 + 6500 + 1299
-    categories = [
-        {"category": "transport", "txn_count": 1, "total_cents": 6500},
-        {"category": "food", "txn_count": 1, "total_cents": 4523},
-        {"category": "shopping", "txn_count": 1, "total_cents": 2999},
-        {"category": "subscriptions", "txn_count": 1, "total_cents": 1299},
-    ]
+    params = []
+    query = "SELECT category, amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
 
-    for cat in categories:
-        cat["share"] = cat["total_cents"] / total
-        cat["weekly_avg_cents"] = cat["total_cents"] // 4
-        cat["monthly_avg_cents"] = cat["total_cents"]
-        cat["yearly_avg_cents"] = cat["total_cents"] * 12
+    # Filter by tab
+    if tab == "expense":
+        query += " AND " if " WHERE " in query else " WHERE "
+        query += "amount_cents < 0"
+    elif tab == "income":
+        query += " AND " if " WHERE " in query else " WHERE "
+        query += "amount_cents > 0"
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    # Group by category at specified depth
+    depth_int = int(depth) if depth else 1
+    cat_data = defaultdict(lambda: {"total": 0, "count": 0})
+
+    for row in rows:
+        cat = row[0] or "uncategorized"
+        amount = abs(row[1])
+
+        # Extract category at specified depth
+        parts = cat.split("/")
+        cat_key = "/".join(parts[:depth_int]) if len(parts) >= depth_int else cat
+
+        cat_data[cat_key]["total"] += amount
+        cat_data[cat_key]["count"] += 1
+
+    # Calculate totals
+    total_cents = sum(c["total"] for c in cat_data.values())
+    total_count = sum(c["count"] for c in cat_data.values())
+
+    # Build categories list
+    categories = []
+    for cat_key, data in sorted(cat_data.items(), key=lambda x: x[1]["total"], reverse=True):
+        categories.append({
+            "category": cat_key,
+            "txn_count": data["count"],
+            "share": data["total"] / total_cents if total_cents > 0 else 0,
+            "total_cents": data["total"],
+            "weekly_avg_cents": data["total"] // 4,
+            "monthly_avg_cents": data["total"],
+            "yearly_avg_cents": data["total"] * 12,
+        })
 
     return {
-        "count": 4,
-        "total_cents": total,
+        "count": total_count,
+        "total_cents": total_cents,
         "categories": categories,
     }
 
