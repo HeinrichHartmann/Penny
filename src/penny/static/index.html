@@ -335,6 +335,8 @@
         <button @click="view = 'report'" :class="['nav-item', view === 'report' ? 'active' : '']">
           Report
         </button>
+      </nav>
+      <nav style="margin-top: auto; padding-top: 24px; border-top: 1px solid var(--line);">
         <button @click="view = 'settings'" :class="['nav-item', view === 'settings' ? 'active' : '']">
           Settings
         </button>
@@ -426,6 +428,11 @@
                   style="min-width: 42px; font-size: 0.8rem;">
                   {{ m.label }}
                 </button>
+                <button @click="setYearAllMonths()"
+                  :class="['shortcut-btn', monthShortcutYear !== null && filters.from === monthShortcutYear+'-01-01' && filters.to === monthShortcutYear+'-12-31' ? 'active' : '']"
+                  style="min-width: 42px; font-size: 0.8rem;">
+                  All
+                </button>
               </div>
             </div>
           </div>
@@ -460,9 +467,6 @@
               Transactions
               <span class="sub" v-if="transactions">{{ visibleTransactions.length }} of {{ transactions.count }}</span>
             </div>
-            <button @click="transactionsCopyLabel = 'MD'; copyTransactionsTable()" class="icon-btn shortcut-btn">
-              {{ transactionsCopyLabel }}
-            </button>
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
             <input v-model="searchQuery" type="text" placeholder="Search transactions…"
@@ -473,7 +477,7 @@
           Filtered by category: <code>{{ selectedCategory }}</code>
           <button @click="clearSelection()">clear</button>
         </div>
-        <div ref="transactionListEl" @scroll="onTransactionScroll()" style="max-height: 700px; overflow-y: auto;">
+        <div ref="transactionListEl" @scroll="onTransactionScroll" style="max-height: 700px; overflow-y: auto;">
           <table>
             <thead>
               <tr>
@@ -516,13 +520,8 @@
         </div>
         <div v-if="transactions" class="txn-footer">
           <span>
-            {{ visibleTransactions.length < transactions.count
-              ? 'Scroll to load more rows.'
-              : 'All matching rows are loaded.' }}
+            Showing {{ visibleTransactions.length }} of {{ transactions.count }} transactions
           </span>
-          <button v-if="visibleTransactions.length < transactions.count" class="shortcut-btn" @click="growTransactionWindow()">
-            Load More
-          </button>
         </div>
       </div>
     </div>
@@ -569,6 +568,11 @@
                 :class="['shortcut-btn', isActiveMonth(m.value) ? 'active' : '']"
                 style="min-width: 42px; font-size: 0.8rem;">
                 {{ m.label }}
+              </button>
+              <button @click="setYearAllMonths()"
+                :class="['shortcut-btn', monthShortcutYear !== null && filters.from === monthShortcutYear+'-01-01' && filters.to === monthShortcutYear+'-12-31' ? 'active' : '']"
+                style="min-width: 42px; font-size: 0.8rem;">
+                All
               </button>
             </div>
           </div>
