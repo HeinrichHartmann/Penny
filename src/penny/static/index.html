@@ -335,6 +335,9 @@
         <button @click="view = 'report'" :class="['nav-item', view === 'report' ? 'active' : '']">
           Report
         </button>
+        <button @click="view = 'settings'" :class="['nav-item', view === 'settings' ? 'active' : '']">
+          Settings
+        </button>
       </nav>
     </aside>
 
@@ -343,7 +346,7 @@
 
     <!-- Import View -->
     <div v-if="view === 'import'">
-      <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Import Transactions</h2>
+      <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Import</h2>
       <div class="panel" style="padding: 60px 40px; text-align: center;">
         <div style="font-size: 3rem; margin-bottom: 16px; opacity: 0.3;">📂</div>
         <p style="color: var(--muted); margin-bottom: 12px;">Drag & drop CSV files from your bank</p>
@@ -366,17 +369,18 @@
           style="cursor: pointer; padding: 24px; transition: all 0.2s;">
           <div style="display: flex; align-items: center; gap: 16px;">
             <div :style="{
-              width: '48px',
-              height: '48px',
-              borderRadius: '50%',
-              background: filters.accounts.includes(acc) ? 'var(--accent)' : 'var(--line)',
+              width: '56px',
+              height: '56px',
+              borderRadius: '8px',
+              background: filters.accounts.includes(acc) ? 'linear-gradient(135deg, #845b31 0%, #6b4a29 100%)' : '#e8dcc8',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.5rem',
-              transition: 'all 0.2s'
+              fontSize: '2rem',
+              transition: 'all 0.2s',
+              boxShadow: filters.accounts.includes(acc) ? '0 4px 12px rgba(132, 91, 49, 0.3)' : 'none'
             }">
-              {{ filters.accounts.includes(acc) ? '✓' : '○' }}
+              {{ filters.accounts.includes(acc) ? '💳' : '🔒' }}
             </div>
             <div style="flex: 1;">
               <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px;">{{ acc }}</div>
@@ -391,48 +395,60 @@
 
     <!-- Transactions View -->
     <div v-if="view === 'transactions'">
-      <h2 style="font-size: 1.4rem; margin-bottom: 20px;">All Transactions</h2>
+      <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Transactions</h2>
 
       <!-- Date Filters -->
-      <div class="panel" style="margin-bottom: 20px; padding: 16px 20px;">
-        <div style="display: flex; gap: 24px; align-items: start; flex-wrap: wrap;">
-          <!-- Date Pickers -->
-          <div style="display: flex; gap: 12px; align-items: end;">
-            <div>
-              <label class="group-label">From</label>
-              <input type="date" v-model="filters.from">
-            </div>
-            <div>
-              <label class="group-label">To</label>
-              <input type="date" v-model="filters.to">
-            </div>
-          </div>
+      <div class="panel" style="margin-bottom: 20px; padding: 20px 24px;">
+        <div style="display: flex; gap: 32px; align-items: start; flex-wrap: wrap;">
 
           <!-- Range Shortcuts -->
-          <div style="flex: 1; min-width: 300px;">
-            <label class="group-label">Range</label>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="flex: 1; min-width: 320px;">
+            <label class="group-label" style="font-size: 0.85rem; font-weight: 500; margin-bottom: 10px; display: block;">Range</label>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
               <!-- Row 1: Years + All -->
-              <div class="btn-group wrap">
+              <div class="btn-group wrap" style="gap: 6px;">
                 <button v-for="y in yearButtons.slice().reverse().slice(0, 3)" :key="y" @click="setYear(y)"
-                  :class="['shortcut-btn', isActiveYear(y) ? 'active' : '']">
+                  :class="['shortcut-btn', isActiveYear(y) ? 'active' : '']"
+                  style="min-width: 60px;">
                   {{ y }}
                 </button>
                 <button @click="setAll()"
-                  :class="['shortcut-btn', filters.from === meta.min_date && filters.to === meta.max_date ? 'active' : '']">
+                  :class="['shortcut-btn', filters.from === meta.min_date && filters.to === meta.max_date ? 'active' : '']"
+                  style="min-width: 60px;">
                   All
                 </button>
               </div>
               <!-- Row 2: Months -->
-              <div class="btn-group wrap">
+              <div class="btn-group wrap" style="gap: 4px;">
                 <button v-for="m in monthButtons" :key="m.value" @click="setMonth($event, m.value)"
                   :disabled="monthShortcutYear === null"
-                  :class="['shortcut-btn', isActiveMonth(m.value) ? 'active' : '']">
+                  :class="['shortcut-btn', isActiveMonth(m.value) ? 'active' : '']"
+                  style="min-width: 42px; font-size: 0.8rem;">
                   {{ m.label }}
                 </button>
               </div>
             </div>
           </div>
+
+          <!-- Custom Date Pickers -->
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <label class="group-label" style="font-size: 0.85rem; font-weight: 500;">Custom Range</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <div>
+                <label style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 4px;">From</label>
+                <input type="date" v-model="filters.from" style="font-size: 0.85rem;">
+              </div>
+              <div style="color: var(--muted); padding-top: 18px;">→</div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 4px;">To</label>
+                <input type="date" v-model="filters.to" style="font-size: 0.85rem;">
+              </div>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--muted);">
+              {{ filters.from }} to {{ filters.to }}
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -523,67 +539,60 @@
     <!-- Report View -->
     <div v-if="view === 'report'">
 
+    <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Report</h2>
+
     <!-- Date Filters -->
-    <div class="panel" style="margin-bottom: 20px; padding: 16px 20px;">
-      <div style="display: flex; gap: 24px; align-items: start; flex-wrap: wrap;">
-        <!-- Date Pickers -->
-        <div style="display: flex; gap: 12px; align-items: end;">
-          <div>
-            <label class="group-label">From</label>
-            <input type="date" v-model="filters.from">
-          </div>
-          <div>
-            <label class="group-label">To</label>
-            <input type="date" v-model="filters.to">
-          </div>
-        </div>
+    <div class="panel" style="margin-bottom: 20px; padding: 20px 24px;">
+      <div style="display: flex; gap: 32px; align-items: start; flex-wrap: wrap;">
 
         <!-- Range Shortcuts -->
-        <div style="flex: 1; min-width: 300px;">
-          <label class="group-label">Range</label>
-          <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="flex: 1; min-width: 320px;">
+          <label class="group-label" style="font-size: 0.85rem; font-weight: 500; margin-bottom: 10px; display: block;">Range</label>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
             <!-- Row 1: Years + All -->
-            <div class="btn-group wrap">
+            <div class="btn-group wrap" style="gap: 6px;">
               <button v-for="y in yearButtons.slice().reverse().slice(0, 3)" :key="y" @click="setYear(y)"
-                :class="['shortcut-btn', isActiveYear(y) ? 'active' : '']">
+                :class="['shortcut-btn', isActiveYear(y) ? 'active' : '']"
+                style="min-width: 60px;">
                 {{ y }}
               </button>
               <button @click="setAll()"
-                :class="['shortcut-btn', filters.from === meta.min_date && filters.to === meta.max_date ? 'active' : '']">
+                :class="['shortcut-btn', filters.from === meta.min_date && filters.to === meta.max_date ? 'active' : '']"
+                style="min-width: 60px;">
                 All
               </button>
             </div>
             <!-- Row 2: Months -->
-            <div class="btn-group wrap">
+            <div class="btn-group wrap" style="gap: 4px;">
               <button v-for="m in monthButtons" :key="m.value" @click="setMonth($event, m.value)"
                 :disabled="monthShortcutYear === null"
-                :class="['shortcut-btn', isActiveMonth(m.value) ? 'active' : '']">
+                :class="['shortcut-btn', isActiveMonth(m.value) ? 'active' : '']"
+                style="min-width: 42px; font-size: 0.8rem;">
                 {{ m.label }}
               </button>
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Account Filters -->
-    <div class="panel" style="margin-bottom: 20px; padding: 16px 20px;">
-      <div style="display: flex; gap: 24px; align-items: start; flex-wrap: wrap;">
-        <div>
-          <label class="group-label">Accounts</label>
-          <div class="check-group">
-            <label v-for="acct in meta.accounts" :key="acct">
-              <input type="checkbox" :value="acct" v-model="filters.accounts">
-              {{ acct }}
-            </label>
+        <!-- Custom Date Pickers -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <label class="group-label" style="font-size: 0.85rem; font-weight: 500;">Custom Range</label>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <div>
+              <label style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 4px;">From</label>
+              <input type="date" v-model="filters.from" style="font-size: 0.85rem;">
+            </div>
+            <div style="color: var(--muted); padding-top: 18px;">→</div>
+            <div>
+              <label style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 4px;">To</label>
+              <input type="date" v-model="filters.to" style="font-size: 0.85rem;">
+            </div>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--muted);">
+            {{ filters.from }} to {{ filters.to }}
           </div>
         </div>
-        <div>
-          <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem; cursor:pointer;">
-            <input type="checkbox" v-model="filters.neutralize">
-            Neutralize transfers
-          </label>
-        </div>
+
       </div>
     </div>
 
@@ -804,6 +813,25 @@
     </div>
 
     </div><!-- end report view -->
+
+    <!-- Settings View -->
+    <div v-if="view === 'settings'">
+      <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Settings</h2>
+
+      <div class="panel" style="padding: 24px;">
+        <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: var(--ink);">Data Processing</h3>
+
+        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px 0;">
+          <input type="checkbox" v-model="filters.neutralize" style="width: 18px; height: 18px; cursor: pointer;">
+          <div>
+            <div style="font-size: 0.9rem; font-weight: 500;">Neutralize transfers</div>
+            <div style="font-size: 0.8rem; color: var(--muted); margin-top: 2px;">
+              Automatically hide internal transfers between your accounts to avoid double-counting
+            </div>
+          </div>
+        </label>
+      </div>
+    </div>
 
     </main><!-- end main-content -->
 
