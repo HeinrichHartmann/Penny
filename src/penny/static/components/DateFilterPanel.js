@@ -66,16 +66,13 @@ export const DateFilterPanel = {
           <div style="display: flex; gap: 10px; align-items: center;">
             <div>
               <label style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 4px;">From</label>
-              <input type="date" :value="filters.from" @input="$emit('update:from', $event.target.value)" style="font-size: 0.85rem;">
+              <input type="date" class="date-input" :value="filters.from" @input="$emit('update:from', $event.target.value)">
             </div>
             <div style="color: var(--muted); padding-top: 18px;">→</div>
             <div>
               <label style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 4px;">To</label>
-              <input type="date" :value="filters.to" @input="$emit('update:to', $event.target.value)" style="font-size: 0.85rem;">
+              <input type="date" class="date-input" :value="filters.to" @input="$emit('update:to', $event.target.value)">
             </div>
-          </div>
-          <div style="font-size: 0.75rem; color: var(--muted);">
-            {{ filters.from }} to {{ filters.to }}
           </div>
         </div>
 
