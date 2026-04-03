@@ -309,10 +309,30 @@ h1 {
 
 .txn-header-bar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 16px;
   margin-bottom: 10px;
   flex-wrap: wrap;
+}
+
+.txn-header-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.txn-header-search {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 220px;
+}
+
+.txn-header-total {
+  min-width: 180px;
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .filter-tag {
@@ -340,13 +360,10 @@ h1 {
 .transactions-panel {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 280px);
 }
 
 .txn-table-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  overflow-y: visible;
   overflow-x: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -369,10 +386,41 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 10px;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.txn-footer-summary {
+  white-space: nowrap;
+}
+
+.txn-total {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.txn-total-label {
+  color: var(--ink);
+}
+
+.txn-total-value {
+  text-align: right;
+}
+
+.pagination-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 /* ── Tables ────────────────────────────────────────────────────────────────── */
@@ -516,8 +564,8 @@ tbody tr:hover {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 4px;
   vertical-align: middle;
+  flex-shrink: 0;
 }
 
 /* ── Category Breadcrumb ───────────────────────────────────────────────────── */
@@ -575,8 +623,17 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+.category-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .category-cell {
   display: block;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

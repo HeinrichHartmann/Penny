@@ -166,22 +166,32 @@
       <!-- Transaction Table -->
       <div class="panel transactions-panel">
         <div class="txn-header-bar">
-          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <div class="txn-header-main">
             <div class="txn-header">
               Transactions
-              <span class="sub" v-if="transactions">{{ visibleTransactions.length }} of {{ transactions.count }}</span>
+              <span class="sub" v-if="transactions">{{ transactions.count }} transactions</span>
             </div>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input v-model="searchQuery" type="text" placeholder="Search transactions…"
-              style="padding: 5px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.82rem; min-width: 200px;">
+          <div class="txn-header-search">
+            <input v-model="searchQuery" class="search-input" type="text" placeholder="Search transactions…">
+          </div>
+          <div class="txn-header-total">
+            <div v-if="transactions" class="txn-total">
+              <span class="txn-total-label">Total:</span>
+              <span
+                class="txn-total-value"
+                :style="{ color: transactions.total_cents >= 0 ? 'var(--income-color)' : '#c1121f' }"
+              >
+                {{ formatCurrency(transactions.total_cents) }}
+              </span>
+            </div>
           </div>
         </div>
         <div v-if="selectedCategory" class="filter-tag">
           Filtered by category: <code>{{ selectedCategory }}</code>
           <button @click="clearSelection()">clear</button>
         </div>
-        <div ref="transactionListEl" class="txn-table-wrap" @scroll="onTransactionScroll">
+        <div class="txn-table-wrap">
           <table>
             <thead>
               <tr>
@@ -212,8 +222,10 @@
                 <td class="desc-cell">{{ tx.description }}</td>
                 <td class="truncate-cell">{{ tx.merchant }}</td>
                 <td>
-                  <span class="cat-dot" :style="{ background: categoryColor(tx.category) || 'var(--muted)' }"></span>
-                  <span class="mono category-cell">{{ tx.category }}</span>
+                  <span class="category-entry">
+                    <span class="cat-dot" :style="{ background: categoryColor(tx.category) || 'var(--muted)' }"></span>
+                    <span class="mono category-cell">{{ tx.category }}</span>
+                  </span>
                 </td>
                 <td class="text-right" :style="{ color: tx.amount_cents >= 0 ? 'var(--income-color)' : '#c1121f' }">
                   {{ formatCurrency(tx.amount_cents) }}
@@ -223,9 +235,32 @@
           </table>
         </div>
         <div v-if="transactions" class="txn-footer">
-          <span>
-            Showing {{ visibleTransactions.length }} of {{ transactions.count }} transactions
+          <span class="txn-footer-summary">
+            Showing {{ transactionRangeStart }}-{{ transactionRangeEnd }} of {{ transactions.count }}
           </span>
+          <div class="pagination-controls" v-if="transactions.count > 0">
+            <button class="shortcut-btn" @click="goToTransactionPage(1)" :disabled="currentTransactionPage === 1">
+              First
+            </button>
+            <button class="shortcut-btn" @click="goToPreviousTransactionPage()" :disabled="currentTransactionPage === 1">
+              Prev
+            </button>
+            <button
+              v-for="page in transactionPageButtons"
+              :key="page"
+              class="shortcut-btn"
+              :class="{ active: currentTransactionPage === page }"
+              @click="goToTransactionPage(page)"
+            >
+              {{ page }}
+            </button>
+            <button class="shortcut-btn" @click="goToNextTransactionPage()" :disabled="currentTransactionPage === totalTransactionPages">
+              Next
+            </button>
+            <button class="shortcut-btn" @click="goToTransactionPage(totalTransactionPages)" :disabled="currentTransactionPage === totalTransactionPages">
+              Last
+            </button>
+          </div>
         </div>
       </div>
     </div>

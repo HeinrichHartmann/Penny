@@ -49,12 +49,11 @@ createApp({
     const pivotCopyLabel = ref('MD');
     const transactionsCopyLabel = ref('MD');
     const searchQuery = ref('');
-    const transactionListEl = ref(null);
-    const visibleTransactionCount = ref(250);
+    const currentTransactionPage = ref(1);
     const transactionSort = reactive({ key: 'booking_date', direction: 'desc' });
     const monthRangeAnchor = ref(null);
     let searchTimer = null;
-    const TRANSACTION_BATCH_SIZE = 250;
+    const TRANSACTIONS_PER_PAGE = 100;
 
     // Chart element refs
     const treemapEl = ref(null);
@@ -103,12 +102,9 @@ createApp({
 
     const { renderTreemap, renderSankey, renderBreakout } = chartManager;
 
-    // ── Transaction Window ───────────────────────────────────────────────────
-    const resetTransactionWindow = () => {
-      visibleTransactionCount.value = TRANSACTION_BATCH_SIZE;
-      nextTick(() => {
-        if (transactionListEl.value) transactionListEl.value.scrollTop = 0;
-      });
+    // ── Transaction Pagination ───────────────────────────────────────────────
+    const resetTransactionPagination = () => {
+      currentTransactionPage.value = 1;
     };
 
     // ── API ──────────────────────────────────────────────────────────────────
@@ -130,7 +126,7 @@ createApp({
       renderTreemap,
       renderSankey,
       renderBreakout,
-      resetTransactionWindow,
+      resetTransactionWindow: resetTransactionPagination,
       nextTick,
     });
 
@@ -237,9 +233,15 @@ createApp({
       return rows;
     });
 
+    const totalTransactionPages = computed(() => {
+      const rows = sortedTransactions.value;
+      return Math.max(1, Math.ceil(rows.length / TRANSACTIONS_PER_PAGE));
+    });
+
     const visibleTransactions = computed(() => {
       const rows = sortedTransactions.value;
-      return rows.slice(0, visibleTransactionCount.value);
+      const start = (currentTransactionPage.value - 1) * TRANSACTIONS_PER_PAGE;
+      return rows.slice(start, start + TRANSACTIONS_PER_PAGE);
     });
 
     const toggleTransactionSort = (key) => {
@@ -256,21 +258,39 @@ createApp({
       return transactionSort.direction === 'asc' ? '↑' : '↓';
     };
 
-    const growTransactionWindow = () => {
-      const rows = transactions.value?.transactions || [];
-      if (visibleTransactionCount.value >= rows.length) return;
-      visibleTransactionCount.value = Math.min(
-        rows.length,
-        visibleTransactionCount.value + TRANSACTION_BATCH_SIZE
+    const transactionRangeStart = computed(() => {
+      if (!transactions.value?.count) return 0;
+      return (currentTransactionPage.value - 1) * TRANSACTIONS_PER_PAGE + 1;
+    });
+
+    const transactionRangeEnd = computed(() => {
+      if (!transactions.value?.count) return 0;
+      return Math.min(
+        transactions.value.count,
+        currentTransactionPage.value * TRANSACTIONS_PER_PAGE
       );
+    });
+
+    const goToTransactionPage = (page) => {
+      const nextPage = Math.min(Math.max(page, 1), totalTransactionPages.value);
+      currentTransactionPage.value = nextPage;
     };
 
-    const onTransactionScroll = (event) => {
-      const el = event.target;
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 160) {
-        growTransactionWindow();
+    const goToPreviousTransactionPage = () => goToTransactionPage(currentTransactionPage.value - 1);
+
+    const goToNextTransactionPage = () => goToTransactionPage(currentTransactionPage.value + 1);
+
+    const transactionPageButtons = computed(() => {
+      const total = totalTransactionPages.value;
+      if (total <= 7) {
+        return Array.from({ length: total }, (_, index) => index + 1);
       }
-    };
+
+      const start = Math.max(1, currentTransactionPage.value - 2);
+      const end = Math.min(total, start + 4);
+      const windowStart = Math.max(1, end - 4);
+      return Array.from({ length: end - windowStart + 1 }, (_, index) => windowStart + index);
+    });
 
     // ── Copy Functions ───────────────────────────────────────────────────────
     const copyReport = async () => {
@@ -371,6 +391,12 @@ createApp({
       searchTimer = setTimeout(() => loadTransactions(), 250);
     });
 
+    watch(totalTransactionPages, (pageCount) => {
+      if (currentTransactionPage.value > pageCount) {
+        currentTransactionPage.value = pageCount;
+      }
+    });
+
     watch(pivotDepth, () => {
       if (tab.value === 'expense' || tab.value === 'income') loadPivot();
     });
@@ -419,8 +445,7 @@ createApp({
       pivotCopyLabel,
       transactionsCopyLabel,
       searchQuery,
-      transactionListEl,
-      visibleTransactionCount,
+      currentTransactionPage,
       transactionSort,
       pivotDepth,
       breakoutGranularityMode,
@@ -464,11 +489,16 @@ createApp({
 
       // Transactions
       sortedTransactions,
+      totalTransactionPages,
+      transactionRangeStart,
+      transactionRangeEnd,
+      transactionPageButtons,
       visibleTransactions,
       toggleTransactionSort,
       transactionSortMarker,
-      onTransactionScroll,
-      growTransactionWindow,
+      goToTransactionPage,
+      goToPreviousTransactionPage,
+      goToNextTransactionPage,
 
       // Copy
       copyReport,
