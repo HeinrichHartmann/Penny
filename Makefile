@@ -7,13 +7,13 @@ dev: sync frontend-build
 # Run frontend development server with backend proxy (default web workflow)
 serve: sync frontend-install
 	@backend_pid=; \
-	uv run python -m penny.server & backend_pid=$$!; \
+	uv run python -c "from penny.server import run_server; run_server(port=8001)" & backend_pid=$$!; \
 	trap 'kill $$backend_pid' EXIT INT TERM; \
 	npm run dev
 
 # Run just the API/backend server for Vite-based development
 serve-api: sync
-	uv run python -m penny.server
+	uv run python -c "from penny.server import run_server; run_server(port=8001)"
 
 # Install frontend dependencies locally
 frontend-install:
@@ -36,7 +36,7 @@ web-open:
 
 # Open browser to Vite dev server
 web-open-dev:
-	open http://127.0.0.1:5173
+	open http://127.0.0.1:8000
 
 # Sync dependencies
 sync:
@@ -93,12 +93,12 @@ help:
 	@echo ""
 	@echo "  make dev       - Run Toga GUI in development mode"
 	@echo "  make serve     - Run Vite + backend with hot reload and open browser"
-	@echo "  make serve-api - Run just the backend API server for Vite dev"
+	@echo "  make serve-api - Run just the backend API server on http://127.0.0.1:8001"
 	@echo "  make dev-web   - Alias for make serve"
 	@echo "  make frontend-build - Build bundled frontend assets"
-	@echo "  make frontend-dev   - Run Vite dev server"
+	@echo "  make frontend-dev   - Run Vite dev server on http://127.0.0.1:8000"
 	@echo "  make web-open  - Open browser to http://127.0.0.1:8000"
-	@echo "  make web-open-dev - Open browser to http://127.0.0.1:5173"
+	@echo "  make web-open-dev - Open browser to http://127.0.0.1:8000"
 	@echo ""
 	@echo "Build Commands:"
 	@echo ""
