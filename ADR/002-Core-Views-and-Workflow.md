@@ -1,76 +1,173 @@
-# ADR-002: Core Views and Workflow
+# ADR-002: Product Positioning and Core Views
 
 ## Status
 Draft
 
-## Context
+---
 
-Penny needs a clear user workflow that guides non-technical users from raw bank data to actionable financial insights. The data source reality is that we don't have proper banking APIs - instead we have historic CSV files downloaded at irregular intervals with potential overlaps.
+# Part 1: Product Positioning and Design Principles
 
-## Taget Auidience
+## What Penny Is
 
-- Proficient non-technical users. Happy to download CSV files. 
-- Good in Excel. Never used a programming tool.
+Penny is **open source infrastructure for LLM-assisted personal finance**.
+
+- Self-hosted, installable application (macOS DMG)
+- Privacy-first: all data stays on your machine
+- CSV-based import with plugin architecture
+- LLM-friendly data formats for collaborative rule authoring
+- A viewer and dashboard - the intelligence lives in the human + LLM collaboration
+
+## What Penny Is Not
+
+- **Not a SaaS finance app** - no cloud, no subscription, no data sharing
+- **Not competing with YNAB/Mint** - different category entirely
+- **Not a bank sync tool** - deliberately CSV-only (see rationale below)
+- **Not a bookkeeping app** - no manual transaction entry
+- **Not a storage system** - users backup their own CSV files
+
+## Why CSV-Only: The Banking API Reality
+
+"Why not just sync with the bank?"
+
+| Approach | Reality |
+|----------|---------|
+| **FinTS/HBCI** | Ancient XML APIs, bank-specific implementations, frequently breaking, many banks dropping support |
+| **Sofortüberweisung/Klarna** | Credential sharing - requires your bank password |
+| **PSD2 "Open Banking"** | Banks implemented bare minimum, mostly payment initiation, not data export |
+| **finAPI, Plaid, Salt Edge** | Commercial SaaS - your data goes to their cloud |
+
+There is no legal, self-hosted, open source, multi-bank sync solution that actually works.
+
+CSV export is:
+- Available from every bank
+- Under user control
+- Privacy-preserving
+- Stable (formats rarely change)
+
+The friction of manual CSV download is a **constraint of the problem space**, not a design flaw.
+
+## Target Audience
+
+**Primary:** Privacy-conscious users comfortable with CSV exports who want consolidated financial visibility.
+
+**Realistic profile:**
+- Financially literate (understands budgets, categories, cash flow)
+- Willing to download CSV files monthly
+- Comfortable with file management (drag & drop)
+- May use LLM tools (Claude, ChatGPT) for assistance
+
+**Not the target:** Users who expect automatic bank sync or zero-friction onboarding.
 
 ## Value Proposition
 
-- **Escape ugly bank web interfaces** - consolidate finances across all accounts in one clean view
-- **Financial literacy** - understand family or small business finances like an accountant
-- **Know your numbers** - asset worth, cash flow, income sources, expense breakdown
-- **Top-down understanding** - see the full picture of money in and money out
-
-## Use Cases
-
-### Monthly Financial Review
-Sit down monthly (or weekly) for household financial planning, budgeting, and review. Penny facilitates this process with clear reports and budget tracking.
-
-### Tax Preparation
-Generate clean rundowns of income and expenses by category. Export-ready for accountants or tax software.
-
-### Budget Tracking
-Set spending targets, track against them, identify overruns early.
-
-## Success Criteria
-
-**The project succeeds when:** A non-technical but financially-literate user can perform monthly household financial planning using this App.
+- **Multi-bank consolidation** - all accounts in one view, across banks, over years
+- **Financial literacy** - understand household finances like an accountant
+- **Privacy** - no credentials shared, no data leaves your machine
+- **LLM-powered classification** - collaborate with AI to categorize transactions
+- **Tax preparation** - export clean category breakdowns for accountants
 
 ## Design Principles
 
-### What Penny Is
-- A **viewing and budgeting app** for personal finance
-- Consolidates CSV exports into a unified transaction view
-- Provides classification, reporting, and budget tracking
+### Bank Support = Plugin Problem
 
-### What Penny Is Not
-- **Not a storage system** - users must backup their original CSV files
-- **Not a bookkeeping app** - no data entry, no manual transaction creation
-- **Not a bank sync tool** - no API integrations, CSV-only
+Bank CSV parsing is a library problem, not an app problem.
 
-### Data Philosophy
-- **Best effort persistence** - SQLite in app folder, no guarantees
-- **Tombstone deletion** - "deleted" data is hidden, never truly removed
-- **No data correction UI** - if e.g. deduplication, or CSV parsing does not work, this is a bug to be fixed by the developer
+```
+penny-importers/
+├── comdirect.py      # Maintainer
+├── sparkasse.py      # Maintainer
+├── ing_diba.py       # Community
+├── n26.py            # Community
+└── us_chase.py       # Community
+```
+
+- Small Python files (~200 lines each)
+- Easy to write with LLM assistance
+- Community-contributable via open source repo
+- Users can drop custom parsers into a local folder
+
+**Initial support:** Comdirect, Sparkasse, one US bank.
+
+### Classification = LLM Collaboration Problem
+
+Classification is not a UI problem - it's a collaboration problem.
+
+**The workflow:**
+```
+1. Open Penny → Transactions view
+2. Export top 50 unclassified as Markdown
+3. Paste into Claude: "Write YAML classification rules for these"
+4. Claude generates rules
+5. Drop YAML into rules folder
+6. Penny hot-reloads → transactions classified
+7. Iterate
+```
+
+**Ship sensible defaults:**
+- German groceries (REWE, EDEKA, Aldi, Lidl)
+- Common merchants (Amazon, PayPal, DHL)
+- Standard categories (Food, Transport, Housing, etc.)
+
+But the power is in the iterative refinement loop with an LLM.
+
+### CLI as First-Class Citizen
+
+The `penny` CLI shares state with the GUI app:
+
+```bash
+penny import ~/Downloads/comdirect-export.csv
+penny transactions --unclassified --limit 50 --format markdown
+penny rules reload
+penny report --month 2024-03
+```
+
+This enables:
+- Claude Code can directly read transactions, write rules
+- Scriptable workflows
+- Power users get full control
+- GUI is for viewing, CLI is for authoring
+
+**Distribution:** CLI installable alongside DMG, or via `uv tool install`.
 
 ### LLM-Friendliness
 
 Design for AI co-creation from the start:
 
-- **Markdown exports** - every view has quick copy-to-clipboard as Markdown
-- **YAML/XML for rules** - classification rules stored as human-readable YAML on filesystem
-  - Easy to copy into Claude Code for revision
-  - Easy to version control
-  - Reload-on-change in UI
-- **Readable database** - SQLite schema designed for LLM comprehension
-  - Clear table/column names
-  - Useful views pre-defined
+- **Markdown exports** - every view has copy-to-clipboard as Markdown
+- **YAML rules** - human-readable, LLM-writable classification rules on filesystem
+- **Readable database** - SQLite with clear table/column names, useful views pre-defined
+- **Hot reload** - edit rules externally, Penny picks up changes
 - **MCP integration path** - architecture supports future Model Context Protocol server
-- **Snapshot/rollback** - internal versioning of rules for safe experimentation
 
-**Beta workflow:** User edits YAML rules files directly (or with Claude Code), Penny watches and reloads.
+### Data Philosophy
+
+- **Best effort persistence** - SQLite in app folder, no guarantees
+- **Tombstone deletion** - "deleted" data is hidden, never truly removed
+- **No data correction UI** - parsing bugs are fixed in code, not worked around in UI
+- **Source of truth** - original CSV files, not the database
+
+---
+
+# Part 2: Views and Workflow
+
+## Success Criteria
+
+**The project succeeds when:** A privacy-conscious, financially-literate user can perform monthly household financial review using Penny + an LLM for rule authoring.
+
+## Use Cases
+
+### Monthly Financial Review
+Sit down monthly for household financial planning. Import latest CSVs, review categorized transactions, check reports.
+
+### Tax Preparation
+Generate clean rundowns of income and expenses by category. Export as Markdown or CSV for accountants.
+
+### Budget Tracking (v2)
+Set spending targets, track against them, identify overruns early.
 
 ## Navigation Model
 
-**Tabs, not a wizard.** The workflow describes a logical progression, but users can navigate freely between views at any time. Importing new CSVs doesn't reset the flow - new transactions appear in existing views automatically.
+**Tabs, not a wizard.** Users navigate freely between views. Importing new CSVs doesn't reset flow - new transactions appear automatically.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -93,10 +190,10 @@ Design for AI co-creation from the start:
 - Support multiple files from different banks
 - Files may have overlapping date ranges (deduplication handled internally)
 
-**CSV Format Discovery:**
-- Dispatch on headers - library-shaped problem
-- Detect bank from CSV structure (column names, format patterns)
-- Leverage existing libraries where possible
+**Bank Detection:**
+- Plugin system dispatches on headers/structure
+- Each importer declares what patterns it recognizes
+- Unrecognized formats show clear error with guidance
 
 **Account Identity Resolution:**
 - Primary signal: IBAN from CSV header
@@ -106,11 +203,10 @@ Design for AI co-creation from the start:
 
 **UI Elements:**
 - Drop zone with visual feedback
-- Import progress spinner
-- Warning/error messages for:
-  - Unrecognized CSV formats
-  - Parsing errors
+- Import progress indicator
+- Warning/error messages for parsing issues
 - Import history/log
+- "Export unrecognized sample" button (for community parser development)
 
 ### 2. Accounts View
 
@@ -122,105 +218,71 @@ Design for AI co-creation from the start:
 | Bank Institute | e.g., "Comdirect" | Inferred from CSV format |
 | Account Holder | Owner name(s) | CSV header |
 | Account ID | IBAN or account number | CSV header |
-| Account Type | Giro, Credit Card, Savings (Tagesgeld) | Inferred |
-| Latest Balance | Most recent known balance | CSV header (date-specific) |
-| Balance Date | When the balance was recorded | CSV header |
+| Account Type | Giro, Credit Card, Savings | Inferred |
+| Latest Balance | Most recent known balance | CSV header |
+| Balance Date | When balance was recorded | CSV header |
 | Import Age | Time since last CSV import | Computed |
-| Status | Active / Hidden (tombstone) | User-controlled |
+| Status | Active / Hidden | User-controlled |
 
 **UI Elements:**
 - Card-style layout (one card per account)
-- Account icon/badge by type
-- Balance display (prominent, with "as of" date)
+- Balance display with "as of" date
 - "Last updated X days ago" indicator
-- Controls:
-  - Hide account (tombstone - removes from all views)
-  - View account details/transactions
+- Hide account action (tombstone)
 
 **Scope:**
 - Cash-valued accounts only (Giro, Credit Card, Savings)
 - Stock portfolios excluded for v1
-- Sub-accounts (e.g., Giro + Visa + Tagesgeld from same bank) shown as separate cards
-
-**Balance Handling:**
-- Extract from CSV header when available
-- Show "Unknown" gracefully when not available
-- Future: compute running balance from transactions (not v1)
 
 ### 3. Transactions View
 
 **Purpose:** Consolidated list of all transactions across all accounts.
 
 **UI Elements:**
-- Table/list view with columns:
-  - Date
-  - Account (source)
-  - Description/Reference
-  - Amount
-  - Category (from classification)
-- Filtering:
-  - By date range
-  - By account
-  - By category
-  - By amount range
-  - Text search
+- Table with columns: Date, Account, Description, Amount, Category
+- Filtering: date range, account, category, amount range, text search
 - Sorting by any column
-- Pagination or virtual scrolling for large datasets
+- Pagination or virtual scrolling
+
+**Key Feature: Markdown Export**
+- "Copy as Markdown" button
+- Exports filtered/selected transactions
+- Designed for pasting into LLM conversations
+- Includes column headers, aligned formatting
 
 **Data Flow:**
 - Aggregates transactions from all imported CSVs
-- Automatic deduplication (same-bank overlapping imports)
-- Classification column populated by rules engine
+- Automatic deduplication
+- Classification populated by rules engine
 - Hidden accounts excluded
 
-### 4. Classification Rules View
+### 4. Rules View
 
-**Purpose:** Gmail filter-style UI for categorizing transactions.
+**Purpose:** View and manage classification rules.
 
-**Reference UI:** Gmail Filters - proven, familiar pattern.
+**Primary workflow:** Rules are authored externally (text editor, Claude Code) and hot-reloaded.
 
-**Concept:**
-- Rules match transactions based on conditions
-- Each rule assigns a category from taxonomy
-- Rules have priority order (first match wins)
-- Manual override per-transaction supported
+**UI provides:**
+- List of active rules with match counts
+- Enable/disable toggle per rule
+- "Open rules folder" button
+- "Reload rules" button
+- Validation errors displayed clearly
 
-**Rule Structure:**
-```
-IF <conditions> THEN category = <category>
-```
+**Rule format:** YAML files in rules folder (see ADR-003).
 
-**Condition Types:**
-- Description contains/matches (regex)
-- Amount range
-- Account
-- Counterparty/IBAN
-
-**UI Elements:**
-- List of rules with:
-  - Condition summary
-  - Assigned category
-  - Match count (how many transactions)
-  - Enable/disable toggle
-  - Edit/delete actions
-- "Add Rule" button
-- Rule editor modal/panel
-- Test rule against transactions
-- Drag-and-drop reordering (priority)
+**Starter rules:** Ship with defaults for common merchants:
+- German groceries: REWE, EDEKA, Aldi, Lidl, dm, Rossmann
+- Online: Amazon, PayPal, eBay
+- Transport: Deutsche Bahn, Shell, Aral
+- Subscriptions: Netflix, Spotify, Apple
 
 **Category Taxonomy:**
-- Predefined starter categories
-- User can add custom categories
 - Hierarchical (e.g., Food > Groceries, Food > Restaurants)
+- Predefined starter set
+- User-extensible via YAML
 
-**Integration:**
-- Adds "Category" column to Transactions View
-- Unclassified transactions shown with empty/default category
-- Manual override: user can set category directly on transaction (overrides rules)
-
-**Details:** See ADR-003 (Classification Rules) for full specification.
-
-### 5. Finance Report View
+### 5. Reports View
 
 **Purpose:** Visual financial analysis dashboard.
 
@@ -234,20 +296,22 @@ IF <conditions> THEN category = <category>
 - Top merchants/payees
 - Configurable date range
 
+**Export:** "Copy as Markdown" for sharing with LLMs or others.
+
 ### 6. Budget View (v2)
 
-**Purpose:** Set and track spending budgets.
-
-**Budget Definition:**
-- Per expense category
-- Time granularity: Annual / Monthly / Weekly
-- Target amount
-
-**UI Elements:**
-- Budget cards per category
-- Progress bars (spent vs. budget)
-- Period selector (this month, this year, custom)
-- Alerts for over-budget categories
-- Historical tracking (how did we do last month?)
-
 **Deferred to v2.**
+
+**Planned:**
+- Budget targets per expense category
+- Progress tracking (spent vs. budget)
+- Period selector (month, year, custom)
+- Over-budget alerts
+
+---
+
+## Open Items
+
+- [ ] ADR-003: Classification Rules format specification
+- [ ] Define penny-importers plugin API
+- [ ] CLI command specification
