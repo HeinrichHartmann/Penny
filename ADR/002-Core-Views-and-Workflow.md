@@ -14,7 +14,25 @@ Penny needs a clear user workflow that guides non-technical users from raw bank 
 
 ## Value Proposition
 
-- 
+- **Escape ugly bank web interfaces** - consolidate finances across all accounts in one clean view
+- **Financial literacy** - understand family or small business finances like an accountant
+- **Know your numbers** - asset worth, cash flow, income sources, expense breakdown
+- **Top-down understanding** - see the full picture of money in and money out
+
+## Use Cases
+
+### Monthly Financial Review
+Sit down monthly (or weekly) for household financial planning, budgeting, and review. Penny facilitates this process with clear reports and budget tracking.
+
+### Tax Preparation
+Generate clean rundowns of income and expenses by category. Export-ready for accountants or tax software.
+
+### Budget Tracking
+Set spending targets, track against them, identify overruns early.
+
+## Success Criteria
+
+**The project succeeds when:** A non-technical but financially-literate user can perform monthly household financial planning using this App.
 
 ## Design Principles
 
@@ -31,8 +49,24 @@ Penny needs a clear user workflow that guides non-technical users from raw bank 
 ### Data Philosophy
 - **Best effort persistence** - SQLite in app folder, no guarantees
 - **Tombstone deletion** - "deleted" data is hidden, never truly removed
-- **No data correction UI** - if e.g. deduplication, or CSV parsing does not work, this is a bug to be fixed by the developer. 
+- **No data correction UI** - if e.g. deduplication, or CSV parsing does not work, this is a bug to be fixed by the developer
 
+### LLM-Friendliness
+
+Design for AI co-creation from the start:
+
+- **Markdown exports** - every view has quick copy-to-clipboard as Markdown
+- **YAML/XML for rules** - classification rules stored as human-readable YAML on filesystem
+  - Easy to copy into Claude Code for revision
+  - Easy to version control
+  - Reload-on-change in UI
+- **Readable database** - SQLite schema designed for LLM comprehension
+  - Clear table/column names
+  - Useful views pre-defined
+- **MCP integration path** - architecture supports future Model Context Protocol server
+- **Snapshot/rollback** - internal versioning of rules for safe experimentation
+
+**Beta workflow:** User edits YAML rules files directly (or with Claude Code), Penny watches and reloads.
 
 ## Navigation Model
 
