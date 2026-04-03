@@ -5,6 +5,8 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Optional
+import sqlite3
+from collections import defaultdict
 
 app = FastAPI(title="Penny")
 
@@ -14,60 +16,51 @@ STATIC_DIR = Path(__file__).parent / "static"
 # Mount static files
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+# Database path - look for demo.db in project root
+DB_PATH = Path(__file__).parent.parent.parent / "demo.db"
 
-# ── Mock Data ────────────────────────────────────────────────────────────────
+def get_db():
+    """Get database connection."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-MOCK_ACCOUNTS = ["private", "shared"]
-MOCK_MIN_DATE = "2023-01-01"
-MOCK_MAX_DATE = "2024-12-31"
 
-MOCK_TRANSACTIONS = [
-    {
-        "fp": "abc123",
-        "booking_date": "2024-03-15",
-        "account": "private",
-        "description": "REWE SAGT DANKE",
-        "merchant": "REWE",
-        "category": "food/groceries",
-        "amount_cents": -4523,
-    },
-    {
-        "fp": "def456",
-        "booking_date": "2024-03-14",
-        "account": "private",
-        "description": "GEHALT MAERZ",
-        "merchant": "Employer",
-        "category": "salary",
-        "amount_cents": 350000,
-    },
-    {
-        "fp": "ghi789",
-        "booking_date": "2024-03-13",
-        "account": "shared",
-        "description": "AMAZON EU",
-        "merchant": "Amazon",
-        "category": "shopping/online",
-        "amount_cents": -2999,
-    },
-    {
-        "fp": "jkl012",
-        "booking_date": "2024-03-12",
-        "account": "private",
-        "description": "SHELL TANKSTELLE",
-        "merchant": "Shell",
-        "category": "transport/fuel",
-        "amount_cents": -6500,
-    },
-    {
-        "fp": "mno345",
-        "booking_date": "2024-03-11",
-        "account": "private",
-        "description": "NETFLIX",
-        "merchant": "Netflix",
-        "category": "subscriptions/streaming",
-        "amount_cents": -1299,
-    },
-]
+# ── Helper Functions ────────────────────────────────────────────────────────
+
+def apply_filters(query, params, from_date=None, to_date=None, accounts=None, neutralize=True, category=None, q=None):
+    """Apply common filters to a query."""
+    conditions = []
+
+    if from_date:
+        conditions.append("booking_date >= ?")
+        params.append(from_date)
+
+    if to_date:
+        conditions.append("booking_date <= ?")
+        params.append(to_date)
+
+    if accounts:
+        account_list = accounts.split(',')
+        placeholders = ','.join('?' * len(account_list))
+        conditions.append(f"account IN ({placeholders})")
+        params.extend(account_list)
+
+    if neutralize:
+        conditions.append("(neutralization_id IS NULL OR neutralization_id = '')")
+
+    if category:
+        conditions.append("category LIKE ?")
+        params.append(f"{category}%")
+
+    if q:
+        conditions.append("(description LIKE ? OR merchant LIKE ? OR category LIKE ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    return query
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────────
@@ -88,10 +81,25 @@ async def health():
 @app.get("/api/meta")
 async def meta():
     """Return metadata about available data."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Get distinct accounts
+    accounts = [row[0] for row in cursor.execute(
+        "SELECT DISTINCT account FROM transactions ORDER BY account"
+    ).fetchall()]
+
+    # Get date range
+    date_range = cursor.execute(
+        "SELECT MIN(booking_date), MAX(booking_date) FROM transactions"
+    ).fetchone()
+
+    conn.close()
+
     return {
-        "accounts": MOCK_ACCOUNTS,
-        "min_date": MOCK_MIN_DATE,
-        "max_date": MOCK_MAX_DATE,
+        "accounts": accounts,
+        "min_date": date_range[0] if date_range[0] else "2024-01-01",
+        "max_date": date_range[1] if date_range[1] else "2026-12-31",
     }
 
 
@@ -103,12 +111,21 @@ async def summary(
     neutralize: bool = Query(True),
 ):
     """Return expense/income summary."""
-    # Filter mock transactions
-    expenses = [t for t in MOCK_TRANSACTIONS if t["amount_cents"] < 0]
-    income = [t for t in MOCK_TRANSACTIONS if t["amount_cents"] > 0]
+    conn = get_db()
+    cursor = conn.cursor()
 
-    expense_total = sum(t["amount_cents"] for t in expenses)
-    income_total = sum(t["amount_cents"] for t in income)
+    params = []
+    query = "SELECT amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize)
+
+    transactions = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    expenses = [t[0] for t in transactions if t[0] < 0]
+    income = [t[0] for t in transactions if t[0] > 0]
+
+    expense_total = sum(expenses) if expenses else 0
+    income_total = sum(income) if income else 0
 
     return {
         "expense": {
@@ -345,24 +362,38 @@ async def transactions(
     q: Optional[str] = Query(None),
 ):
     """Return filtered transaction list."""
-    txns = MOCK_TRANSACTIONS.copy()
+    conn = get_db()
+    cursor = conn.cursor()
+
+    params = []
+    query = "SELECT fp, booking_date, account, description, merchant, category, amount_cents FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     # Filter by tab (expense/income)
     if tab == "expense":
-        txns = [t for t in txns if t["amount_cents"] < 0]
+        query += " AND " if " WHERE " in query else " WHERE "
+        query += "amount_cents < 0"
     elif tab == "income":
-        txns = [t for t in txns if t["amount_cents"] > 0]
+        query += " AND " if " WHERE " in query else " WHERE "
+        query += "amount_cents > 0"
 
-    # Filter by category
-    if category:
-        txns = [t for t in txns if t["category"].startswith(category)]
+    query += " ORDER BY booking_date DESC"
 
-    # Filter by search query
-    if q:
-        q_lower = q.lower()
-        txns = [t for t in txns if q_lower in t["description"].lower()
-                or q_lower in t["merchant"].lower()
-                or q_lower in t["category"].lower()]
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    txns = [
+        {
+            "fp": row[0],
+            "booking_date": row[1],
+            "account": row[2],
+            "description": row[3],
+            "merchant": row[4] or "",
+            "category": row[5] or "uncategorized",
+            "amount_cents": row[6],
+        }
+        for row in rows
+    ]
 
     total_cents = sum(t["amount_cents"] for t in txns)
 
