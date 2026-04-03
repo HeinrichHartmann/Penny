@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import re
+from datetime import datetime
 
 from penny.import_.base import DetectionResult, ParserModule
 from penny.import_.parsers.buchungstext import extract_memo, extract_payee, extract_reference
@@ -76,7 +77,10 @@ class ComdirectParser(ParserModule):
         for section_header, section_content in self._split_sections(content):
             subaccount = self._detect_subaccount(section_header)
             rows = self._read_section_rows(section_content)
-            header_index, headers = self._find_header_row(rows)
+            header = self._find_header_row(rows)
+            if header is None:
+                continue
+            header_index, headers = header
             for raw_row in rows[header_index + 1 :]:
                 row = self._row_to_dict(headers, raw_row)
                 transaction = self._parse_row(row, account_id=account_id, subaccount=subaccount)
@@ -117,17 +121,48 @@ class ComdirectParser(ParserModule):
         return "giro"
 
     def _read_section_rows(self, section_content: str) -> list[list[str]]:
-        return [
+        rows = [
             [cell.strip() for cell in row]
             for row in csv.reader(section_content.splitlines(), delimiter=";")
             if row
         ]
+        return self._normalize_multiline_rows(rows)
 
-    def _find_header_row(self, rows: list[list[str]]) -> tuple[int, list[str]]:
+    def _normalize_multiline_rows(self, rows: list[list[str]]) -> list[list[str]]:
+        normalized: list[list[str]] = []
+        pending_booking_date: str | None = None
+
+        for row in rows:
+            if self._is_date_only_row(row):
+                pending_booking_date = row[0]
+                continue
+
+            if pending_booking_date is not None and row and row[0] == "neu":
+                normalized.append([pending_booking_date, *row[1:]])
+                pending_booking_date = None
+                continue
+
+            pending_booking_date = None
+            normalized.append(row)
+
+        return normalized
+
+    def _is_date_only_row(self, row: list[str]) -> bool:
+        if len(row) != 2 or row[1] != "":
+            return False
+
+        try:
+            datetime.strptime(row[0], "%d.%m.%Y")
+        except ValueError:
+            return False
+
+        return True
+
+    def _find_header_row(self, rows: list[list[str]]) -> tuple[int, list[str]] | None:
         for index, row in enumerate(rows):
             if "Buchungstag" in row and "Umsatz in EUR" in row:
                 return index, row
-        raise ValueError("Could not find Comdirect header row")
+        return None
 
     def _row_to_dict(self, headers: list[str], row: list[str]) -> dict[str, str]:
         values = row + [""] * max(0, len(headers) - len(row))
