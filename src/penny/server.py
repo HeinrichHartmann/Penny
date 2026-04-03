@@ -1,7 +1,7 @@
 """FastAPI web server for Penny."""
 
 from pathlib import Path
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Optional
@@ -10,11 +10,14 @@ from collections import defaultdict
 
 app = FastAPI(title="Penny")
 
-# Get the static directory path
+# Frontend paths
 STATIC_DIR = Path(__file__).parent / "static"
+FRONTEND_DIST_DIR = STATIC_DIR / "dist"
+FRONTEND_INDEX_PATH = FRONTEND_DIST_DIR / "index.html"
 
-# Mount static files
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Mount frontend asset directories
+app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets", check_dir=False), name="assets")
+app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
 # Database path - look for demo.db in project root
 DB_PATH = Path(__file__).parent.parent.parent / "demo.db"
@@ -68,8 +71,13 @@ def apply_filters(query, params, from_date=None, to_date=None, accounts=None, ne
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve the main HTML page."""
-    html_path = STATIC_DIR / "index.html"
-    return HTMLResponse(content=html_path.read_text())
+    if not FRONTEND_INDEX_PATH.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend bundle is missing. Run `make frontend-build` before starting Penny.",
+        )
+
+    return HTMLResponse(content=FRONTEND_INDEX_PATH.read_text())
 
 
 @app.get("/api/health")

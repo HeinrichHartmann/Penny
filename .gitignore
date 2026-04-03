@@ -2,6 +2,8 @@
 build/
 dist/
 .briefcase/
+node_modules/
+src/penny/static/dist/
 
 # Python
 __pycache__/

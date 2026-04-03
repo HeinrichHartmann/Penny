@@ -1,12 +1,24 @@
-.PHONY: dev serve web-open app app-open build clean install sync test
+.PHONY: dev serve web-open app app-open build clean install sync test frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
-dev: sync
+dev: sync frontend-build
 	uv run python -m penny
 
 # Run just the web server (no GUI)
-serve: sync
+serve: sync frontend-build
 	uv run python -m penny.server
+
+# Install frontend dependencies locally
+frontend-install:
+	npm ci
+
+# Build frontend assets with Vite
+frontend-build: frontend-install
+	npm run build
+
+# Run Vite dev server directly
+frontend-dev: frontend-install
+	npm run dev
 
 # Open browser to dev server
 web-open:
@@ -17,7 +29,7 @@ sync:
 	uv sync
 
 # Install development dependencies including briefcase
-install:
+install: frontend-install
 	uv sync --group dev
 
 # Build macOS app (alias for build)
@@ -28,7 +40,7 @@ app-open:
 	open "build/penny/macos/app/Penny.app"
 
 # Build macOS app using briefcase
-build: install
+build: install frontend-build
 	@echo "Building macOS app..."
 	yes | uv run python -m briefcase create macOS app
 	uv run python -m briefcase build macOS app
@@ -40,11 +52,11 @@ build: install
 	@ls -la dist/*.dmg 2>/dev/null || true
 
 # Build without packaging (faster iteration)
-build-dev: install
+build-dev: install frontend-build
 	uv run python -m briefcase dev
 
 # Update existing build (faster than full rebuild)
-update: install
+update: install frontend-build
 	uv run python -m briefcase update macOS app
 	uv run python -m briefcase build macOS app
 
@@ -67,6 +79,8 @@ help:
 	@echo ""
 	@echo "  make dev       - Run Toga GUI in development mode"
 	@echo "  make serve     - Run just the web server (no GUI)"
+	@echo "  make frontend-build - Build bundled frontend assets"
+	@echo "  make frontend-dev   - Run Vite dev server"
 	@echo "  make web-open  - Open browser to http://127.0.0.1:8000"
 	@echo ""
 	@echo "Build Commands:"

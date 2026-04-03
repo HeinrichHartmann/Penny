@@ -19,13 +19,10 @@
 
             # Package management
             uv
+            nodejs_22
 
             # For briefcase / native app building
             # macOS-specific dependencies handled by briefcase
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            # macOS specific
-            darwin.apple_sdk.frameworks.Cocoa
-            darwin.apple_sdk.frameworks.WebKit
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # Linux specific (for tkinter)
             tk
@@ -36,8 +33,11 @@
             echo "Penny development environment"
             echo "Python: $(python --version)"
             echo "UV: $(uv --version)"
+            echo "Node: $(node --version)"
+            echo "npm: $(npm --version)"
             echo ""
             echo "Commands:"
+            echo "  make frontend-build - Build bundled frontend assets"
             echo "  make dev    - Run development server"
             echo "  make app    - Build macOS app"
             echo ""

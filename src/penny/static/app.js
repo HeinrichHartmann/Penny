@@ -1,4 +1,5 @@
-const { createApp, ref, reactive, watch, onMounted, nextTick, computed } = Vue;
+import { computed, createApp, nextTick, onMounted, reactive, ref, watch } from 'vue/dist/vue.esm-bundler.js';
+import * as echarts from 'echarts';
 
 createApp({
   setup() {
