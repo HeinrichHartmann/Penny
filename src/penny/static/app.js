@@ -3,6 +3,7 @@ const { createApp, ref, reactive, watch, onMounted, nextTick, computed } = Vue;
 createApp({
   setup() {
     // ── State ────────────────────────────────────────────────────────
+    const view = ref('report'); // Main navigation: import, accounts, transactions, classify, report
     const meta = reactive({ accounts: [], min_date: '', max_date: '' });
     const filters = reactive({
       from: '',
@@ -84,6 +85,15 @@ createApp({
       filters.from = meta.min_date;
       filters.to = meta.max_date;
       monthRangeAnchor.value = null;
+    }
+
+    function toggleAccount(account) {
+      const index = filters.accounts.indexOf(account);
+      if (index === -1) {
+        filters.accounts.push(account);
+      } else {
+        filters.accounts.splice(index, 1);
+      }
     }
 
     const monthButtons = [
@@ -738,17 +748,20 @@ createApp({
       for (let y = minY; y <= maxY; y++) yrs.push(y);
       yearButtons.value = yrs;
 
-      filters.from = m.min_date;
-      filters.to = m.max_date;
+      // Default to last full year
+      const currentYear = new Date().getFullYear();
+      const lastFullYear = currentYear - 1;
+      filters.from = `${lastFullYear}-01-01`;
+      filters.to = `${lastFullYear}-12-31`;
       filters.accounts = [...m.accounts];
       filters.neutralize = true;
     });
 
     // ── Expose ───────────────────────────────────────────────────────
     return {
-      meta, filters, tab, summary, tree, pivot, cashflow, breakout, transactions,
+      view, meta, filters, tab, summary, tree, pivot, cashflow, breakout, transactions,
       selectedCategory, treemapEl, sankeyEl, breakoutEl, fmt,
-      yearButtons, setYear, setAll, clearSelection, categoryColor, isActiveYear,
+      yearButtons, setYear, setAll, toggleAccount, clearSelection, categoryColor, isActiveYear,
       monthButtons, monthShortcutYear, setMonth, setYearAllMonths, isActiveMonth,
       breakoutGranularityMode, breakoutGranularity, breakoutGranularityLabel,
       breakoutNet, breakoutNetByPeriod, fmtCompactSigned,
