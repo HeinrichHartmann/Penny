@@ -1,9 +1,9 @@
-"""Simple FastAPI web server for F4U."""
+"""Simple FastAPI web server for Penny."""
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-app = FastAPI(title="F4U - Finance For You")
+app = FastAPI(title="Penny")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -12,7 +12,7 @@ async def root():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>F4U - Finance For You</title>
+        <title>Penny</title>
         <style>
             body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -43,8 +43,8 @@ async def root():
     </head>
     <body>
         <div class="container">
-            <h1>F4U</h1>
-            <p>Finance For You</p>
+            <h1>Penny</h1>
+            <p>Personal Finance Tracker</p>
             <div class="status">
                 Server is running
             </div>

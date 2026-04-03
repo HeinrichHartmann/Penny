@@ -1,4 +1,4 @@
-# ADR-001: F4U Application Design
+# ADR-001: Penny Application Design
 
 ## Status
 Accepted
@@ -7,7 +7,7 @@ Accepted
 
 ### Provenance
 
-F4U builds upon two existing, proven components that have been developed and refined over time:
+Penny builds upon two existing, proven components that have been developed and refined over time:
 
 **1. Bank-csv-2-db** - CSV Export Processing
 - Transforms Comdirect bank CSV exports into standardized Parquet format
@@ -33,6 +33,17 @@ Create a user-friendly desktop application targeting the **Accountant Persona**:
 - No command-line or developer tool experience
 - Expects standard desktop application behavior
 - Needs clear visual feedback and intuitive workflows
+
+### Naming
+
+**Penny** - Named after the character from The Big Bang Theory.
+
+Future components may follow the theme:
+- **Sheldon** - Classification engine (rigid, rule-based)
+- **Howard** - Import system (engineering)
+- **Leonard** - Reports (sensible overview)
+
+CLI command: `penny`
 
 ## Decision
 
@@ -85,7 +96,7 @@ The application MUST be installable without external dependencies:
 
 **Architecture:**
 ```
-F4U.app launches
+Penny.app launches
     → Native Toga window appears ("Open Dashboard" button)
     → FastAPI server starts on localhost:8000
     → Browser auto-opens to dashboard
@@ -115,12 +126,12 @@ F4U.app launches
 
 **Result:**
 - Bundle size: ~33 MB (acceptable)
-- Build command: `make build`
-- Output: `dist/Finance For You-0.1.0.dmg`
+- Build command: `make app`
+- Output: `dist/Penny-0.1.0.dmg`
 
 ## Consequences
 
-- Users can install F4U like any standard macOS application
+- Users can install Penny like any standard macOS application
 - Development must include packaging/distribution workflow
 - Updates may require re-download of full DMG (no auto-update initially)
 - Testing must cover fresh macOS installs without developer tools

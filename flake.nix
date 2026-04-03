@@ -1,5 +1,5 @@
 {
-  description = "F4U - Finance For You development environment";
+  description = "Penny - Personal finance tracking and analysis";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -33,13 +33,13 @@
           ];
 
           shellHook = ''
-            echo "F4U development environment"
+            echo "Penny development environment"
             echo "Python: $(python --version)"
             echo "UV: $(uv --version)"
             echo ""
             echo "Commands:"
             echo "  make dev    - Run development server"
-            echo "  make build  - Build macOS app"
+            echo "  make app    - Build macOS app"
             echo ""
           '';
         };

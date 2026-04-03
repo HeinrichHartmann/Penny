@@ -2,11 +2,11 @@
 
 # Development - run Toga GUI locally
 dev: sync
-	uv run python -m f4u
+	uv run python -m penny
 
 # Run just the web server (no GUI)
 serve: sync
-	uv run python -m f4u.server
+	uv run python -m penny.server
 
 # Open browser to dev server
 web-open:
@@ -25,7 +25,7 @@ app: build
 
 # Open the built app
 app-open:
-	open "build/f4u/macos/app/Finance For You.app"
+	open "build/penny/macos/app/Penny.app"
 
 # Build macOS app using briefcase
 build: install
@@ -35,7 +35,7 @@ build: install
 	uv run briefcase package macOS app --adhoc-sign
 	@echo ""
 	@echo "Build complete!"
-	@echo "  App:  build/f4u/macos/app/Finance For You.app"
+	@echo "  App:  build/penny/macos/app/Penny.app"
 	@echo "  DMG:  dist/"
 	@ls -la dist/*.dmg 2>/dev/null || true
 
@@ -53,7 +53,7 @@ clean:
 	rm -rf build/
 	rm -rf dist/
 	rm -rf .briefcase/
-	rm -rf __pycache__ src/f4u/__pycache__
+	rm -rf __pycache__ src/penny/__pycache__
 	rm -rf *.egg-info
 	@echo "Cleaned build artifacts"
 
@@ -63,7 +63,7 @@ test: sync
 
 # Show help
 help:
-	@echo "F4U Development Commands:"
+	@echo "Penny Development Commands:"
 	@echo ""
 	@echo "  make dev       - Run Toga GUI in development mode"
 	@echo "  make serve     - Run just the web server (no GUI)"

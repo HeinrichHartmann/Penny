@@ -1,4 +1,4 @@
-"""Native Toga launcher for F4U.
+"""Native Toga launcher for Penny.
 
 Provides a native macOS/Linux window that:
 1. Starts the FastAPI server in a background thread
@@ -18,7 +18,7 @@ PORT = 8000
 URL = f"http://{HOST}:{PORT}"
 
 
-class F4UApp(toga.App):
+class PennyApp(toga.App):
     def startup(self):
         self.server_running = False
 
@@ -49,11 +49,11 @@ class F4UApp(toga.App):
         box = toga.Box(
             children=[
                 toga.Label(
-                    "F4U",
+                    "Penny",
                     style=Pack(padding=(30, 10), text_align=CENTER, font_size=24, font_weight="bold")
                 ),
                 toga.Label(
-                    "Finance For You",
+                    "Personal Finance Tracker",
                     style=Pack(padding=(0, 10), text_align=CENTER)
                 ),
                 self.status_label,
@@ -73,7 +73,7 @@ class F4UApp(toga.App):
         """Start the FastAPI server in a background thread."""
         def run():
             import uvicorn
-            from f4u.server import app
+            from penny.server import app
             uvicorn.run(
                 app,
                 host=HOST,
@@ -110,10 +110,10 @@ class F4UApp(toga.App):
 
 def main():
     """Entry point for the application."""
-    return F4UApp(
-        formal_name="Finance For You",
-        app_id="com.hartmann.f4u",
-        app_name="f4u"
+    return PennyApp(
+        formal_name="Penny",
+        app_id="com.hartmann.penny",
+        app_name="penny"
     )
 
 
