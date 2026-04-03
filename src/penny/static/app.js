@@ -748,11 +748,16 @@ createApp({
       for (let y = minY; y <= maxY; y++) yrs.push(y);
       yearButtons.value = yrs;
 
-      // Default to last full year
-      const currentYear = new Date().getFullYear();
-      const lastFullYear = currentYear - 1;
-      filters.from = `${lastFullYear}-01-01`;
-      filters.to = `${lastFullYear}-12-31`;
+      // Default to last complete month in the dataset
+      const maxDate = new Date(m.max_date);
+      // Go back to the first day of the current month in max_date
+      const lastMonth = new Date(maxDate.getFullYear(), maxDate.getMonth() - 1, 1);
+      const year = lastMonth.getFullYear();
+      const month = lastMonth.getMonth() + 1; // JS months are 0-indexed
+      const lastDay = new Date(year, month, 0).getDate(); // Last day of the month
+
+      filters.from = `${year}-${String(month).padStart(2, '0')}-01`;
+      filters.to = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
       filters.accounts = [...m.accounts];
       filters.neutralize = true;
     });
