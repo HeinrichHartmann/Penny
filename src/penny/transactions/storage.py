@@ -83,6 +83,8 @@ class TransactionStorage:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)"
             )
+            # Ensure group_id is never NULL: standalone transactions use fingerprint
+            conn.execute("UPDATE transactions SET group_id = fingerprint WHERE group_id IS NULL")
             conn.commit()
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -114,8 +116,8 @@ class TransactionStorage:
                             fingerprint, account_id, subaccount_type, date, payee, memo,
                             amount_cents, value_date, transaction_type, reference,
                             raw_buchungstext, raw_row, category, classification_rule,
-                            classified_at, imported_at, source_file
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            classified_at, imported_at, source_file, group_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             transaction.fingerprint,
@@ -135,6 +137,7 @@ class TransactionStorage:
                             None,
                             imported_at,
                             source_file,
+                            transaction.fingerprint,  # group_id defaults to fingerprint (standalone)
                         ),
                     )
                     new_count += 1
@@ -144,31 +147,118 @@ class TransactionStorage:
 
         return new_count, duplicate_count
 
-    def list_transactions(self, *, account_id: int | None = None, limit: int | None = 20) -> list[Transaction]:
-        """List recent transactions with resolved account info."""
+    # =========================================================================
+    # TRANSACTIONS QUERY TEMPLATE
+    # =========================================================================
+    #
+    # This query always uses GROUP BY for uniform handling of grouped and
+    # standalone transactions. The consolidation column determines behavior:
+    #
+    #   consolidated=True  → GROUP BY group_id
+    #                        Groups collapse to net sum
+    #   consolidated=False → GROUP BY fingerprint
+    #                        Each entry separate (trivial 1-member groups)
+    #
+    # INVARIANT: group_id is NEVER NULL. Standalone transactions have
+    # group_id = fingerprint. This is enforced on insert and by migration.
+    #
+    # OUTPUT ROWS (same structure regardless of consolidation mode):
+    # -------------------------------------------------------------------------
+    #   fingerprint     str   Representative fingerprint (MIN for groups)
+    #   account_id      int   Representative account (MIN for groups)
+    #   subaccount_type str   Representative subaccount type
+    #   date            date  Earliest date in group (MIN)
+    #   payee           str   Original payee, or "Transfer (N)" for groups
+    #   memo            str   Representative memo
+    #   amount_cents    int   NET AMOUNT: sum of all entries in group
+    #   value_date      date  Representative value date
+    #   transaction_type str  Representative type
+    #   reference       str   Representative reference
+    #   category        str   Representative category (should be same for group)
+    #   group_id        str   The consolidation ID used
+    #   account_name    str   Resolved display name
+    #   account_number  str   Resolved bank account number
+    #   entry_count     int   Number of entries in this group (1 = standalone)
+    #
+    # For standalone transactions (entry_count=1), all values are the original.
+    # For groups (entry_count>1), amount_cents is the net sum, others are
+    # representative values. Consumers can usually ignore entry_count and
+    # treat all rows as normal transactions.
+    # =========================================================================
+
+    _TRANSACTIONS_QUERY = """
+        SELECT
+            MIN(t.fingerprint) as fingerprint,
+            MIN(t.account_id) as account_id,
+            MIN(t.subaccount_type) as subaccount_type,
+            MIN(t.date) as date,
+            CASE WHEN COUNT(*) = 1
+                 THEN MAX(t.payee)
+                 ELSE 'Transfer (' || COUNT(*) || ')'
+            END as payee,
+            MAX(t.memo) as memo,
+            SUM(t.amount_cents) as amount_cents,
+            MIN(t.value_date) as value_date,
+            MAX(t.transaction_type) as transaction_type,
+            MAX(t.reference) as reference,
+            MAX(t.raw_buchungstext) as raw_buchungstext,
+            NULL as raw_row,
+            MAX(t.category) as category,
+            MAX(t.classification_rule) as classification_rule,
+            {consolidation_col} as group_id,
+            COALESCE(MAX(a.display_name), MAX(a.bank) || ' #' || MIN(a.id)) as account_name,
+            MAX(ai.identifier_value) as account_number,
+            COUNT(*) as entry_count
+        FROM transactions t
+        LEFT JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
+            AND ai.identifier_type = 'bank_account_number'
+        {where_clause}
+        GROUP BY {consolidation_col}
+        ORDER BY MIN(t.date) DESC, MIN(t.fingerprint) DESC
+        {limit_clause}
+    """
+
+    def list_transactions(
+        self,
+        *,
+        account_id: int | None = None,
+        limit: int | None = 20,
+        consolidated: bool = True,
+    ) -> list[Transaction]:
+        """List transactions with optional grouping.
+
+        Args:
+            account_id: Filter to specific account
+            limit: Max rows to return (None for all)
+            consolidated: If True, group by group_id (transfers collapse).
+                          If False, group by fingerprint (each entry separate).
+
+        Returns:
+            List of Transaction objects. For consolidated groups, amount_cents
+            is the net sum and entry_count > 1. Standalone entries have
+            entry_count = 1 with original values.
+        """
+        consolidation_col = "t.group_id" if consolidated else "t.fingerprint"
+
+        where_clause = ""
+        params: list[object] = []
+        if account_id is not None:
+            where_clause = "WHERE t.account_id = ?"
+            params.append(account_id)
+
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT ?"
+            params.append(limit)
+
+        query = self._TRANSACTIONS_QUERY.format(
+            consolidation_col=consolidation_col,
+            where_clause=where_clause,
+            limit_clause=limit_clause,
+        )
 
         with closing(self._connect()) as conn:
-            # Join with accounts to get account_name, and with account_identifiers for account_number
-            query = """
-                SELECT t.fingerprint, t.account_id, t.subaccount_type, t.date, t.payee, t.memo,
-                       t.amount_cents, t.value_date, t.transaction_type, t.reference,
-                       t.raw_buchungstext, t.raw_row, t.category, t.classification_rule,
-                       t.group_id,
-                       COALESCE(a.display_name, a.bank || ' #' || a.id) as account_name,
-                       ai.identifier_value as account_number
-                FROM transactions t
-                LEFT JOIN accounts a ON t.account_id = a.id
-                LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
-                    AND ai.identifier_type = 'bank_account_number'
-            """
-            params: list[object] = []
-            if account_id is not None:
-                query += " WHERE t.account_id = ?"
-                params.append(account_id)
-            query += " ORDER BY t.date DESC, t.fingerprint DESC"
-            if limit is not None:
-                query += " LIMIT ?"
-                params.append(limit)
             rows = conn.execute(query, params).fetchall()
 
         return [self._hydrate_transaction(row) for row in rows]
@@ -272,7 +362,8 @@ class TransactionStorage:
             category=row["category"],
             classification_rule=row["classification_rule"],
             group_id=row["group_id"] if "group_id" in keys else None,
-            # Resolved fields from JOIN (may not be present in all queries)
+            # Resolved fields from JOIN/aggregation (may not be present in all queries)
             account_name=row["account_name"] if "account_name" in keys else None,
             account_number=row["account_number"] if "account_number" in keys else None,
+            entry_count=row["entry_count"] if "entry_count" in keys else 1,
         )

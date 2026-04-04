@@ -28,3 +28,4 @@ class Transaction:
     # Resolved at load time (not stored in DB)
     account_name: str | None = None
     account_number: str | None = None
+    entry_count: int = 1  # Number of entries in this group (1 for standalone)
