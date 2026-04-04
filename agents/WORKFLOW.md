@@ -5,7 +5,7 @@ You are an autonomous agent working on the Penny project. Follow these guideline
 ## Before You Start
 
 1. **Read the issue(s)** assigned to you via `gh issue view <id>`
-2. **Read CONTEXT.md** to understand the architecture and current state
+2. **Read agents/CONTEXT.md** to understand the architecture and current state
 3. **Review relevant ADRs** in `ADR/` for design decisions that apply to your work
 4. **Explore the codebase** to understand existing patterns before writing code
 
@@ -16,7 +16,7 @@ You are an autonomous agent working on the Penny project. Follow these guideline
 - Follow existing code patterns and style in the codebase
 - Keep changes focused on the issue scope - avoid scope creep
 - Prefer editing existing files over creating new ones
-- Use the established module structure (see CONTEXT.md)
+- Use the established module structure (see agents/CONTEXT.md)
 
 ### Test Coverage
 

@@ -80,6 +80,6 @@ Tests use `tmp_path` fixtures - never touch real vault.
 
 ## More Details
 
-- Full architecture: `CONTEXT.md`
+- Full architecture: `agents/CONTEXT.md`
 - PR guidelines: `agents/WORKFLOW.md`
 - Design decisions: `ADR/` directory
