@@ -98,6 +98,17 @@ export const saveRules = async (content) => {
 };
 
 /**
+ * Run classification rules on all transactions.
+ * @returns {Promise<{ status: string, logs: object[], stats: object|null }>}
+ */
+export const runRules = async () => {
+  const resp = await fetch('/api/rules/run', {
+    method: 'POST',
+  });
+  return resp.json();
+};
+
+/**
  * Upload a CSV file for import.
  * @param {File} file
  * @returns {Promise<object>}

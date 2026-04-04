@@ -209,6 +209,7 @@ def insurance(tx):
         "allianz",
         "adac versicherung",
         "nordhemmer versicherungsverein",
+        "verti versicherung",
     )
 
 
@@ -355,7 +356,7 @@ def garden(tx):
 
 @rule("household/home_improvement")
 def home_improvement(tx):
-    return text_contains(tx, "hagebau", "westerkamp", "toom", "holz hassfeld", "kramer haustechnik")
+    return text_contains(tx, "hagebau", "westerkamp", "toom", "holz hassfeld", "kramer haustechnik", "tischlerei becker")
 
 
 @rule("household/cleaning")
@@ -459,6 +460,7 @@ def restaurants(tx):
         "eiscafe alte kantorei",
         "dean + david",
         "losteria",
+        "extrablatt",
     )
 
 
@@ -510,3 +512,66 @@ def cash_withdrawal(tx):
 @rule("household/chimney_sweep")
 def chimney_sweep(tx):
     return text_contains(tx, "florian martlage")
+
+
+# ── New rules for unmatched transactions ──────────────────────────────────────
+
+@rule("professional/coaching")
+def coaching(tx):
+    return payee_contains(tx, "johannes metzler", "ankush jain")
+
+
+@rule("investment/currency")
+def currency_exchange(tx):
+    return payee_is(tx, "Devisen")
+
+
+@rule("transfer/family")
+def family_account_transfer(tx):
+    return payee_is(tx, "Lena Hartmann Heinrich Hartmann")
+
+
+@rule("personal/whiskey")
+def whiskey_purchase(tx):
+    # Specific whiskey purchases from Richelle Dangremond
+    return payee_contains(tx, "richelle dangremond")
+
+
+@rule("shopping/electronics")
+def electronics(tx):
+    return text_contains(tx, "media markt", "saturn", "mediamarkt")
+
+
+@rule("travel/refund")
+def travel_refund(tx):
+    return payee_contains(tx, "service-now") and tx.amount_cents > 0
+
+
+@rule("transport/car")
+def car_expenses(tx):
+    return payee_contains(tx, "fred wehrmann")
+
+
+@rule("travel/vacation")
+def vacation(tx):
+    return text_contains(tx, "hof-ferien", "medewege ug")
+
+
+@rule("family/childcare")
+def childcare(tx):
+    return text_contains(tx, "diakoniewerk")
+
+
+@rule("shopping/bicycle")
+def bicycle(tx):
+    return text_contains(tx, "fahrrad lohmeier", "fahrradlohmeier")
+
+
+@rule("shopping/jewelry")
+def jewelry(tx):
+    return text_contains(tx, "juwelier")
+
+
+@rule("transport/fuel")
+def autohof(tx):
+    return text_contains(tx, "autohof")

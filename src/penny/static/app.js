@@ -12,7 +12,7 @@ import {
   computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
-import { fetchMeta, fetchAccounts, uploadCsv, updateAccount, fetchRules, saveRules, createApi } from './api.js';
+import { fetchMeta, fetchAccounts, uploadCsv, updateAccount, fetchRules, saveRules, runRules, createApi } from './api.js';
 import { createChartManager } from './charts.js';
 import { DateFilterPanel } from './components/DateFilterPanel.js';
 
@@ -74,7 +74,6 @@ createApp({
     const currentTransactionPage = ref(Math.max(1, parseInt(initialUrlState.transactionPage || '1', 10) || 1));
     const transactionSort = reactive({ key: 'booking_date', direction: 'desc' });
     const monthRangeAnchor = ref(null);
-    let searchTimer = null;
     const TRANSACTIONS_PER_PAGE = 100;
 
     // Import state
@@ -100,8 +99,11 @@ createApp({
       originalContent: '',
       loading: false,
       saving: false,
+      running: false,
       error: null,
       saveMessage: null,
+      logs: [],
+      stats: null,
     });
 
     // Chart element refs
@@ -303,8 +305,29 @@ createApp({
       });
     };
 
+    // Client-side search filter - matches against all text fields concatenated
+    const filteredTransactions = computed(() => {
+      const rows = transactions.value?.transactions || [];
+      const q = searchQuery.value?.toLowerCase().trim();
+      if (!q) return rows;
+
+      return rows.filter((tx) => {
+        // Concatenate all text fields for matching
+        const searchable = [
+          tx.description,
+          tx.category,
+          tx.account,
+          tx.raw_description,
+          tx.merchant,
+          tx.booking_date,
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        return searchable.includes(q);
+      });
+    });
+
     const sortedTransactions = computed(() => {
-      const rows = [...(transactions.value?.transactions || [])];
+      const rows = [...filteredTransactions.value];
       const { key, direction } = transactionSort;
       const factor = direction === 'asc' ? 1 : -1;
       rows.sort((left, right) => {
@@ -340,15 +363,17 @@ createApp({
       return transactionSort.direction === 'asc' ? '↑' : '↓';
     };
 
+    const filteredTransactionCount = computed(() => filteredTransactions.value.length);
+
     const transactionRangeStart = computed(() => {
-      if (!transactions.value?.count) return 0;
+      if (!filteredTransactionCount.value) return 0;
       return (currentTransactionPage.value - 1) * TRANSACTIONS_PER_PAGE + 1;
     });
 
     const transactionRangeEnd = computed(() => {
-      if (!transactions.value?.count) return 0;
+      if (!filteredTransactionCount.value) return 0;
       return Math.min(
-        transactions.value.count,
+        filteredTransactionCount.value,
         currentTransactionPage.value * TRANSACTIONS_PER_PAGE
       );
     });
@@ -565,13 +590,31 @@ createApp({
         await saveRules(rulesState.content);
         rulesState.originalContent = rulesState.content;
         rulesState.saveMessage = 'Saved successfully';
-        setTimeout(() => {
-          rulesState.saveMessage = null;
-        }, 3000);
+        // Run classification after saving
+        await runClassification();
       } catch (error) {
         rulesState.error = error.message;
       } finally {
         rulesState.saving = false;
+      }
+    };
+
+    const runClassification = async () => {
+      rulesState.running = true;
+      rulesState.logs = [];
+      rulesState.stats = null;
+      try {
+        const result = await runRules();
+        rulesState.logs = result.logs || [];
+        rulesState.stats = result.stats;
+        if (result.status === 'error') {
+          rulesState.error = 'Classification failed - see logs below';
+        }
+      } catch (error) {
+        rulesState.error = error.message;
+        rulesState.logs = [{ level: 'error', message: error.message }];
+      } finally {
+        rulesState.running = false;
       }
     };
 
@@ -612,8 +655,8 @@ createApp({
 
     watch(searchQuery, () => {
       if (isHydratingFromUrl || view.value !== 'transactions') return;
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => loadTransactionsForCurrentView({ resetPage: true }), 250);
+      // Client-side filtering - just reset pagination, no server request needed
+      resetTransactionPagination();
     });
 
     watch(totalTransactionPages, (pageCount) => {
@@ -778,6 +821,7 @@ createApp({
       transactionRangeEnd,
       transactionPageButtons,
       visibleTransactions,
+      filteredTransactionCount,
       toggleTransactionSort,
       transactionSortMarker,
       goToTransactionPage,
@@ -810,6 +854,7 @@ createApp({
       rulesState,
       loadRules,
       saveRulesContent,
+      runClassification,
       reloadRules,
       rulesHasChanges,
     };

@@ -15,6 +15,7 @@ from penny.accounts.models import Account
 from penny.accounts.registry import AccountRegistry
 from penny.import_.detection import match_file, DetectionError
 from penny.transactions.storage import TransactionStorage
+from penny.classify.engine import load_rules, LoadedRuleset
 
 app = FastAPI(title="Penny")
 
@@ -39,7 +40,7 @@ def get_db():
 
 # ── Helper Functions ────────────────────────────────────────────────────────
 
-def apply_filters(query, params, from_date=None, to_date=None, accounts=None, neutralize=True, category=None, q=None):
+def apply_filters(query, params, from_date=None, to_date=None, accounts=None, neutralize=True, category=None, q=None, table_prefix=""):
     """Apply common filters to a query.
 
     Schema mapping (new schema):
@@ -48,15 +49,19 @@ def apply_filters(query, params, from_date=None, to_date=None, accounts=None, ne
     - payee (was description/merchant)
     - category (unchanged)
     - neutralization: skipped for now (show all transactions)
+
+    Args:
+        table_prefix: Prefix for column names in JOINed queries (e.g., "t.")
     """
+    p = table_prefix  # shorthand
     conditions = []
 
     if from_date:
-        conditions.append("date >= ?")
+        conditions.append(f"{p}date >= ?")
         params.append(from_date)
 
     if to_date:
-        conditions.append("date <= ?")
+        conditions.append(f"{p}date <= ?")
         params.append(to_date)
 
     if accounts is not None:
@@ -64,7 +69,7 @@ def apply_filters(query, params, from_date=None, to_date=None, accounts=None, ne
         if account_list:
             # Account IDs are now integers
             placeholders = ','.join('?' * len(account_list))
-            conditions.append(f"account_id IN ({placeholders})")
+            conditions.append(f"{p}account_id IN ({placeholders})")
             params.extend([int(a) for a in account_list])
         else:
             conditions.append("1 = 0")
@@ -73,13 +78,17 @@ def apply_filters(query, params, from_date=None, to_date=None, accounts=None, ne
     # Future: add neutralization support via classification
 
     if category:
-        conditions.append("category LIKE ?")
+        conditions.append(f"{p}category LIKE ?")
         params.append(f"{category}%")
 
     if q:
-        # Search in payee and category (no separate merchant field in new schema)
-        conditions.append("(payee LIKE ? OR category LIKE ? OR memo LIKE ?)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        # Search against concatenated row (all text fields)
+        conditions.append(
+            f"(COALESCE({p}payee,'') || ' ' || COALESCE({p}memo,'') || ' ' || "
+            f"COALESCE({p}category,'') || ' ' || COALESCE({p}raw_buchungstext,'') || ' ' || "
+            f"COALESCE({p}reference,'') || ' ' || COALESCE({p}transaction_type,'')) LIKE ?"
+        )
+        params.append(f"%{q}%")
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -311,13 +320,56 @@ def get_rules_path() -> Path:
 MINIMAL_RULES_TEMPLATE = '''\
 """Classification rules for Penny.
 
-Define rules using the @rule decorator. Each rule function receives a transaction
-object with these attributes:
-- payee: Extracted payee/merchant name
-- memo: Additional transaction details
-- raw_buchungstext: Original bank description
-- amount_cents: Transaction amount in cents
-- date: Transaction date
+================================================================================
+TRANSACTION SCHEMA
+================================================================================
+
+Each rule function receives a Transaction object with these attributes:
+
+  Field                Type         Description
+  ─────────────────────────────────────────────────────────────────────────────
+  payee                str          Extracted payee/merchant name
+  memo                 str          Additional transaction details
+  raw_buchungstext     str          Original bank description (German: "Buchungstext")
+  amount_cents         int          Amount in cents (negative = expense, positive = income)
+  date                 date         Transaction date
+  value_date           date | None  Value/settlement date (if different from booking)
+  transaction_type     str          Bank transaction type (e.g., "Überweisung")
+  reference            str | None   Unique bank reference number
+  subaccount_type      str          Account section (e.g., "giro", "savings", "depot")
+
+  Resolved fields (read-only, for display/matching):
+  ─────────────────────────────────────────────────────────────────────────────
+  account_name         str | None   User-defined display name for the account
+  account_number       str | None   Bank account number (stable identifier)
+
+================================================================================
+LLM CO-CREATION GUIDE
+================================================================================
+
+This file is designed for iterative development with Claude Code or similar LLMs.
+
+Workflow:
+  1. Import your bank CSV:          penny import <file.csv>
+  2. Run classification:            penny classify (or use the web UI)
+  3. Review unmatched transactions  (shown in classification log)
+  4. Ask your LLM to add rules:     "Add rules for these unmatched transactions: ..."
+  5. Save and re-run classification
+  6. Repeat until match rate is satisfactory
+
+Tips for prompting:
+  - Paste the unmatched transaction list from the classification log
+  - Describe what each merchant/payee represents
+  - Use hierarchical categories: "food/groceries", "transport/fuel", etc.
+  - Group similar merchants in one rule for maintainability
+
+Example prompt:
+  "Add classification rules for these unmatched transactions:
+   -250.00 € | 2024-03-15 | REWE SAGT DANKE 12345
+   -45.50 € | 2024-03-14 | ARAL TANKSTELLE
+   These are groceries and fuel respectively."
+
+================================================================================
 """
 from penny.classify import contains, is_, rule
 
@@ -347,8 +399,11 @@ def text_contains(tx, *needles):
     return payee_contains(tx, *needles) or memo_contains(tx, *needles) or raw_contains(tx, *needles)
 
 
-# ── Example Rules ─────────────────────────────────────────────────────────────
-# Uncomment and modify these examples to create your own rules.
+# ══════════════════════════════════════════════════════════════════════════════
+# CLASSIFICATION RULES
+# ══════════════════════════════════════════════════════════════════════════════
+# Add your rules below. Each @rule decorator specifies the category.
+# Rules are evaluated in order; first match wins.
 
 # @rule("groceries")
 # def grocery_stores(tx):
@@ -414,6 +469,131 @@ async def save_rules(update: RulesUpdate):
     return {
         "status": "saved",
         "path": str(rules_path),
+    }
+
+
+@app.post("/api/rules/run")
+async def run_rules():
+    """Run classification rules on all transactions.
+
+    Returns stats and any errors encountered during rule loading/execution.
+    """
+    import traceback
+    from collections import Counter
+
+    rules_path = get_rules_path()
+    logs: list[dict] = []
+    start_time = datetime.now()
+
+    def log(level: str, message: str, **extra):
+        logs.append({
+            "level": level,
+            "message": message,
+            "timestamp": datetime.now().isoformat(),
+            **extra,
+        })
+
+    # Check if rules file exists
+    if not rules_path.exists():
+        log("error", f"Rules file not found: {rules_path}")
+        return {
+            "status": "error",
+            "logs": logs,
+            "stats": None,
+        }
+
+    # Load rules
+    ruleset: LoadedRuleset | None = None
+    try:
+        log("info", f"Loading rules from {rules_path}")
+        ruleset = load_rules(rules_path)
+        log("info", f"Loaded {len(ruleset.rules)} rules")
+        for rule in ruleset.rules:
+            log("debug", f"  - {rule.name} → {rule.category}")
+    except SyntaxError as e:
+        log("error", f"Syntax error in rules file: {e.msg}", line=e.lineno, offset=e.offset)
+        return {
+            "status": "error",
+            "logs": logs,
+            "stats": None,
+        }
+    except Exception as e:
+        log("error", f"Failed to load rules: {e}", traceback=traceback.format_exc())
+        return {
+            "status": "error",
+            "logs": logs,
+            "stats": None,
+        }
+
+    # Get all transactions
+    tx_storage = TransactionStorage()
+    transactions = tx_storage.list_transactions(limit=None)
+    log("info", f"Processing {len(transactions)} transactions")
+
+    # Run classification
+    decisions = []
+    category_counts: Counter[str] = Counter()
+    unmatched_transactions = []
+    errors_during_classification = []
+
+    for tx in transactions:
+        try:
+            decision = ruleset.classify(tx)
+            if decision:
+                decisions.append(decision)
+                category_counts[decision.category] += 1
+            else:
+                unmatched_transactions.append(tx)
+        except Exception as e:
+            errors_during_classification.append({
+                "transaction": tx.fingerprint[:12],
+                "payee": tx.payee,
+                "error": str(e),
+            })
+
+    # Apply classifications to database
+    matched_count, _ = tx_storage.apply_classifications(decisions)
+
+    # Log classification errors
+    if errors_during_classification:
+        log("warning", f"{len(errors_during_classification)} errors during classification")
+        for err in errors_during_classification[:10]:  # Show first 10
+            log("error", f"Error classifying {err['payee']}: {err['error']}")
+
+    # Log category breakdown
+    log("info", f"Matched: {matched_count}, Unmatched: {len(unmatched_transactions)}")
+    for category, count in sorted(category_counts.items()):
+        log("info", f"  {category}: {count}")
+
+    # Log largest unmatched transactions (top 30 by absolute amount)
+    if unmatched_transactions:
+        log("warning", f"Top unmatched transactions (by amount):")
+        sorted_unmatched = sorted(
+            unmatched_transactions,
+            key=lambda t: abs(t.amount_cents),
+            reverse=True,
+        )[:30]
+        for tx in sorted_unmatched:
+            amount_eur = tx.amount_cents / 100
+            log("warning", f"  {amount_eur:>10.2f} € | {tx.date} | {tx.payee[:40]}")
+
+    elapsed = (datetime.now() - start_time).total_seconds()
+    log("info", f"Classification completed in {elapsed:.2f}s")
+
+    return {
+        "status": "success",
+        "logs": logs,
+        "stats": {
+            "rules_count": len(ruleset.rules),
+            "transactions_count": len(transactions),
+            "matched_count": matched_count,
+            "unmatched_count": len(unmatched_transactions),
+            "categories": [
+                {"category": cat, "count": count}
+                for cat, count in sorted(category_counts.items())
+            ],
+            "elapsed_seconds": elapsed,
+        },
     }
 
 
@@ -905,38 +1085,43 @@ async def transactions(
     conn = get_db()
     cursor = conn.cursor()
 
-    # Build account lookup for display names
-    account_lookup = {}
-    for row in cursor.execute("SELECT id, bank, display_name FROM accounts").fetchall():
-        account_lookup[row[0]] = row[2] or f"{row[1]} #{row[0]}"
-
     params = []
-    # New schema: fingerprint, date, account_id, payee, memo, category, amount_cents, raw_buchungstext
-    query = "SELECT fingerprint, date, account_id, payee, memo, category, amount_cents, raw_buchungstext FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
+    # Join with accounts and account_identifiers to get resolved names
+    query = """
+        SELECT t.fingerprint, t.date, t.account_id, t.payee, t.memo, t.category,
+               t.amount_cents, t.raw_buchungstext, t.subaccount_type,
+               COALESCE(a.display_name, a.bank || ' #' || a.id) as account_name,
+               ai.identifier_value as account_number
+        FROM transactions t
+        LEFT JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
+            AND ai.identifier_type = 'bank_account_number'
+    """
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q, table_prefix="t.")
 
     # Filter by tab (expense/income)
     if tab == "expense":
         query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents < 0"
+        query += "t.amount_cents < 0"
     elif tab == "income":
         query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents > 0"
+        query += "t.amount_cents > 0"
 
-    query += " ORDER BY date DESC"
+    query += " ORDER BY t.date DESC"
 
     rows = cursor.execute(query, params).fetchall()
     conn.close()
 
-    # Map to frontend-compatible format
+    # Map to frontend-compatible format (no account_id exposed)
     txns = [
         {
-            "fp": row[0],  # fingerprint -> fp for frontend compatibility
-            "booking_date": row[1],  # date -> booking_date for frontend compatibility
-            "account": account_lookup.get(row[2], f"Account #{row[2]}"),  # account_id -> account name
-            "account_id": row[2],  # Also include raw ID
-            "description": row[3],  # payee -> description for frontend compatibility
-            "merchant": row[3] or "",  # payee used as merchant too
+            "fp": row[0],  # fingerprint
+            "booking_date": row[1],  # date
+            "account": row[9] or f"Account #{row[2]}",  # account_name
+            "account_number": row[10] or "",  # bank account number
+            "subaccount": row[8] or "",  # subaccount_type
+            "description": row[3],  # payee
+            "merchant": row[3] or "",  # payee (for compatibility)
             "category": row[5] or "uncategorized",
             "amount_cents": row[6],
             "raw_description": row[7] or "",  # raw_buchungstext

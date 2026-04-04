@@ -140,21 +140,27 @@ class TransactionStorage:
 
         return new_count, duplicate_count
 
-    def list_transactions(self, *, account_id: int | None = None, limit: int = 20) -> list[Transaction]:
-        """List recent transactions."""
+    def list_transactions(self, *, account_id: int | None = None, limit: int | None = 20) -> list[Transaction]:
+        """List recent transactions with resolved account info."""
 
         with closing(self._connect()) as conn:
+            # Join with accounts to get account_name, and with account_identifiers for account_number
             query = """
-                SELECT fingerprint, account_id, subaccount_type, date, payee, memo,
-                       amount_cents, value_date, transaction_type, reference,
-                       raw_buchungstext, raw_row, category, classification_rule
-                FROM transactions
+                SELECT t.fingerprint, t.account_id, t.subaccount_type, t.date, t.payee, t.memo,
+                       t.amount_cents, t.value_date, t.transaction_type, t.reference,
+                       t.raw_buchungstext, t.raw_row, t.category, t.classification_rule,
+                       COALESCE(a.display_name, a.bank || ' #' || a.id) as account_name,
+                       ai.identifier_value as account_number
+                FROM transactions t
+                LEFT JOIN accounts a ON t.account_id = a.id
+                LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
+                    AND ai.identifier_type = 'bank_account_number'
             """
             params: list[object] = []
             if account_id is not None:
-                query += " WHERE account_id = ?"
+                query += " WHERE t.account_id = ?"
                 params.append(account_id)
-            query += " ORDER BY date DESC, fingerprint DESC"
+            query += " ORDER BY t.date DESC, t.fingerprint DESC"
             if limit is not None:
                 query += " LIMIT ?"
                 params.append(limit)
@@ -218,4 +224,7 @@ class TransactionStorage:
             raw_row=json.loads(row["raw_row"]) if row["raw_row"] else {},
             category=row["category"],
             classification_rule=row["classification_rule"],
+            # Resolved fields from JOIN (may not be present in all queries)
+            account_name=row["account_name"] if "account_name" in row.keys() else None,
+            account_number=row["account_number"] if "account_number" in row.keys() else None,
         )
