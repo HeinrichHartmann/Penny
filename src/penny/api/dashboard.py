@@ -9,12 +9,12 @@ from fastapi.responses import PlainTextResponse
 from penny.api.helpers import (
     category_bucket,
     format_currency,
-    get_db,
     period_key,
     period_label,
     roll_up_top_buckets,
     sort_period_keys,
 )
+from penny.db import connect
 from penny.sql import (
     breakout_query,
     cashflow_query,
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api", tags=["dashboard"])
 @router.get("/meta")
 async def meta():
     """Return metadata about available data."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     # Get accounts from accounts table
@@ -71,7 +71,7 @@ async def categories(
     q: Optional[str] = Query(None),
 ):
     """Return distinct category paths for the current raw filter selection."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = categories_query(
@@ -94,7 +94,7 @@ async def summary(
     q: Optional[str] = Query(None),
 ):
     """Return expense/income summary."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = summary_query(
@@ -132,7 +132,7 @@ async def tree(
     q: Optional[str] = Query(None),
 ):
     """Return hierarchical category tree for treemap."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = tree_query(
@@ -186,7 +186,7 @@ async def pivot(
     q: Optional[str] = Query(None),
 ):
     """Return pivot table data."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = pivot_query(
@@ -245,7 +245,7 @@ async def cashflow(
     q: Optional[str] = Query(None),
 ):
     """Return Sankey diagram data derived from filtered transactions."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = cashflow_query(
@@ -306,7 +306,7 @@ async def breakout(
     q: Optional[str] = Query(None),
 ):
     """Return time-series breakout data."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = breakout_query(
@@ -370,7 +370,7 @@ async def report(
     q: Optional[str] = Query(None),
 ):
     """Return plain text financial report."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = report_query(

@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from penny.accounts import Account, get_account as get_account_by_id, list_accounts as list_all_accounts, soft_delete_account
-from penny.api.helpers import get_db
+from penny.db import connect
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -34,7 +34,7 @@ async def list_accounts(include_hidden: bool = Query(False)):
     accounts = list_all_accounts(include_hidden=include_hidden)
 
     # Get transaction counts per account
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
     counts = {
         row[0]: row[1]
@@ -60,7 +60,7 @@ async def get_account(account_id: int):
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     # Get transaction count
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
     count = cursor.execute(
         "SELECT COUNT(*) FROM transactions WHERE account_id = ?", (account_id,)
@@ -85,7 +85,7 @@ async def update_account(
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     # Update via direct SQL (AccountStorage doesn't have update method yet)
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     updates = []
