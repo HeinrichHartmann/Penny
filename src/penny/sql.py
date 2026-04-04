@@ -266,3 +266,154 @@ def report_query(
 
     sql = f"SELECT date, account_id, category, amount_cents FROM transactions{where}"
     return sql, params
+
+
+# =============================================================================
+# TRANSACTION QUERIES (from TransactionStorage)
+# =============================================================================
+
+# The transactions query uses GROUP BY for uniform handling of grouped and
+# standalone transactions. The consolidation_col determines behavior:
+#   GROUP BY group_id      → transfer groups collapse to net sums
+#   GROUP BY fingerprint   → raw entries remain distinct
+#
+# INVARIANT: group_id is NEVER NULL. Standalone transactions have
+# group_id = fingerprint. This is enforced on insert and by migration.
+
+_TRANSACTIONS_QUERY = """
+    SELECT
+        MIN(t.fingerprint) as fingerprint,
+        MIN(t.account_id) as account_id,
+        MIN(t.subaccount_type) as subaccount_type,
+        MIN(t.date) as date,
+        CASE WHEN COUNT(*) = 1
+             THEN MAX(t.payee)
+             ELSE 'Transfer (' || COUNT(*) || ')'
+        END as payee,
+        MAX(t.memo) as memo,
+        SUM(t.amount_cents) as amount_cents,
+        MIN(t.value_date) as value_date,
+        MAX(t.transaction_type) as transaction_type,
+        MAX(t.reference) as reference,
+        MAX(t.raw_buchungstext) as raw_buchungstext,
+        NULL as raw_row,
+        MAX(t.category) as category,
+        MAX(t.classification_rule) as classification_rule,
+        MAX(t.group_id) as group_id,
+        COALESCE(MAX(a.display_name), MAX(a.bank) || ' #' || MIN(a.id)) as account_name,
+        MAX(ai.identifier_value) as account_number,
+        COUNT(*) as entry_count
+    FROM transactions t
+    LEFT JOIN accounts a ON t.account_id = a.id
+    LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
+        AND ai.identifier_type = 'bank_account_number'
+    {where_clause}
+    GROUP BY {consolidation_col}
+    ORDER BY MIN(t.date) DESC, MIN(t.fingerprint) DESC
+    {limit_clause}
+"""
+
+
+def list_transactions_query(
+    *,
+    account_id: int | None = None,
+    limit: int | None = 20,
+    neutralize: bool = True,
+) -> tuple[str, list]:
+    """Query for listing transactions with optional grouping.
+
+    Args:
+        account_id: Filter to a specific account
+        limit: Max rows to return (None for all)
+        neutralize: If True, consolidate transfer groups to net sums.
+                    If False, return raw entries.
+    """
+    consolidation_col = "t.group_id" if neutralize else "t.fingerprint"
+
+    where_clause = ""
+    params: list = []
+    if account_id is not None:
+        where_clause = "WHERE t.account_id = ?"
+        params.append(account_id)
+
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
+
+    sql = _TRANSACTIONS_QUERY.format(
+        consolidation_col=consolidation_col,
+        where_clause=where_clause,
+        limit_clause=limit_clause,
+    )
+    return sql, params
+
+
+def insert_transaction_sql() -> str:
+    """SQL for inserting a transaction."""
+    return """
+        INSERT INTO transactions (
+            fingerprint, account_id, subaccount_type, date, payee, memo,
+            amount_cents, value_date, transaction_type, reference,
+            raw_buchungstext, raw_row, category, classification_rule,
+            classified_at, imported_at, source_file, group_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+
+def clear_classifications_sql() -> str:
+    """SQL to clear all classifications."""
+    return """
+        UPDATE transactions
+        SET category = NULL,
+            classification_rule = NULL,
+            classified_at = NULL
+    """
+
+
+def update_classification_sql() -> str:
+    """SQL to update a single transaction's classification."""
+    return """
+        UPDATE transactions
+        SET category = ?, classification_rule = ?, classified_at = ?
+        WHERE fingerprint = ?
+    """
+
+
+def count_uncategorized_sql() -> str:
+    """SQL to count transactions without a category."""
+    return """
+        SELECT COUNT(*)
+        FROM transactions
+        WHERE category IS NULL OR TRIM(category) = ''
+    """
+
+
+def reset_groups_sql() -> str:
+    """SQL to reset all group_ids to fingerprint (standalone)."""
+    return "UPDATE transactions SET group_id = fingerprint"
+
+
+def update_group_sql() -> str:
+    """SQL to update a single transaction's group_id."""
+    return "UPDATE transactions SET group_id = ? WHERE fingerprint = ?"
+
+
+def count_grouped_sql() -> str:
+    """SQL to count transactions in groups."""
+    return "SELECT COUNT(*) FROM transactions WHERE group_id != fingerprint"
+
+
+def count_standalone_sql() -> str:
+    """SQL to count standalone transactions."""
+    return "SELECT COUNT(*) FROM transactions WHERE group_id = fingerprint"
+
+
+def count_transactions_sql(account_id: int | None = None) -> tuple[str, list]:
+    """SQL to count transactions."""
+    params: list = []
+    sql = "SELECT COUNT(*) FROM transactions"
+    if account_id is not None:
+        sql += " WHERE account_id = ?"
+        params.append(account_id)
+    return sql, params
