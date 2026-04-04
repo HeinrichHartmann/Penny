@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from penny.accounts.storage import default_db_path
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import LoadedRulesConfig
-from penny.transactions.storage import TransactionStorage
+from penny.transactions import apply_classifications, list_transactions
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
@@ -135,14 +135,13 @@ async def run_rules():
         }
 
     # Get all transactions
-    tx_storage = TransactionStorage()
-    transactions = tx_storage.list_transactions(limit=None, neutralize=False)
+    transactions = list_transactions(limit=None, neutralize=False)
     log("info", f"Processing {len(transactions)} transactions")
 
     result = run_classification_pass(transactions, config)
 
     try:
-        tx_storage.apply_classifications(result.decisions)
+        apply_classifications(result.decisions)
     except Exception as e:
         log("error", f"Failed to persist classifications: {e}", traceback=traceback.format_exc())
         return {

@@ -9,13 +9,20 @@ import click
 
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
 from penny.classify import load_rules_config, run_classification_pass
+from penny.classify.engine import RuleCollector, _ACTIVE_COLLECTOR, _load_module
+from penny.db import init_schema
 from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
     match_file,
     read_file_with_encoding,
 )
-from penny.transactions import TransactionStorage
+from penny.transactions import (
+    apply_classifications,
+    apply_groups,
+    list_transactions,
+    store_transactions,
+)
 from penny.transfers import link_transfers
 
 
@@ -23,12 +30,6 @@ def get_registry() -> AccountRegistry:
     """Construct the default account registry."""
 
     return AccountRegistry(AccountStorage())
-
-
-def get_transaction_storage() -> TransactionStorage:
-    """Construct the default transaction storage."""
-
-    return TransactionStorage()
 
 
 def _format_account_row(account) -> str:
@@ -162,8 +163,8 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             )
         return
 
-    storage = get_transaction_storage()
-    new_count, duplicate_count = storage.store_transactions(
+    init_schema()
+    new_count, duplicate_count = store_transactions(
         parsed_transactions,
         source_file=csv_file.name,
     )
@@ -182,8 +183,8 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
 def transactions_list(account_id: int | None, limit: int):
     """List recent transactions."""
 
-    storage = get_transaction_storage()
-    transaction_list = storage.list_transactions(account_id=account_id, limit=limit, neutralize=True)
+    init_schema()
+    transaction_list = list_transactions(account_id=account_id, limit=limit, neutralize=True)
     if not transaction_list:
         click.echo("No transactions found.")
         return
@@ -201,15 +202,15 @@ def transactions_list(account_id: int | None, limit: int):
 def classify(rules_file: Path):
     """Classify all imported transactions using a Python rules module."""
 
-    storage = get_transaction_storage()
-    transactions = storage.list_transactions(limit=None, neutralize=False)
+    init_schema()
+    transactions = list_transactions(limit=None, neutralize=False)
     if not transactions:
         click.echo("No transactions found.")
         return
 
     config = load_rules_config(rules_file)
     result = run_classification_pass(transactions, config)
-    storage.apply_classifications(result.decisions)
+    apply_classifications(result.decisions)
 
     click.echo(f"Loaded rules: {rules_file}")
     click.echo(f"Rules: {len(config.ruleset.rules)}")
@@ -258,8 +259,8 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
     click.echo("")
 
     # Load all transactions (unconsolidated - need raw entries for linking)
-    storage = get_transaction_storage()
-    entries = storage.list_transactions(limit=None, neutralize=False)
+    init_schema()
+    entries = list_transactions(limit=None, neutralize=False)
     if not entries:
         click.echo("No entries found.")
         return
@@ -279,7 +280,7 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
         return
 
     # Apply to database
-    grouped, standalone = storage.apply_groups(result.assignments)
+    grouped, standalone = apply_groups(result.assignments)
     click.echo(f"Linked: {grouped} entries into groups")
     click.echo(f"Standalone: {standalone} entries")
     click.echo("")

@@ -6,7 +6,8 @@ from click.testing import CliRunner
 from penny.api.rules import run_rules
 from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
 from penny.cli import main
-from penny.transactions import TransactionStorage
+from penny.db import init_schema, set_db_path
+from penny.transactions import apply_classifications, list_transactions
 
 
 def _import_fixture(runner: CliRunner, fixture_dir, tmp_path):
@@ -48,8 +49,9 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     assert "Travel:Hotel: 1" in result.output
     assert "Shopping:GenericAmazon: 1" in result.output
 
-    storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None, neutralize=False)
+    set_db_path(tmp_path / "penny.db")
+    init_schema()
+    transactions = list_transactions(limit=None, neutralize=False)
     categories = {transaction.payee: transaction.category for transaction in transactions}
     rules = {transaction.payee: transaction.classification_rule for transaction in transactions}
 
@@ -74,8 +76,9 @@ def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, 
     assert second.exit_code == 0
     assert "Shopping:SpecificAmazon: 1" in second.output
 
-    storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None, neutralize=False)
+    set_db_path(tmp_path / "penny.db")
+    init_schema()
+    transactions = list_transactions(limit=None, neutralize=False)
     amazon = next(transaction for transaction in transactions if "AMAZON" in transaction.payee)
 
     assert amazon.category == "Shopping:SpecificAmazon"
@@ -112,8 +115,9 @@ def salary(transaction):
         {"category": "NeedsReview", "count": 2},
     ]
 
-    storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None, neutralize=False)
+    set_db_path(tmp_path / "penny.db")
+    init_schema()
+    transactions = list_transactions(limit=None, neutralize=False)
     categories = {transaction.payee: transaction.category for transaction in transactions}
 
     assert categories["Example Employer"] == "Income:Salary"
@@ -127,11 +131,12 @@ def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, 
     runner = CliRunner()
     _import_fixture(runner, fixture_dir, tmp_path)
 
-    storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None, neutralize=False)
+    set_db_path(tmp_path / "penny.db")
+    init_schema()
+    transactions = list_transactions(limit=None, neutralize=False)
 
     with pytest.raises(RuntimeError, match="without a category"):
-        storage.apply_classifications(
+        apply_classifications(
             [
                 ClassificationDecision(
                     fingerprint=transactions[0].fingerprint,
@@ -141,5 +146,5 @@ def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, 
             ]
         )
 
-    after = storage.list_transactions(limit=None, neutralize=False)
+    after = list_transactions(limit=None, neutralize=False)
     assert all(transaction.category is None for transaction in after)

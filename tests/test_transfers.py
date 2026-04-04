@@ -5,7 +5,14 @@ from datetime import date
 import pytest
 
 from penny.accounts import AccountRegistry, AccountStorage
-from penny.transactions import TransactionStorage, Transaction, generate_fingerprint
+from penny.db import init_schema, set_db_path
+from penny.transactions import (
+    Transaction,
+    apply_groups,
+    generate_fingerprint,
+    list_transactions,
+    store_transactions,
+)
 from penny.transfers.engine import UnionFind, link_transfers, generate_group_id
 
 
@@ -244,7 +251,7 @@ def test_generate_group_id_deterministic():
 
 @pytest.fixture
 def storage_with_accounts(tmp_path):
-    """Create storage with test accounts for foreign key constraints."""
+    """Set up database with test accounts for foreign key constraints."""
     db_path = tmp_path / "test.db"
     account_storage = AccountStorage(db_path)
     registry = AccountRegistry(account_storage)
@@ -253,73 +260,75 @@ def storage_with_accounts(tmp_path):
     registry.add("testbank")
     registry.add("testbank")
 
-    return TransactionStorage(db_path)
+    # Set up transaction storage to use same database
+    set_db_path(db_path)
+    init_schema()
 
 
-def test_group_id_never_null(storage_with_accounts: TransactionStorage):
+def test_group_id_never_null(storage_with_accounts):
     """group_id should be set to fingerprint for new transactions."""
     tx = make_transaction(1, date(2024, 1, 1), -1000, "Test")
 
-    storage_with_accounts.store_transactions([tx])
+    store_transactions([tx])
 
-    stored = storage_with_accounts.list_transactions(limit=1, neutralize=False)
+    stored = list_transactions(limit=1, neutralize=False)
     assert len(stored) == 1
     assert stored[0].group_id == stored[0].fingerprint
 
 
-def test_consolidated_query_groups_entries(storage_with_accounts: TransactionStorage):
+def test_consolidated_query_groups_entries(storage_with_accounts):
     """Consolidated query should collapse grouped entries."""
     # Create a pair of transactions
     tx1 = make_transaction(1, date(2024, 1, 1), -10000, "Transfer out", category="transfer/test")
     tx2 = make_transaction(2, date(2024, 1, 1), 10000, "Transfer in", category="transfer/test")
 
-    storage_with_accounts.store_transactions([tx1, tx2])
+    store_transactions([tx1, tx2])
 
     # Apply grouping
     group_id = generate_group_id([tx1.fingerprint, tx2.fingerprint])
-    storage_with_accounts.apply_groups({
+    apply_groups({
         tx1.fingerprint: group_id,
         tx2.fingerprint: group_id,
     })
 
     # Unconsolidated: 2 entries
-    raw = storage_with_accounts.list_transactions(neutralize=False)
+    raw = list_transactions(neutralize=False)
     assert len(raw) == 2
 
     # Consolidated: 1 entry with net amount
-    consolidated = storage_with_accounts.list_transactions(neutralize=True)
+    consolidated = list_transactions(neutralize=True)
     assert len(consolidated) == 1
     assert consolidated[0].amount_cents == 0  # -10000 + 10000
     assert consolidated[0].entry_count == 2
 
 
-def test_consolidated_query_preserves_standalone(storage_with_accounts: TransactionStorage):
+def test_consolidated_query_preserves_standalone(storage_with_accounts):
     """Standalone transactions should appear unchanged in consolidated view."""
     tx = make_transaction(1, date(2024, 1, 1), -5000, "Standalone")
 
-    storage_with_accounts.store_transactions([tx])
+    store_transactions([tx])
 
-    consolidated = storage_with_accounts.list_transactions(neutralize=True)
+    consolidated = list_transactions(neutralize=True)
     assert len(consolidated) == 1
     assert consolidated[0].amount_cents == -5000
     assert consolidated[0].entry_count == 1
     assert consolidated[0].payee == "Standalone"
 
 
-def test_apply_groups_updates_existing(storage_with_accounts: TransactionStorage):
+def test_apply_groups_updates_existing(storage_with_accounts):
     """apply_groups should update group_id for existing transactions."""
     tx1 = make_transaction(1, date(2024, 1, 1), -10000, "TX1")
     tx2 = make_transaction(1, date(2024, 1, 2), 10000, "TX2")
 
-    storage_with_accounts.store_transactions([tx1, tx2])
+    store_transactions([tx1, tx2])
 
     # Initially both standalone
-    raw = storage_with_accounts.list_transactions(neutralize=False)
+    raw = list_transactions(neutralize=False)
     assert all(tx.group_id == tx.fingerprint for tx in raw)
 
     # Apply grouping
     group_id = "test-group-123"
-    grouped, standalone = storage_with_accounts.apply_groups({
+    grouped, standalone = apply_groups({
         tx1.fingerprint: group_id,
         tx2.fingerprint: group_id,
     })
@@ -328,5 +337,5 @@ def test_apply_groups_updates_existing(storage_with_accounts: TransactionStorage
     assert standalone == 0
 
     # Now both share group_id
-    raw = storage_with_accounts.list_transactions(neutralize=False)
+    raw = list_transactions(neutralize=False)
     assert all(tx.group_id == group_id for tx in raw)

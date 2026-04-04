@@ -1,7 +1,8 @@
 from click.testing import CliRunner
 
 from penny.cli import main
-from penny.transactions import TransactionStorage
+from penny.db import init_schema, set_db_path
+from penny.transactions import count_transactions
 
 
 def test_import_creates_transactions_and_account(monkeypatch, fixture_dir, tmp_path):
@@ -23,8 +24,9 @@ def test_import_creates_transactions_and_account(monkeypatch, fixture_dir, tmp_p
     assert "HOTEL EXAMPLE BERLIN" in list_result.output
     assert "AMAZON PAYMENTS EUROPE" in list_result.output
 
-    storage = TransactionStorage(tmp_path / "penny.db")
-    assert storage.count_transactions() == 3
+    set_db_path(tmp_path / "penny.db")
+    init_schema()
+    assert count_transactions() == 3
 
 
 def test_reimport_deduplicates(monkeypatch, fixture_dir, tmp_path):
