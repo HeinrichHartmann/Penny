@@ -127,7 +127,8 @@ def salary(transaction):
     assert all(transaction.category for transaction in transactions)
 
     rows = MutationLog(VaultConfig()).list_rows()
-    assert rows[-1].type == "rules_updated"
+    assert rows[-2].type == "rules_updated"
+    assert rows[-1].type == "classifications_applied"
 
     init_db(None)
     replay_vault(VaultConfig())

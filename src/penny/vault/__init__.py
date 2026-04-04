@@ -15,12 +15,22 @@ from penny.vault.manifests import (
 from penny.vault.apply import apply_ingest, apply_entry, IngestResult
 from penny.vault.ingest import ingest_csv, ingest_csv_files, IngestRequest
 from penny.vault.replay import ReplayEngine, ReplayResult, replay_vault
+from penny.vault.replay import apply_pending_mutations
 from penny.vault.startup import StartupResult, bootstrap_application_state, ensure_vault_initialized
 from penny.vault.rules_store import (
     default_rules_template,
     ensure_rules_snapshot,
     latest_rules_path,
     save_rules_snapshot,
+)
+from penny.vault.writes import (
+    create_account,
+    update_account,
+    hide_account,
+    upsert_subaccounts,
+    store_transactions,
+    apply_classifications,
+    apply_groups,
 )
 
 __all__ = [
@@ -51,6 +61,7 @@ __all__ = [
     "ReplayEngine",
     "ReplayResult",
     "replay_vault",
+    "apply_pending_mutations",
     # Startup
     "StartupResult",
     "bootstrap_application_state",
@@ -60,4 +71,12 @@ __all__ = [
     "ensure_rules_snapshot",
     "latest_rules_path",
     "save_rules_snapshot",
+    # Write surface
+    "create_account",
+    "update_account",
+    "hide_account",
+    "upsert_subaccounts",
+    "store_transactions",
+    "apply_classifications",
+    "apply_groups",
 ]

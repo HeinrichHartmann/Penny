@@ -120,41 +120,52 @@ def store_transactions(
     *,
     source_file: str | None = None,
 ) -> tuple[int, int]:
-    """Store transactions and return counts for new and duplicate rows."""
-    imported_at = datetime.now().isoformat()
+    """Store transactions via the vault write surface."""
+    from penny.vault import store_transactions as vault_store_transactions
+
+    return vault_store_transactions(transactions, source_file=source_file)
+
+
+def _store_transactions_direct(
+    conn: sqlite3.Connection,
+    transactions: list[Transaction],
+    *,
+    source_file: str | None = None,
+    imported_at: str | None = None,
+) -> tuple[int, int]:
+    """Store transactions directly in the projection database."""
+    imported_at = imported_at or datetime.now().isoformat()
     new_count = 0
     duplicate_count = 0
 
-    with closing(connect()) as conn:
-        for tx in transactions:
-            try:
-                conn.execute(
-                    insert_transaction_sql(),
-                    (
-                        tx.fingerprint,
-                        tx.account_id,
-                        tx.subaccount_type,
-                        tx.date.isoformat(),
-                        tx.payee,
-                        tx.memo,
-                        tx.amount_cents,
-                        tx.value_date.isoformat() if tx.value_date else None,
-                        tx.transaction_type,
-                        tx.reference,
-                        tx.raw_buchungstext,
-                        json.dumps(tx.raw_row, ensure_ascii=False, sort_keys=True),
-                        tx.category,
-                        tx.classification_rule,
-                        None,  # classified_at
-                        imported_at,
-                        source_file,
-                        tx.fingerprint,  # group_id defaults to fingerprint
-                    ),
-                )
-                new_count += 1
-            except sqlite3.IntegrityError:
-                duplicate_count += 1
-        conn.commit()
+    for tx in transactions:
+        try:
+            conn.execute(
+                insert_transaction_sql(),
+                (
+                    tx.fingerprint,
+                    tx.account_id,
+                    tx.subaccount_type,
+                    tx.date.isoformat(),
+                    tx.payee,
+                    tx.memo,
+                    tx.amount_cents,
+                    tx.value_date.isoformat() if tx.value_date else None,
+                    tx.transaction_type,
+                    tx.reference,
+                    tx.raw_buchungstext,
+                    json.dumps(tx.raw_row, ensure_ascii=False, sort_keys=True),
+                    tx.category,
+                    tx.classification_rule,
+                    None,
+                    imported_at,
+                    source_file,
+                    tx.group_id or tx.fingerprint,
+                ),
+            )
+            new_count += 1
+        except sqlite3.IntegrityError:
+            duplicate_count += 1
 
     return new_count, duplicate_count
 
@@ -262,57 +273,57 @@ def count_transactions(*, account_id: int | None = None) -> int:
 
 
 def apply_classifications(decisions: list[ClassificationDecision]) -> tuple[int, int]:
-    """Persist a full-set classification pass."""
+    """Persist a full-set classification pass via the vault write surface."""
+    from penny.vault import apply_classifications as vault_apply_classifications
+
+    return vault_apply_classifications(decisions)
+
+
+def _apply_classifications_direct(
+    conn: sqlite3.Connection,
+    decisions: list[ClassificationDecision],
+    *,
+    classified_at: str | None = None,
+) -> tuple[int, int]:
+    """Apply a full-set classification pass directly to the projection."""
     decision_map = {d.fingerprint: d for d in decisions}
-    classified_at = datetime.now().isoformat()
+    classified_at = classified_at or datetime.now().isoformat()
 
-    with closing(connect()) as conn:
-        # Clear all existing classifications
-        conn.execute(clear_classifications_sql())
+    conn.execute(clear_classifications_sql())
 
-        # Apply new classifications
-        for fingerprint, decision in decision_map.items():
-            conn.execute(
-                update_classification_sql(),
-                (decision.category, decision.rule_name, classified_at, fingerprint),
-            )
+    for fingerprint, decision in decision_map.items():
+        conn.execute(
+            update_classification_sql(),
+            (decision.category, decision.rule_name, classified_at, fingerprint),
+        )
 
-        # Verify all transactions have a category
-        uncategorized = int(conn.execute(count_uncategorized_sql()).fetchone()[0])
-        if uncategorized:
-            conn.rollback()
-            raise RuntimeError(
-                f"Classification pass left {uncategorized} transactions without a category"
-            )
+    uncategorized = int(conn.execute(count_uncategorized_sql()).fetchone()[0])
+    if uncategorized:
+        raise RuntimeError(
+            f"Classification pass left {uncategorized} transactions without a category"
+        )
 
-        conn.commit()
-
-        total = int(conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0])
-
+    total = int(conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0])
     return len(decision_map), total - len(decision_map)
 
 
 def apply_groups(groups: dict[str, str]) -> tuple[int, int]:
-    """Assign group_id to transactions.
+    """Assign group_id to transactions via the vault write surface."""
+    from penny.vault import apply_groups as vault_apply_groups
 
-    Args:
-        groups: Mapping of fingerprint -> group_id
+    return vault_apply_groups(groups)
 
-    Returns:
-        Tuple of (grouped_count, standalone_count)
-    """
-    with closing(connect()) as conn:
-        # Reset all to standalone
-        conn.execute(reset_groups_sql())
 
-        # Apply grouped assignments
-        for fingerprint, group_id in groups.items():
-            conn.execute(update_group_sql(), (group_id, fingerprint))
+def _apply_groups_direct(
+    conn: sqlite3.Connection,
+    groups: dict[str, str],
+) -> tuple[int, int]:
+    """Apply transfer groups directly to the projection."""
+    conn.execute(reset_groups_sql())
 
-        conn.commit()
+    for fingerprint, group_id in groups.items():
+        conn.execute(update_group_sql(), (group_id, fingerprint))
 
-        # Count results
-        grouped = int(conn.execute(count_grouped_sql()).fetchone()[0])
-        standalone = int(conn.execute(count_standalone_sql()).fetchone()[0])
-
+    grouped = int(conn.execute(count_grouped_sql()).fetchone()[0])
+    standalone = int(conn.execute(count_standalone_sql()).fetchone()[0])
     return grouped, standalone

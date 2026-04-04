@@ -12,7 +12,6 @@ from penny.accounts import (
     update_account_metadata,
 )
 from penny.api.helpers import get_db
-from penny.vault import MutationLog, VaultConfig
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -104,12 +103,6 @@ async def update_account(
         updated = update_account_metadata(account_id, **changes)
         if updated is None:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-        MutationLog(VaultConfig()).append(
-            "account_updated",
-            entity_type="account",
-            entity_id=account_id,
-            payload=changes,
-        )
 
     # Return updated account
     return await get_account(account_id)

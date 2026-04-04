@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import date, datetime
+import sqlite3
 from typing import TYPE_CHECKING
 
 from penny.db import connect
@@ -119,40 +120,70 @@ def create_account(
     balance_date: date | None = None,
     subaccounts: dict[str, Subaccount] | None = None,
 ) -> Account:
-    """Create and persist an account."""
-    now = datetime.now()
-    with closing(connect()) as conn:
-        cursor = conn.execute(
-            insert_account_sql(),
-            (
-                bank,
-                display_name,
-                iban,
-                holder,
-                notes,
-                balance_cents,
-                balance_date.isoformat() if balance_date else None,
-                now.isoformat(),
-                now.isoformat(),
-            ),
+    """Create and persist an account via the vault."""
+    from penny.vault import create_account as vault_create_account
+
+    return vault_create_account(
+        bank=bank,
+        bank_account_numbers=bank_account_numbers,
+        display_name=display_name,
+        iban=iban,
+        holder=holder,
+        notes=notes,
+        balance_cents=balance_cents,
+        balance_date=balance_date,
+        subaccounts=subaccounts,
+    )
+
+
+def _create_account_direct(
+    conn: sqlite3.Connection,
+    *,
+    bank: str,
+    bank_account_numbers: list[str] | None = None,
+    display_name: str | None = None,
+    iban: str | None = None,
+    holder: str | None = None,
+    notes: str | None = None,
+    balance_cents: int | None = None,
+    balance_date: date | None = None,
+    subaccounts: dict[str, Subaccount] | None = None,
+    created_at: str | None = None,
+    updated_at: str | None = None,
+) -> Account:
+    """Apply account creation directly to the database."""
+    now = datetime.now().isoformat()
+    created_at = created_at or now
+    updated_at = updated_at or created_at
+    cursor = conn.execute(
+        insert_account_sql(),
+        (
+            bank,
+            display_name,
+            iban,
+            holder,
+            notes,
+            balance_cents,
+            balance_date.isoformat() if balance_date else None,
+            created_at,
+            updated_at,
+        ),
+    )
+    account_id = cursor.lastrowid
+
+    for account_number in bank_account_numbers or []:
+        conn.execute(
+            insert_account_identifier_sql(),
+            (account_id, account_number),
         )
-        account_id = cursor.lastrowid
 
-        for account_number in bank_account_numbers or []:
-            conn.execute(
-                insert_account_identifier_sql(),
-                (account_id, account_number),
-            )
+    for subaccount in (subaccounts or {}).values():
+        conn.execute(
+            insert_subaccount_sql(),
+            (account_id, subaccount.type, subaccount.display_name),
+        )
 
-        for subaccount in (subaccounts or {}).values():
-            conn.execute(
-                insert_subaccount_sql(),
-                (account_id, subaccount.type, subaccount.display_name),
-            )
-
-        conn.commit()
-
-    account = get_account(account_id, include_hidden=True)
+    account = _get_account_in_conn(conn, account_id, include_hidden=True)
     if account is None:
         raise RuntimeError(f"Account {account_id} was not persisted")
     return account
@@ -175,24 +206,28 @@ def list_accounts(*, include_hidden: bool = False) -> list[Account]:
 def get_account(account_id: int, *, include_hidden: bool = True) -> Account | None:
     """Return an account by ID."""
     with closing(connect()) as conn:
-        row = conn.execute(
-            get_account_sql(include_hidden),
-            [account_id],
-        ).fetchone()
-        if row is None:
-            return None
-        return _hydrate_account(conn, row)
+        return _get_account_in_conn(conn, account_id, include_hidden=include_hidden)
 
 
 def soft_delete_account(account_id: int) -> bool:
-    """Hide an account without removing it."""
-    with closing(connect()) as conn:
-        cursor = conn.execute(
-            soft_delete_account_sql(),
-            (datetime.now().isoformat(), account_id),
-        )
-        conn.commit()
-        return cursor.rowcount > 0
+    """Hide an account without removing it via the vault."""
+    from penny.vault import hide_account
+
+    return hide_account(account_id)
+
+
+def _soft_delete_account_direct(
+    conn: sqlite3.Connection,
+    account_id: int,
+    *,
+    updated_at: str | None = None,
+) -> bool:
+    """Apply account hiding directly to the database."""
+    cursor = conn.execute(
+        soft_delete_account_sql(),
+        ((updated_at or datetime.now().isoformat()), account_id),
+    )
+    return cursor.rowcount > 0
 
 
 def update_account_metadata(
@@ -203,7 +238,29 @@ def update_account_metadata(
     holder: str | None = None,
     notes: str | None = None,
 ) -> Account | None:
-    """Update mutable account metadata and return the refreshed account."""
+    """Update mutable account metadata via the vault."""
+    from penny.vault import update_account as vault_update_account
+
+    return vault_update_account(
+        account_id,
+        display_name=display_name,
+        iban=iban,
+        holder=holder,
+        notes=notes,
+    )
+
+
+def _update_account_metadata_direct(
+    conn: sqlite3.Connection,
+    account_id: int,
+    *,
+    display_name: str | None = None,
+    iban: str | None = None,
+    holder: str | None = None,
+    notes: str | None = None,
+    updated_at: str | None = None,
+) -> Account | None:
+    """Apply account metadata changes directly to the database."""
     updates = []
     params: list[object] = []
 
@@ -221,20 +278,18 @@ def update_account_metadata(
         params.append(notes)
 
     if not updates:
-        return get_account(account_id, include_hidden=True)
+        return _get_account_in_conn(conn, account_id, include_hidden=True)
 
-    with closing(connect()) as conn:
-        params.extend([datetime.now().isoformat(), account_id])
-        cursor = conn.execute(
-            f"UPDATE accounts SET {', '.join(updates)}, updated_at = ? WHERE id = ?",
-            params,
-        )
-        conn.commit()
+    params.extend([(updated_at or datetime.now().isoformat()), account_id])
+    cursor = conn.execute(
+        f"UPDATE accounts SET {', '.join(updates)}, updated_at = ? WHERE id = ?",
+        params,
+    )
 
     if cursor.rowcount == 0:
         return None
 
-    return get_account(account_id, include_hidden=True)
+    return _get_account_in_conn(conn, account_id, include_hidden=True)
 
 
 def find_account_by_bank_account_number(
@@ -245,27 +300,63 @@ def find_account_by_bank_account_number(
 ) -> Account | None:
     """Find an account by bank and bank account number."""
     with closing(connect()) as conn:
-        row = conn.execute(
-            find_account_by_bank_account_number_sql(include_hidden),
-            [bank, account_number],
-        ).fetchone()
-        if row is None:
-            return None
-        return _hydrate_account(conn, row)
+        return _find_account_by_bank_account_number_in_conn(
+            conn,
+            bank,
+            account_number,
+            include_hidden=include_hidden,
+        )
 
 
 def upsert_subaccounts(account_id: int, subaccount_types: list[str]) -> None:
-    """Ensure the given subaccount types exist for an account."""
-    if not subaccount_types:
-        return
+    """Ensure the given subaccount types exist for an account via the vault."""
+    from penny.vault import upsert_subaccounts as vault_upsert_subaccounts
 
-    with closing(connect()) as conn:
-        for subaccount_type in subaccount_types:
-            conn.execute(
-                upsert_subaccount_sql(),
-                (account_id, subaccount_type),
-            )
-        conn.commit()
+    vault_upsert_subaccounts(account_id, subaccount_types)
+
+
+def _upsert_subaccounts_direct(
+    conn: sqlite3.Connection,
+    account_id: int,
+    subaccount_types: list[str],
+) -> None:
+    """Apply subaccount upserts directly to the database."""
+    for subaccount_type in subaccount_types:
+        conn.execute(
+            upsert_subaccount_sql(),
+            (account_id, subaccount_type),
+        )
+
+
+def _get_account_in_conn(
+    conn: sqlite3.Connection,
+    account_id: int,
+    *,
+    include_hidden: bool,
+) -> Account | None:
+    row = conn.execute(
+        get_account_sql(include_hidden),
+        [account_id],
+    ).fetchone()
+    if row is None:
+        return None
+    return _hydrate_account(conn, row)
+
+
+def _find_account_by_bank_account_number_in_conn(
+    conn: sqlite3.Connection,
+    bank: str,
+    account_number: str,
+    *,
+    include_hidden: bool,
+) -> Account | None:
+    row = conn.execute(
+        find_account_by_bank_account_number_sql(include_hidden),
+        [bank, account_number],
+    ).fetchone()
+    if row is None:
+        return None
+    return _hydrate_account(conn, row)
 
 
 # =============================================================================

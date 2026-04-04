@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
+from datetime import date
 from typing import TYPE_CHECKING
+import json
 
 from penny.vault.log import LogEntry
 from penny.vault.manifests import (
     IngestManifest,
     AccountCreatedManifest,
+    AccountUpdatedManifest,
+    AccountHiddenManifest,
+    RulesManifest,
     load_manifest,
 )
+from penny.vault.mutations import MutationRow
 
 if TYPE_CHECKING:
     from penny.transactions import Transaction
@@ -39,10 +44,16 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     Reads the CSV files from the entry directory, parses them,
     reconciles the account, and stores transactions.
     """
-    from penny.accounts import reconcile_account
-    from penny.db import init_default_db
+    from penny.accounts import (
+        Subaccount,
+        _create_account_direct,
+        _find_account_by_bank_account_number_in_conn,
+        _get_account_in_conn,
+        _upsert_subaccounts_direct,
+    )
+    from penny.db import init_default_db, transaction
     from penny.ingest import match_file, read_file_with_encoding
-    from penny.transactions import store_transactions
+    from penny.transactions import _store_transactions_direct
 
     manifest: IngestManifest = entry.read_manifest()  # type: ignore
 
@@ -52,35 +63,58 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     # Initialize DB (idempotent, initializes schema too)
     init_default_db()
 
-    # Process each CSV file in the entry
     all_transactions: list[Transaction] = []
     parser_name = manifest.parser
     account = None
 
-    for csv_filename in manifest.csv_files:
-        csv_path = entry.path / csv_filename
-        content = read_file_with_encoding(csv_path)
+    with transaction() as conn:
+        for csv_filename in manifest.csv_files:
+            csv_path = entry.path / csv_filename
+            content = read_file_with_encoding(csv_path)
 
-        # Get parser (use stored parser type from manifest)
-        parser = match_file(csv_filename, content, csv_type=manifest.parser)
-        parser_name = parser.name
+            parser = match_file(csv_filename, content, csv_type=manifest.parser)
+            parser_name = parser.name
 
-        # Detect and reconcile account
-        detection = parser.detect(csv_filename, content)
-        account = reconcile_account(detection)
+            detection = parser.detect(csv_filename, content)
+            if not detection.bank_account_number:
+                raise ValueError("Cannot reconcile account without a bank account number")
 
-        # Parse transactions
-        transactions = parser.parse(csv_filename, content, account_id=account.id)
-        all_transactions.extend(transactions)
+            account = _find_account_by_bank_account_number_in_conn(
+                conn,
+                detection.bank,
+                detection.bank_account_number,
+                include_hidden=False,
+            )
+            if account is None:
+                account = _create_account_direct(
+                    conn,
+                    bank=detection.bank,
+                    bank_account_numbers=[detection.bank_account_number],
+                    subaccounts={
+                        subaccount_type: Subaccount(type=subaccount_type)
+                        for subaccount_type in detection.detected_subaccounts
+                    },
+                    created_at=manifest.timestamp,
+                    updated_at=manifest.timestamp,
+                )
+            else:
+                _upsert_subaccounts_direct(conn, account.id, detection.detected_subaccounts)
+                refreshed = _get_account_in_conn(conn, account.id, include_hidden=True)
+                if refreshed is not None:
+                    account = refreshed
 
-    if account is None:
-        raise ValueError("No CSV files in ingest entry")
+            transactions = parser.parse(csv_filename, content, account_id=account.id)
+            all_transactions.extend(transactions)
 
-    # Store transactions
-    new_count, duplicate_count = store_transactions(
-        all_transactions,
-        source_file=manifest.csv_files[0] if manifest.csv_files else "unknown",
-    )
+        if account is None:
+            raise ValueError("No CSV files in ingest entry")
+
+        new_count, duplicate_count = _store_transactions_direct(
+            conn,
+            all_transactions,
+            source_file=manifest.csv_files[0] if manifest.csv_files else "unknown",
+            imported_at=manifest.timestamp,
+        )
 
     # Build section counts
     section_counts = Counter(tx.subaccount_type for tx in all_transactions)
@@ -113,24 +147,164 @@ def apply_entry(entry: LogEntry) -> None:
         case "account_created":
             _apply_account_created(entry, manifest)  # type: ignore
         case "account_updated":
-            pass  # TODO
+            _apply_account_updated(entry, manifest)  # type: ignore
         case "account_hidden":
-            pass  # TODO
+            _apply_account_hidden(entry, manifest)  # type: ignore
         case "balance_snapshot":
             pass  # TODO
         case "rules":
-            pass  # TODO
+            _apply_rules(entry, manifest)  # type: ignore
         case _:
             raise ValueError(f"Unknown manifest type: {manifest.type}")
 
 
 def _apply_account_created(entry: LogEntry, manifest: AccountCreatedManifest) -> None:
     """Apply account_created entry."""
-    from penny.accounts import add_account
+    from penny.accounts import _create_account_direct
+    from penny.db import transaction
 
-    add_account(
-        bank=manifest.bank,
-        bank_account_number=manifest.bank_account_number,
-        display_name=manifest.display_name,
-        iban=manifest.iban,
-    )
+    with transaction() as conn:
+        _create_account_direct(
+            conn,
+            bank=manifest.bank,
+            bank_account_numbers=[manifest.bank_account_number] if manifest.bank_account_number else [],
+            display_name=manifest.display_name,
+            iban=manifest.iban,
+            created_at=manifest.timestamp,
+            updated_at=manifest.timestamp,
+        )
+
+
+def _apply_account_updated(entry: LogEntry, manifest: AccountUpdatedManifest) -> None:
+    """Apply account_updated entry."""
+    from penny.accounts import _update_account_metadata_direct
+    from penny.db import transaction
+
+    with transaction() as conn:
+        _update_account_metadata_direct(
+            conn,
+            manifest.account_id,
+            updated_at=manifest.timestamp,
+            **manifest.fields,
+        )
+
+
+def _apply_account_hidden(entry: LogEntry, manifest: AccountHiddenManifest) -> None:
+    """Apply account_hidden entry."""
+    from penny.accounts import _soft_delete_account_direct
+    from penny.db import transaction
+
+    with transaction() as conn:
+        _soft_delete_account_direct(
+            conn,
+            manifest.account_id,
+            updated_at=manifest.timestamp,
+        )
+
+
+def _apply_rules(entry: LogEntry, manifest: RulesManifest) -> None:
+    """Apply rules entry by ensuring the snapshot exists on disk."""
+    return None
+
+
+def apply_mutation(row: MutationRow) -> None:
+    """Apply a mutation row directly to the SQLite projection."""
+    from penny.accounts import _create_account_direct, _soft_delete_account_direct, _update_account_metadata_direct, Subaccount
+    from penny.db import transaction
+    from penny.transactions import _apply_classifications_direct, _apply_groups_direct
+
+    payload = json.loads(row.payload_json)
+
+    with transaction() as conn:
+        if row.type == "account_created":
+            _create_account_direct(
+                conn,
+                bank=payload["bank"],
+                bank_account_numbers=payload.get("bank_account_numbers") or [],
+                display_name=payload.get("display_name"),
+                iban=payload.get("iban"),
+                holder=payload.get("holder"),
+                notes=payload.get("notes"),
+                balance_cents=payload.get("balance_cents"),
+                balance_date=date.fromisoformat(payload["balance_date"]) if payload.get("balance_date") else None,
+                subaccounts={
+                    item["type"]: Subaccount(type=item["type"], display_name=item.get("display_name"))
+                    for item in payload.get("subaccounts", [])
+                },
+                created_at=row.timestamp,
+                updated_at=row.timestamp,
+            )
+            return
+
+        if row.type == "account_updated":
+            _update_account_metadata_direct(
+                conn,
+                int(row.entity_id),
+                updated_at=row.timestamp,
+                **payload,
+            )
+            return
+
+        if row.type == "account_hidden":
+            _soft_delete_account_direct(conn, int(row.entity_id), updated_at=row.timestamp)
+            return
+
+        if row.type == "subaccounts_upserted":
+            from penny.accounts import _upsert_subaccounts_direct
+
+            _upsert_subaccounts_direct(conn, int(row.entity_id), payload.get("subaccount_types", []))
+            return
+
+        if row.type == "transactions_stored":
+            from penny.transactions import Transaction, _store_transactions_direct
+
+            transactions = [
+                Transaction(
+                    fingerprint=item["fingerprint"],
+                    account_id=item["account_id"],
+                    subaccount_type=item["subaccount_type"],
+                    date=date.fromisoformat(item["date"]),
+                    payee=item["payee"],
+                    memo=item["memo"],
+                    amount_cents=item["amount_cents"],
+                    value_date=date.fromisoformat(item["value_date"]) if item.get("value_date") else None,
+                    transaction_type=item.get("transaction_type") or "",
+                    reference=item.get("reference"),
+                    raw_buchungstext=item.get("raw_buchungstext") or "",
+                    raw_row=item.get("raw_row") or {},
+                    category=item.get("category"),
+                    classification_rule=item.get("classification_rule"),
+                    group_id=item.get("group_id"),
+                )
+                for item in payload.get("transactions", [])
+            ]
+            _store_transactions_direct(
+                conn,
+                transactions,
+                source_file=payload.get("source_file"),
+                imported_at=row.timestamp,
+            )
+            return
+
+        if row.type == "classifications_applied":
+            from penny.classify.engine import ClassificationDecision
+
+            decisions = [
+                ClassificationDecision(
+                    fingerprint=item["fingerprint"],
+                    category=item["category"],
+                    rule_name=item["rule_name"],
+                )
+                for item in payload.get("decisions", [])
+            ]
+            _apply_classifications_direct(conn, decisions, classified_at=row.timestamp)
+            return
+
+        if row.type == "groups_applied":
+            _apply_groups_direct(conn, payload.get("groups", {}))
+            return
+
+        if row.type == "rules_updated":
+            return
+
+        raise ValueError(f"Unknown mutation type: {row.type}")

@@ -5,6 +5,7 @@ import pytest
 
 from penny.accounts import add_account, list_accounts
 from penny.api.accounts import update_account
+from penny.db import transaction
 from penny.transactions import count_transactions
 from penny.vault import (
     IngestRequest,
@@ -62,7 +63,16 @@ def test_bootstrap_clears_projection_drift(tmp_path, fixture_dir):
         ),
         config=config,
     )
-    add_account("manual", bank_account_number="99999999")
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO accounts (
+                bank, display_name, iban, holder, notes,
+                balance_cents, balance_date, created_at, updated_at, hidden
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            ("manual", None, None, None, None, None, None, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
 
     assert len(list_accounts()) == 2
 
@@ -93,3 +103,16 @@ def test_bootstrap_replays_account_naming_mutation(tmp_path, fixture_dir):
     accounts = list_accounts()
     assert len(accounts) == 1
     assert accounts[0].display_name == "Private Main"
+
+
+def test_bootstrap_replays_manual_account_creation(tmp_path):
+    config = VaultConfig(tmp_path / "vault")
+
+    add_account("manual", bank_account_number="99999999")
+
+    bootstrap_application_state(config)
+
+    accounts = list_accounts()
+    assert len(accounts) == 1
+    assert accounts[0].bank == "manual"
+    assert accounts[0].bank_account_numbers == ["99999999"]

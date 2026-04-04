@@ -9,6 +9,7 @@ from penny.accounts import (
     remove_account,
 )
 from penny.cli import main
+from penny.vault import MutationLog, VaultConfig
 
 
 def test_add_account_assigns_sequential_id(db):
@@ -54,6 +55,14 @@ def test_add_duplicate_hidden_account_fails(db):
         assert "already exists" in str(exc)
     else:
         raise AssertionError("Expected duplicate account creation to fail")
+
+
+def test_account_writes_append_mutations(db):
+    account = add_account("comdirect", bank_account_number="9788862492")
+    remove_account(account.id)
+
+    rows = MutationLog(VaultConfig()).list_rows()
+    assert [row.type for row in rows] == ["account_created", "account_hidden"]
 
 
 @pytest.mark.integration

@@ -13,7 +13,6 @@ from penny.accounts import (
     add_account,
     find_account_by_bank_account_number,
     list_accounts,
-    reconcile_account,
     remove_account,
 )
 from penny.classify import run_classification_pass
@@ -436,12 +435,12 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             else f"[new] ({detection.bank} {detection.bank_account_number})"
         )
     else:
-        try:
-            account = reconcile_account(detection)
-        except (DuplicateAccountError, ValueError) as exc:
-            raise click.ClickException(str(exc)) from exc
-        account_id = account.id
-        account_label = f"#{account.id} ({account.bank} {detection.bank_account_number})"
+        account_id = existing_account.id if existing_account is not None else 0
+        account_label = (
+            f"#{existing_account.id} ({existing_account.bank} {detection.bank_account_number})"
+            if existing_account is not None
+            else f"[new] ({detection.bank} {detection.bank_account_number})"
+        )
 
     parsed_transactions = parser.parse(csv_file.name, content, account_id=account_id)
     section_counts = Counter(transaction.subaccount_type for transaction in parsed_transactions)
@@ -449,11 +448,10 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
         f"{section} ({count})" for section, count in sorted(section_counts.items())
     ) or "-"
 
-    click.echo(f"Detected: {detection.parser_name}")
-    click.echo(f"Account: {account_label}")
-    click.echo(f"Sections: {sections_text}")
-
     if dry_run:
+        click.echo(f"Detected: {detection.parser_name}")
+        click.echo(f"Account: {account_label}")
+        click.echo(f"Sections: {sections_text}")
         click.echo(f"Parsed: {len(parsed_transactions)} transactions")
         for transaction in parsed_transactions[:5]:
             click.echo(
@@ -468,6 +466,13 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             content=csv_file.read_bytes(),
             csv_type=csv_type,
         )
+    )
+
+    click.echo(f"Detected: {result.parser_name}")
+    click.echo(f"Account: #{result.account_id} ({result.account_bank} {detection.bank_account_number})")
+    click.echo(
+        "Sections: "
+        + ", ".join(f"{section} ({count})" for section, count in sorted(result.sections.items()))
     )
 
     click.echo("")

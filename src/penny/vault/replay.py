@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 from penny.config import default_db_path
+from penny.db import transaction
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.mutations import MutationLog
-from penny.vault.rules_store import latest_rules_path
-from penny.vault.apply import apply_ingest
+from penny.vault.apply import apply_ingest, apply_mutation
 
 
 @dataclass
@@ -63,28 +62,76 @@ class ReplayEngine:
             entry_type = manifest.type
             entries_by_type[entry_type] = entries_by_type.get(entry_type, 0) + 1
 
-        for row in MutationLog(self.config).list_rows():
-            payload = json.loads(row.payload_json)
-
-            if row.type == "account_updated":
-                from penny.accounts import update_account_metadata
-
-                update_account_metadata(int(row.entity_id), **payload)
-                entries_processed += 1
-                entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
-            elif row.type == "rules_updated":
-                from penny.api.rules import run_rules_path
-
-                rules_path = self.config.rules_dir / payload["path"]
-                if rules_path.exists():
-                    run_rules_path(rules_path)
-                    entries_processed += 1
-                    entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
+        _ensure_projection_state()
+        _set_last_applied_mutation_seq(0)
+        mutation_result = apply_pending_mutations(self.config)
+        entries_processed += mutation_result.entries_processed
+        for entry_type, count in mutation_result.entries_by_type.items():
+            entries_by_type[entry_type] = entries_by_type.get(entry_type, 0) + count
 
         return ReplayResult(
             entries_processed=entries_processed,
             entries_by_type=entries_by_type,
         )
+
+
+def _ensure_projection_state() -> None:
+    with transaction() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS projection_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+
+
+def _get_last_applied_mutation_seq() -> int:
+    _ensure_projection_state()
+    with transaction() as conn:
+        row = conn.execute(
+            "SELECT value FROM projection_state WHERE key = 'last_applied_mutation_seq'"
+        ).fetchone()
+        return int(row["value"]) if row is not None else 0
+
+
+def _set_last_applied_mutation_seq(seq: int) -> None:
+    _ensure_projection_state()
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO projection_state (key, value)
+            VALUES ('last_applied_mutation_seq', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (str(seq),),
+        )
+
+
+def apply_pending_mutations(
+    config: VaultConfig | None = None,
+    *,
+    upto_seq: int | None = None,
+) -> ReplayResult:
+    """Apply unapplied mutation rows to the current projection."""
+    cfg = config or VaultConfig()
+    last_applied = _get_last_applied_mutation_seq()
+    entries_processed = 0
+    entries_by_type: dict[str, int] = {}
+
+    for row in MutationLog(cfg).list_rows():
+        if row.seq <= last_applied:
+            continue
+        if upto_seq is not None and row.seq > upto_seq:
+            break
+        apply_mutation(row)
+        _set_last_applied_mutation_seq(row.seq)
+        last_applied = row.seq
+        entries_processed += 1
+        entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
+
+    return ReplayResult(entries_processed=entries_processed, entries_by_type=entries_by_type)
 
 
 def replay_vault(config: VaultConfig | None = None) -> ReplayResult:
