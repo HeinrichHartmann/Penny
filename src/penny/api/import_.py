@@ -108,8 +108,6 @@ async def list_imports():
     Returns:
         List of import records with timestamp, filename, parser, and transaction counts.
     """
-    from penny.accounts import get_account
-
     config = VaultConfig()
     log = LogManager(config)
 
