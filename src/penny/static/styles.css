@@ -331,7 +331,8 @@ h1 {
 .txn-header-total {
   min-width: 180px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  margin-left: auto;
   flex-shrink: 0;
 }
 
@@ -399,7 +400,7 @@ h1 {
 
 .txn-total {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: baseline;
   gap: 6px;
   width: 100%;
@@ -413,7 +414,7 @@ h1 {
 }
 
 .txn-total-value {
-  text-align: right;
+  text-align: left;
 }
 
 .pagination-controls {
@@ -682,21 +683,8 @@ tbody tr:hover {
 .selector-category-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.selector-category-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.selector-category-picker {
-  margin-top: 8px;
-  display: flex;
-  justify-content: flex-end;
 }
 
 .selector-category-breadcrumb {
@@ -705,9 +693,17 @@ tbody tr:hover {
   flex: 1 1 260px;
 }
 
+.selector-category-trigger {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .selector-category-toggle {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -716,17 +712,28 @@ tbody tr:hover {
   border-radius: 999px;
   background: var(--panel);
   color: var(--muted);
-  cursor: pointer;
   transition: all 0.15s ease;
+  margin-left: 2px;
+  pointer-events: none;
 }
 
-.selector-category-toggle:hover:not(:disabled) {
+.selector-category-trigger:hover .selector-category-toggle {
   color: var(--ink);
   border-color: var(--accent);
 }
 
-.selector-category-toggle:disabled {
+.selector-category-toggle.disabled {
   opacity: 0.45;
+}
+
+.selector-category-native {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.selector-category-native:disabled {
   cursor: default;
 }
 
@@ -741,13 +748,6 @@ tbody tr:hover {
   width: 100%;
   min-width: 220px;
   flex: 1 1 220px;
-}
-
-.selector-select {
-  appearance: none;
-  cursor: pointer;
-  min-width: 220px;
-  max-width: 320px;
 }
 
 /* ── Category Badges ───────────────────────────────────────────────────────── */
@@ -826,7 +826,9 @@ tbody tr:hover {
 .category-entry {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -837,6 +839,7 @@ tbody tr:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
 
 /* ── Report ────────────────────────────────────────────────────────────────── */
@@ -966,10 +969,6 @@ tbody tr:hover {
 
   .selector-row-accounts {
     justify-self: stretch;
-  }
-
-  .selector-category-picker {
-    justify-content: flex-start;
   }
 }
 

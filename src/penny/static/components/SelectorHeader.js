@@ -1,7 +1,6 @@
 /**
  * Shared selector header for report and transactions views.
  */
-import { ref } from 'vue/dist/vue.esm-bundler.js';
 import { DateFilterPanel } from './DateFilterPanel.js';
 
 export const SelectorHeader = {
@@ -12,12 +11,6 @@ export const SelectorHeader = {
   props: {
     state: { type: Object, required: true },
     actions: { type: Object, required: true },
-  },
-  setup() {
-    const showCategoryPicker = ref(false);
-    return {
-      showCategoryPicker,
-    };
   },
   template: `
     <div class="panel selector-header">
@@ -80,43 +73,34 @@ export const SelectorHeader = {
                   {{ crumb.label }}
                 </button>
               </template>
-            </div>
-            <div class="selector-category-actions">
-              <button
-                type="button"
-                class="selector-category-toggle"
-                @click="showCategoryPicker = !showCategoryPicker"
-                :disabled="state.nextCategoryOptions.length === 0"
+              <span
+                class="selector-category-trigger"
                 :title="state.nextCategoryOptions.length === 0 ? 'No narrower categories' : 'Choose narrower category'"
               >
-                <span aria-hidden="true">{{ showCategoryPicker ? '▾' : '▸' }}</span>
-              </button>
-              <button v-if="state.selectedCategory" type="button" class="shortcut-btn" @click="actions.clearSelection()">Clear</button>
-            </div>
-          </div>
-          <div v-if="showCategoryPicker && state.nextCategoryOptions.length > 0" class="selector-category-picker">
-              <select
-                class="search-input selector-select"
-                :value="state.categorySelectValue"
-                @change="actions.updateCategorySelectValue($event.target.value); actions.applyCategorySelection($event.target.value || null); showCategoryPicker = false"
-                :disabled="state.nextCategoryOptions.length === 0"
-              >
-                <option value="">
-                  {{ state.nextCategoryOptions.length === 0
-                    ? 'No narrower categories'
-                    : state.selectedCategory
-                      ? 'Choose next level'
-                      : 'Choose category' }}
-                </option>
-                <option
-                  v-for="option in state.nextCategoryOptions"
-                  :key="option.path"
-                  :value="option.path"
+                <span
+                  class="selector-category-toggle"
+                  :class="{ disabled: state.nextCategoryOptions.length === 0 }"
+                  aria-hidden="true"
                 >
-                  {{ option.label }}
-                </option>
-              </select>
-          </div>
+                  ▾
+                </span>
+                <select
+                  class="selector-category-native"
+                  :value="state.categorySelectValue"
+                  @change="actions.updateCategorySelectValue($event.target.value); actions.applyCategorySelection($event.target.value || null)"
+                  :disabled="state.nextCategoryOptions.length === 0"
+                >
+                  <option value="" hidden></option>
+                  <option
+                    v-for="option in state.nextCategoryOptions"
+                    :key="option.path"
+                    :value="option.path"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </span>
+            </div>
         </section>
       </div>
     </div>
