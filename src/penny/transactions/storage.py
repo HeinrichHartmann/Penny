@@ -217,14 +217,23 @@ class TransactionStorage:
         {limit_clause}
     """
 
-    def _list_transactions(
+    def list_transactions(
         self,
-        consolidation_col: str,
         *,
         account_id: int | None = None,
         limit: int | None = 20,
+        neutralize: bool = True,
     ) -> list[Transaction]:
-        """List transactions using the provided SQL grouping column."""
+        """List transactions, optionally consolidating transfer groups.
+
+        Args:
+            account_id: Filter to a specific account
+            limit: Max rows to return (None for all)
+            neutralize: If True, consolidate transfer groups to net sums.
+                        If False, return raw entries.
+        """
+        consolidation_col = "t.group_id" if neutralize else "t.fingerprint"
+
         where_clause = ""
         params: list[object] = []
         if account_id is not None:
@@ -246,26 +255,6 @@ class TransactionStorage:
             rows = conn.execute(query, params).fetchall()
 
         return [self._hydrate_transaction(row) for row in rows]
-
-    def list_transaction_entries(
-        self,
-        *,
-        account_id: int | None = None,
-        limit: int | None = 20,
-    ) -> list[Transaction]:
-        """List raw transaction entries grouped by fingerprint."""
-
-        return self._list_transactions("t.fingerprint", account_id=account_id, limit=limit)
-
-    def list_transaction_groups(
-        self,
-        *,
-        account_id: int | None = None,
-        limit: int | None = 20,
-    ) -> list[Transaction]:
-        """List transfer-consolidated transaction groups grouped by group_id."""
-
-        return self._list_transactions("t.group_id", account_id=account_id, limit=limit)
 
     def count_transactions(self, *, account_id: int | None = None) -> int:
         """Return the number of stored transactions."""
