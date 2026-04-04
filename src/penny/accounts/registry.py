@@ -2,7 +2,7 @@
 
 from penny.accounts.models import Account, Subaccount
 from penny.accounts.storage import AccountStorage
-from penny.import_.base import DetectionResult
+from penny.ingest import DetectionResult
 
 
 class DuplicateAccountError(ValueError):

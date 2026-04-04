@@ -1,12 +1,12 @@
 from datetime import date
 
-from penny.import_.detection import read_file_with_encoding
-from penny.import_.parsers.comdirect import ComdirectParser
+from penny.ingest import read_file_with_encoding
+from penny.ingest.banks.comdirect import ComdirectBank
 from penny.transactions import generate_fingerprint
 
 
 def test_parse_comdirect_multi_section(fixture_dir):
-    parser = ComdirectParser()
+    parser = ComdirectBank()
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
     content = read_file_with_encoding(csv_path)
 

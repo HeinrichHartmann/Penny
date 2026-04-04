@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from penny.accounts.registry import AccountRegistry
 from penny.accounts.storage import AccountStorage
-from penny.import_.detection import DetectionError, match_file
+from penny.ingest import DetectionError, match_file
 from penny.transactions.storage import TransactionStorage
 
 router = APIRouter(prefix="/api", tags=["import"])
