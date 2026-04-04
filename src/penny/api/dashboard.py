@@ -444,10 +444,9 @@ async def transactions(
     Uses storage layer for proper GROUP BY when neutralize=True.
     Filtering is done in Python for simplicity.
     """
-    from penny.transactions import TransactionStorage
+    from penny.transactions import list_transactions
 
-    storage = TransactionStorage()
-    all_txns = storage.list_transactions(limit=None, neutralize=neutralize)
+    all_txns = list_transactions(limit=None, neutralize=neutralize)
 
     # Parse account IDs filter
     account_ids = None

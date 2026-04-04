@@ -3,7 +3,15 @@ from pathlib import Path
 import pytest
 
 from penny.accounts import AccountRegistry, AccountStorage
-from penny.transactions import TransactionStorage
+from penny.db import init_schema, set_db_path
+
+
+@pytest.fixture(autouse=True)
+def reset_db_path():
+    """Reset global db_path before each test to prevent state pollution."""
+    set_db_path(None)
+    yield
+    set_db_path(None)
 
 
 @pytest.fixture
@@ -23,8 +31,9 @@ def fixture_dir() -> Path:
 
 
 @pytest.fixture
-def transaction_storage(tmp_db: Path) -> TransactionStorage:
+def transaction_storage(tmp_db: Path):
     # AccountStorage must be initialized first to create the accounts table
     # (transactions has a foreign key reference to accounts)
     AccountStorage(tmp_db)
-    return TransactionStorage(tmp_db)
+    set_db_path(tmp_db)
+    init_schema()
