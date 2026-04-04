@@ -501,6 +501,7 @@ async def transactions(
         {
             "fp": row[0],  # fingerprint
             "booking_date": row[1],  # date
+            "account_id": row[2],
             "account": row[9] or f"Account #{row[2]}",  # account_name
             "account_number": row[10] or "",  # bank account number
             "subaccount": row[8] or "",  # subaccount_type

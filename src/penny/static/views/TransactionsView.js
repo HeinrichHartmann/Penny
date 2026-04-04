@@ -67,7 +67,15 @@ export const TransactionsView = {
             <tbody>
               <tr v-for="tx in model.visibleTransactions" :key="tx.fp">
                 <td>{{ tx.booking_date }}</td>
-                <td>{{ tx.account }}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="breadcrumb-link"
+                    @click="model.applyAccountFilter(tx.account_id)"
+                  >
+                    {{ tx.account }}
+                  </button>
+                </td>
                 <td class="desc-cell" style="font-size: 0.85rem;">{{ tx.raw_description || tx.description }}</td>
                 <td>
                   <span class="category-entry">

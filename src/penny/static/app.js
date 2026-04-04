@@ -4,10 +4,7 @@
 import { computed, createApp, nextTick, onMounted, reactive, ref, watch } from 'vue/dist/vue.esm-bundler.js';
 
 import {
-  MONTH_BUTTONS,
   createDateHelpers,
-  computeYearButtons,
-  computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
 import {
@@ -15,44 +12,33 @@ import {
   fetchCategoryOptions,
   createApi,
 } from './api.js';
+import { initializeAppState } from './app/init.js';
+import { setupAppLifecycle } from './app/lifecycle.js';
+import { readUrlState, syncUrlState } from './app/urlState.js';
+import { createReportViewModel, createTransactionsViewModel } from './app/viewModels.js';
 import { createChartManager } from './charts.js';
+import { SidebarNav } from './components/SidebarNav.js';
 import { AccountsView } from './views/AccountsView.js';
 import { ImportView } from './views/ImportView.js';
 import { ReportView } from './views/ReportView.js';
 import { createReportViewState } from './views/report.js';
 import { RulesView } from './views/RulesView.js';
+import { SettingsView } from './views/SettingsView.js';
 import { createSelectorState } from './views/selector.js';
 import { createTransactionsViewState } from './views/transactions.js';
 import { TransactionsView } from './views/TransactionsView.js';
 
 createApp({
   components: {
+    SidebarNav,
     AccountsView,
     ImportView,
     ReportView,
     RulesView,
+    SettingsView,
     TransactionsView,
   },
   setup() {
-    const readUrlState = () => {
-      const params = new URLSearchParams(window.location.search);
-      return {
-        view: params.get('view'),
-        tab: params.get('tab'),
-        from: params.get('from'),
-        to: params.get('to'),
-        accounts: params.get('accounts')?.split(',').filter(Boolean) || null,
-        neutralize: params.get('neutralize'),
-        category: params.get('category'),
-        q: params.get('q'),
-        pivotDepth: params.get('pivotDepth'),
-        breakoutGranularityMode: params.get('breakoutGranularityMode'),
-        breakoutShowIncome: params.get('breakoutShowIncome'),
-        breakoutShowExpenses: params.get('breakoutShowExpenses'),
-        transactionPage: params.get('transactionPage'),
-      };
-    };
-
     const initialUrlState = readUrlState();
     let isHydratingFromUrl = true;
 
@@ -238,6 +224,11 @@ createApp({
       }
     };
 
+    const applyAccountFilter = (accountId) => {
+      const id = typeof accountId === 'object' ? accountId.id : accountId;
+      filters.accounts = id == null ? [] : [id];
+    };
+
     const selectorView = createSelectorState({
       filters,
       meta,
@@ -287,58 +278,59 @@ createApp({
       copyPivotTable,
     } = reportView;
 
-    const transactionsViewModel = computed(() => ({
-      selectorState: selectorState.value,
+    const transactionsViewModel = createTransactionsViewModel({
+      selectorState,
       selectorActions,
-      transactions: transactions.value,
-      currentTransactionPage: currentTransactionPage.value,
-      totalTransactionPages: totalTransactionPages.value,
-      transactionPageButtons: transactionPageButtons.value,
-      visibleTransactions: visibleTransactions.value,
-      filteredTransactionCount: filteredTransactionCount.value,
-      transactionRangeStart: transactionRangeStart.value,
-      transactionRangeEnd: transactionRangeEnd.value,
-      searchQuery: searchQuery.value,
+      transactions,
+      currentTransactionPage,
+      totalTransactionPages,
+      transactionPageButtons,
+      visibleTransactions,
+      filteredTransactionCount,
+      transactionRangeStart,
+      transactionRangeEnd,
+      searchQuery,
       categoryColor: getCategoryColor,
+      applyAccountFilter,
       applyCategorySelection,
       toggleTransactionSort,
       transactionSortMarker,
       goToTransactionPage,
       goToPreviousTransactionPage,
       goToNextTransactionPage,
-    }));
+    });
 
-    const reportViewModel = computed(() => ({
-      selectorState: selectorState.value,
+    const reportViewModel = createReportViewModel({
+      selectorState,
       selectorActions,
-      summary: summary.value,
-      tab: tab.value,
+      summary,
+      tab,
       setTab: (value) => {
         tab.value = value;
       },
-      breakout: breakout.value,
-      breakoutGranularity: breakoutGranularity.value,
-      breakoutGranularityMode: breakoutGranularityMode.value,
+      breakout,
+      breakoutGranularity,
+      breakoutGranularityMode,
       setBreakoutGranularityMode: (value) => {
         breakoutGranularityMode.value = value;
       },
-      breakoutShowIncome: breakoutShowIncome.value,
+      breakoutShowIncome,
       setBreakoutShowIncome: (value) => {
         breakoutShowIncome.value = value;
       },
-      breakoutShowExpenses: breakoutShowExpenses.value,
+      breakoutShowExpenses,
       setBreakoutShowExpenses: (value) => {
         breakoutShowExpenses.value = value;
       },
-      breakoutNet: breakoutNet.value,
-      breakoutNetByPeriod: breakoutNetByPeriod.value,
-      reportText: reportText.value,
+      breakoutNet,
+      breakoutNetByPeriod,
+      reportText,
       copyReport,
-      copyLabel: copyLabel.value,
-      pivot: pivot.value,
-      pivotCopyLabel: pivotCopyLabel.value,
+      copyLabel,
+      pivot,
+      pivotCopyLabel,
       copyPivotTable,
-      pivotDepth: pivotDepth.value,
+      pivotDepth,
       setPivotDepth: (value) => {
         pivotDepth.value = value;
       },
@@ -348,177 +340,63 @@ createApp({
       setTreemapEl,
       setSankeyEl,
       setBreakoutEl,
-    }));
-
-    // ── Watchers ─────────────────────────────────────────────────────────────
-    watch(
-      () => [filters.from, filters.to, filters.accounts.join(','), filters.neutralize],
-      () => {
-        loadCategoryOptions();
-        loadCurrentViewData({ resetTransactionsPage: true });
-      }
-    );
-
-    watch(tab, () => {
-      if (isHydratingFromUrl || view.value !== 'report') return;
-      loadAll();
     });
 
-    watch(view, async () => {
-      if (view.value !== 'accounts') {
-        loadCurrentViewData();
-      }
-    });
-
-    watch(searchQuery, () => {
+    const syncUrl = () => {
       if (isHydratingFromUrl) return;
-      loadCategoryOptions();
-      loadCurrentViewData({ resetTransactionsPage: true });
-    });
-
-    const syncUrlState = () => {
-      if (isHydratingFromUrl) return;
-
-      const params = new URLSearchParams();
-      params.set('view', view.value);
-      params.set('tab', tab.value);
-
-      if (filters.from) params.set('from', filters.from);
-      if (filters.to) params.set('to', filters.to);
-      params.set('accounts', filters.accounts.join(','));
-      params.set('neutralize', String(filters.neutralize));
-
-      if (selectedCategory.value) params.set('category', selectedCategory.value);
-      if (searchQuery.value) params.set('q', searchQuery.value);
-
-      params.set('pivotDepth', pivotDepth.value);
-      params.set('breakoutGranularityMode', breakoutGranularityMode.value);
-      params.set('breakoutShowIncome', String(breakoutShowIncome.value));
-      params.set('breakoutShowExpenses', String(breakoutShowExpenses.value));
-      params.set('transactionPage', String(currentTransactionPage.value));
-
-      const query = params.toString();
-      const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
-      window.history.replaceState(null, '', nextUrl);
+      syncUrlState({
+        view: view.value,
+        tab: tab.value,
+        filters,
+        selectedCategory: selectedCategory.value,
+        searchQuery: searchQuery.value,
+        pivotDepth: pivotDepth.value,
+        breakoutGranularityMode: breakoutGranularityMode.value,
+        breakoutShowIncome: breakoutShowIncome.value,
+        breakoutShowExpenses: breakoutShowExpenses.value,
+        currentTransactionPage: currentTransactionPage.value,
+      });
     };
 
-    watch(
-      () => [
-        view.value,
-        tab.value,
-        filters.from,
-        filters.to,
-        filters.accounts.join(','),
-        filters.neutralize,
-        selectedCategory.value,
-        searchQuery.value,
-        pivotDepth.value,
-        breakoutGranularityMode.value,
-        breakoutShowIncome.value,
-        breakoutShowExpenses.value,
-        currentTransactionPage.value,
-      ],
-      syncUrlState
-    );
-
-    watch(pivotDepth, () => {
-      if (isHydratingFromUrl || view.value !== 'report') return;
-      if (tab.value === 'expense' || tab.value === 'income') loadPivot();
-    });
-
-    watch(breakoutGranularityMode, () => {
-      if (isHydratingFromUrl || view.value !== 'report') return;
-      if (tab.value === 'breakout') loadBreakout();
-    });
-
-    watch([breakoutShowIncome, breakoutShowExpenses], () => {
-      if (isHydratingFromUrl || view.value !== 'report') return;
-      if (tab.value === 'breakout') renderBreakout();
-    });
-
-    // ── Init ─────────────────────────────────────────────────────────────────
-    onMounted(async () => {
-      const m = await fetchMeta();
-      meta.accounts = m.accounts;  // Now array of account objects with id, label, etc.
-      meta.min_date = m.min_date;
-      meta.max_date = m.max_date;
-
-      yearButtons.value = computeYearButtons(m.min_date, m.max_date);
-
-      const defaultRange = computeDefaultDateRange(m.max_date);
-      filters.from = initialUrlState.from || defaultRange.from;
-      filters.to = initialUrlState.to || defaultRange.to;
-
-      // Extract account IDs (meta.accounts now contains objects)
-      const allAccountIds = m.accounts.map((acc) => acc.id);
-      filters.accounts = initialUrlState.accounts
-        ? initialUrlState.accounts.map(Number).filter((id) => allAccountIds.includes(id))
-        : [...allAccountIds];
-      filters.neutralize = initialUrlState.neutralize == null
-        ? true
-        : initialUrlState.neutralize !== 'false';
-
-      isHydratingFromUrl = false;
-      await loadCategoryOptions();
-      syncUrlState();
-      await loadCurrentViewData();
+    setupAppLifecycle({
+      watch,
+      onMounted,
+      isHydrating: () => isHydratingFromUrl,
+      setHydrating: (value) => {
+        isHydratingFromUrl = value;
+      },
+      initialUrlState,
+      initializeAppState,
+      fetchMeta,
+      meta,
+      filters,
+      yearButtons,
+      loadCategoryOptions,
+      loadCurrentViewData,
+      loadAll,
+      renderBreakout,
+      loadPivot,
+      loadBreakout,
+      syncUrl,
+      view,
+      tab,
+      selectedCategory,
+      searchQuery,
+      pivotDepth,
+      breakoutGranularityMode,
+      breakoutShowIncome,
+      breakoutShowExpenses,
+      currentTransactionPage,
     });
 
     // ── Expose ───────────────────────────────────────────────────────────────
     return {
-      // State
       view,
-      meta,
       filters,
-      tab,
-      summary,
-      tree,
-      pivot,
-      cashflow,
-      breakout,
-      transactions,
-      selectedCategory,
-      selectorCategory,
-      yearButtons,
-      reportText,
-      copyLabel,
-      pivotCopyLabel,
-      transactionsCopyLabel,
-      searchQuery,
-      categorySelectValue,
-      nextCategoryOptions,
-      selectorState,
-      selectorActions,
       transactionsViewModel,
       reportViewModel,
-      pivotDepth,
-      breakoutGranularityMode,
-      breakoutGranularity,
-      breakoutShowIncome,
-      breakoutShowExpenses,
-
-      // Date helpers
-      monthButtons: MONTH_BUTTONS,
-      monthShortcutYear,
-      setYear,
-      setAll,
-      setMonth,
-      setYearAllMonths,
-      isActiveYear,
-      isActiveMonth,
-
-      // Account
       toggleAccount,
-
-      // Category
-      categoryColor: getCategoryColor,
-      selectedMatchesCategory,
-      categoryBreadcrumbs,
-      applyCategorySelection,
-      clearSelection,
-      previewCategorySelection,
       handleImportComplete,
-
       refreshMeta,
     };
   },
