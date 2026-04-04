@@ -20,11 +20,14 @@ class SparkasseBank(BankModule):
     def __init__(self) -> None:
         self._parser = CamtV8Parser()
 
+    def content_signature_matches(self, content: str) -> bool:
+        """Return True when the file content looks like CAMT V8."""
+        return '"Auftragskonto"' in content and '"Buchungstag"' in content
+
     def match(self, filename: str, content: str) -> bool:
         if not self.filename_pattern.match(filename):
             return False
-        # Verify CAMT V8 header signature
-        return '"Auftragskonto"' in content and '"Buchungstag"' in content
+        return self.content_signature_matches(content)
 
     def detect(self, filename: str, content: str) -> DetectionResult:
         match = self.filename_pattern.match(filename)

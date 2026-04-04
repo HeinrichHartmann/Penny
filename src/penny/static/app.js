@@ -483,16 +483,10 @@ createApp({
       event.preventDefault();
       importState.isDragging = false;
 
-      const files = Array.from(event.dataTransfer.files).filter(
-        (file) => file.name.endsWith('.csv')
-      );
-
-      if (files.length === 0) {
-        importState.error = 'Please drop CSV files only';
-        return;
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length > 0) {
+        await uploadFiles(files);
       }
-
-      await uploadFiles(files);
     };
 
     const handleFileSelect = async (event) => {
