@@ -55,12 +55,41 @@ async def meta():
     }
 
 
+@router.get("/categories")
+async def categories(
+    from_date: str = Query(None, alias="from"),
+    to_date: str = Query(None, alias="to"),
+    accounts: str = Query(None),
+    neutralize: bool = Query(True),
+    q: Optional[str] = Query(None),
+):
+    """Return distinct category paths for the current raw filter selection."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    params = []
+    query = "SELECT DISTINCT category FROM transactions"
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, q=q)
+    query += " AND " if " WHERE " in query else " WHERE "
+    query += "category IS NOT NULL AND category != ''"
+    query += " ORDER BY category"
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    return {
+        "categories": [row[0] for row in rows],
+    }
+
+
 @router.get("/summary")
 async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
     neutralize: bool = Query(True),
+    category: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
 ):
     """Return expense/income summary."""
     conn = get_db()
@@ -68,7 +97,7 @@ async def summary(
 
     params = []
     query = "SELECT amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize)
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     transactions = cursor.execute(query, params).fetchall()
     conn.close()
@@ -100,6 +129,7 @@ async def tree(
     accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
 ):
     """Return hierarchical category tree for treemap."""
     conn = get_db()
@@ -107,7 +137,7 @@ async def tree(
 
     params = []
     query = "SELECT category, payee, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     # Filter by tab
     if tab == "expense":
@@ -163,6 +193,7 @@ async def pivot(
     accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
 ):
     """Return pivot table data."""
     conn = get_db()
@@ -170,7 +201,7 @@ async def pivot(
 
     params = []
     query = "SELECT category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     # Filter by tab
     if tab == "expense":
@@ -231,6 +262,7 @@ async def cashflow(
     accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
 ):
     """Return Sankey diagram data derived from filtered transactions."""
     conn = get_db()
@@ -238,7 +270,7 @@ async def cashflow(
 
     params = []
     query = "SELECT category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     rows = cursor.execute(query, params).fetchall()
     conn.close()
@@ -293,6 +325,7 @@ async def breakout(
     accounts: str = Query(None),
     neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
 ):
     """Return time-series breakout data."""
     conn = get_db()
@@ -300,7 +333,7 @@ async def breakout(
 
     params = []
     query = "SELECT date, category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category)
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
 
     rows = cursor.execute(query, params).fetchall()
     conn.close()
@@ -357,6 +390,8 @@ async def report(
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
     neutralize: bool = Query(True),
+    category: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
 ):
     """Return plain text financial report."""
     conn = get_db()
@@ -364,7 +399,7 @@ async def report(
 
     params = []
     query = "SELECT date, account_id, category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize)
+    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
     rows = cursor.execute(query, params).fetchall()
     conn.close()
 
