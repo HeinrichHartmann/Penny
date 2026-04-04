@@ -11,6 +11,7 @@ import {
   fetchMeta,
   fetchCategoryOptions,
   createApi,
+  fetchAccountValueHistory,
 } from './api.js';
 import { initializeAppState } from './app/init.js';
 import { setupAppLifecycle } from './app/lifecycle.js';
@@ -19,9 +20,11 @@ import { createReportViewModel, createTransactionsViewModel } from './app/viewMo
 import { createChartManager } from './charts.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { AccountsView } from './views/AccountsView.js';
+import { BalanceView } from './views/BalanceView.js';
 import { ImportView } from './views/ImportView.js';
 import { ReportView } from './views/ReportView.js';
 import { createReportViewState } from './views/report.js';
+import { createBalanceViewState } from './views/balance.js';
 import { RulesView } from './views/RulesView.js';
 import { SettingsView } from './views/SettingsView.js';
 import { createSelectorState } from './views/selector.js';
@@ -32,6 +35,7 @@ createApp({
   components: {
     SidebarNav,
     AccountsView,
+    BalanceView,
     ImportView,
     ReportView,
     RulesView,
@@ -197,6 +201,11 @@ createApp({
 
       if (view.value === 'report') {
         await loadAll();
+        return;
+      }
+
+      if (view.value === 'balance') {
+        await balanceViewState.loadValueHistory();
       }
     };
 
@@ -342,6 +351,17 @@ createApp({
       setBreakoutEl,
     });
 
+    const balanceViewState = createBalanceViewState({
+      fetchAccountValueHistory,
+      filters,
+    });
+
+    const balanceViewModel = {
+      selectorState,
+      selectorActions,
+      ...balanceViewState,
+    };
+
     const syncUrl = () => {
       if (isHydratingFromUrl) return;
       syncUrlState({
@@ -395,6 +415,7 @@ createApp({
       filters,
       transactionsViewModel,
       reportViewModel,
+      balanceViewModel,
       toggleAccount,
       handleImportComplete,
       refreshMeta,

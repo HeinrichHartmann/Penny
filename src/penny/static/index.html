@@ -39,6 +39,12 @@
       :model="reportViewModel"
     ></report-view>
 
+    <!-- Balance View -->
+    <balance-view
+      v-if="view === 'balance'"
+      :model="balanceViewModel"
+    ></balance-view>
+
     <!-- Settings View -->
     <settings-view
       v-if="view === 'settings'"

@@ -187,6 +187,17 @@ export const uploadCsv = async (file) => {
 };
 
 /**
+ * Fetch account value history.
+ * @param {object} filters
+ * @returns {Promise<object>}
+ */
+export const fetchAccountValueHistory = async (filters) => {
+  const qs = buildQueryString(filters);
+  const resp = await fetch(`/api/account_value_history?${qs}`);
+  return resp.json();
+};
+
+/**
  * Create API functions bound to reactive state.
  * @param {object} options
  * @returns {object} API functions
