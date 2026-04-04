@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 import click
 
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
-from penny.classify import load_rules
+from penny.classify import load_rules_config, run_classification_pass
 from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
@@ -16,6 +16,7 @@ from penny.ingest import (
     read_file_with_encoding,
 )
 from penny.transactions import TransactionStorage
+from penny.transfers import link_transfers
 
 
 def get_registry() -> AccountRegistry:
@@ -182,7 +183,7 @@ def transactions_list(account_id: int | None, limit: int):
     """List recent transactions."""
 
     storage = get_transaction_storage()
-    transaction_list = storage.list_transactions(account_id=account_id, limit=limit)
+    transaction_list = storage.list_transaction_groups(account_id=account_id, limit=limit)
     if not transaction_list:
         click.echo("No transactions found.")
         return
@@ -201,30 +202,88 @@ def classify(rules_file: Path):
     """Classify all imported transactions using a Python rules module."""
 
     storage = get_transaction_storage()
-    transactions = storage.list_transactions(limit=None)
+    transactions = storage.list_transaction_entries(limit=None)
     if not transactions:
         click.echo("No transactions found.")
         return
 
-    ruleset = load_rules(rules_file)
-    decisions = []
-    category_counts: Counter[str] = Counter()
-
-    for transaction in transactions:
-        decision = ruleset.classify(transaction)
-        if decision is None:
-            continue
-        decisions.append(decision)
-        category_counts[decision.category] += 1
-
-    matched_count, unmatched_count = storage.apply_classifications(decisions)
+    config = load_rules_config(rules_file)
+    result = run_classification_pass(transactions, config)
+    storage.apply_classifications(result.decisions)
 
     click.echo(f"Loaded rules: {rules_file}")
-    click.echo(f"Rules: {len(ruleset.rules)}")
-    click.echo(f"Matched: {matched_count}")
-    click.echo(f"Unmatched: {unmatched_count}")
-    for category, count in sorted(category_counts.items()):
+    click.echo(f"Rules: {len(config.ruleset.rules)}")
+    click.echo(f"Default category: {config.default_category}")
+    click.echo(f"Matched: {result.matched_count}")
+    click.echo(f"Default: {result.default_count}")
+    for category, count in sorted(result.category_counts.items()):
         click.echo(f"  {category}: {count}")
+
+
+@main.command("link-transfers")
+@click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--dry-run", is_flag=True, help="Show what would be linked without persisting")
+def link_transfers_cmd(rules_file: Path, dry_run: bool):
+    """Link transfer entries into groups using rules from a Python module.
+
+    The rules file should define:
+
+    \b
+      TRANSFER_PREFIX = "transfer/"      # Category prefix to filter
+      TRANSFER_WINDOW_DAYS = 10          # Max days apart for comparison
+      def in_same_transfer_group(a, b):  # Predicate function
+          return ...
+    """
+    # Load the rules module (with context for @rule decorators)
+    collector = RuleCollector(rules_file)
+    token = _ACTIVE_COLLECTOR.set(collector)
+    try:
+        module = _load_module(rules_file)
+    finally:
+        _ACTIVE_COLLECTOR.reset(token)
+
+    # Extract transfer config
+    prefix = getattr(module, "TRANSFER_PREFIX", "transfer/")
+    window_days = getattr(module, "TRANSFER_WINDOW_DAYS", 10)
+    predicate = getattr(module, "in_same_transfer_group", None)
+
+    if predicate is None:
+        raise click.ClickException(
+            f"Rules file must define 'in_same_transfer_group(a, b)' function"
+        )
+
+    click.echo(f"Loaded rules: {rules_file}")
+    click.echo(f"  TRANSFER_PREFIX = {prefix!r}")
+    click.echo(f"  TRANSFER_WINDOW_DAYS = {window_days}")
+    click.echo("")
+
+    # Load all transactions (unconsolidated - need raw entries for linking)
+    storage = get_transaction_storage()
+    entries = storage.list_transaction_entries(limit=None)
+    if not entries:
+        click.echo("No entries found.")
+        return
+
+    # Run linking
+    result = link_transfers(entries, predicate, prefix=prefix, window_days=window_days)
+
+    click.echo(f"Entries: {result.total_entries} total, {result.transfer_entries} transfers")
+    click.echo(f"Groups found: {result.groups_found}")
+    click.echo(f"  - {result.pairs} pairs (2 entries)")
+    click.echo(f"  - {result.triplets} triplets (3 entries)")
+    click.echo(f"  - {result.larger} larger groups (max {result.max_group_size} entries)")
+    click.echo("")
+
+    if dry_run:
+        click.echo(f"Dry run: would link {result.grouped_entries} entries into {result.groups_found} groups")
+        return
+
+    # Apply to database
+    grouped, standalone = storage.apply_groups(result.assignments)
+    click.echo(f"Linked: {grouped} entries into groups")
+    click.echo(f"Standalone: {standalone} entries")
+    click.echo("")
+    click.echo("Done.")
 
 
 if __name__ == "__main__":

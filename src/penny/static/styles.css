@@ -331,7 +331,8 @@ h1 {
 .txn-header-total {
   min-width: 180px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  margin-left: auto;
   flex-shrink: 0;
 }
 
@@ -399,7 +400,7 @@ h1 {
 
 .txn-total {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: baseline;
   gap: 6px;
   width: 100%;
@@ -413,7 +414,7 @@ h1 {
 }
 
 .txn-total-value {
-  text-align: right;
+  text-align: left;
 }
 
 .pagination-controls {
@@ -550,6 +551,205 @@ tbody tr:hover {
   line-height: 1;
 }
 
+/* ── Selector Header ──────────────────────────────────────────────────────── */
+
+.selector-header {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+}
+
+.selector-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 12px 16px;
+  align-items: center;
+}
+
+.selector-row {
+  min-width: 0;
+}
+
+.selector-row-dates {
+  grid-column: 1 / -1;
+}
+
+.selector-row-category {
+  grid-column: 1 / -1;
+}
+
+.selector-date-panel {
+  min-width: 0;
+}
+
+.selector-date-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selector-date-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.selector-date-picker-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selector-date-arrow {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.selector-account-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.selector-account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.selector-account-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.selector-account-chip.active {
+  border-color: #845b31;
+  background: #f3e6d3;
+  color: #5f4324;
+}
+
+.selector-account-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #efe4d2;
+  flex-shrink: 0;
+}
+
+.selector-account-chip.active .selector-account-icon {
+  background: #845b31;
+  color: #fff8ef;
+}
+
+.selector-account-icon svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.selector-account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selector-row-search {
+  align-self: stretch;
+}
+
+.selector-row-accounts {
+  justify-self: end;
+}
+
+.selector-category-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.selector-category-breadcrumb {
+  margin-top: 0;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.selector-category-trigger {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.selector-category-toggle {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  transition: all 0.15s ease;
+  margin-left: 2px;
+  pointer-events: none;
+}
+
+.selector-category-trigger:hover .selector-category-toggle {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.selector-category-toggle.disabled {
+  opacity: 0.45;
+}
+
+.selector-category-native {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.selector-category-native:disabled {
+  cursor: default;
+}
+
+.selector-inline-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selector-wide-input {
+  width: 100%;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
 /* ── Category Badges ───────────────────────────────────────────────────────── */
 
 .cat-badge {
@@ -626,7 +826,9 @@ tbody tr:hover {
 .category-entry {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -637,6 +839,7 @@ tbody tr:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
 
 /* ── Report ────────────────────────────────────────────────────────────────── */
@@ -757,6 +960,16 @@ tbody tr:hover {
 .check-group {
   display: flex;
   gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .selector-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .selector-row-accounts {
+    justify-self: stretch;
+  }
 }
 
 .check-group label {

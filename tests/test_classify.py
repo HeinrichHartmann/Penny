@@ -1,6 +1,10 @@
+import asyncio
+
+import pytest
 from click.testing import CliRunner
 
-from penny.classify import contains, is_, load_rules, regexp
+from penny.api.rules import run_rules
+from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
 from penny.cli import main
 from penny.transactions import TransactionStorage
 
@@ -39,13 +43,13 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     assert result.exit_code == 0
     assert "Rules: 3" in result.output
     assert "Matched: 3" in result.output
-    assert "Unmatched: 0" in result.output
+    assert "Default: 0" in result.output
     assert "Income:Salary: 1" in result.output
     assert "Travel:Hotel: 1" in result.output
     assert "Shopping:GenericAmazon: 1" in result.output
 
     storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None)
+    transactions = storage.list_transaction_entries(limit=None)
     categories = {transaction.payee: transaction.category for transaction in transactions}
     rules = {transaction.payee: transaction.classification_rule for transaction in transactions}
 
@@ -71,8 +75,71 @@ def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, 
     assert "Shopping:SpecificAmazon: 1" in second.output
 
     storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None)
+    transactions = storage.list_transaction_entries(limit=None)
     amazon = next(transaction for transaction in transactions if "AMAZON" in transaction.payee)
 
     assert amazon.category == "Shopping:SpecificAmazon"
     assert amazon.classification_rule == "amazon_specific"
+
+
+def test_api_run_rules_applies_default_category_to_unmatched(monkeypatch, fixture_dir, tmp_path):
+    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+    runner = CliRunner()
+    _import_fixture(runner, fixture_dir, tmp_path)
+
+    rules_path = tmp_path / "rules.py"
+    rules_path.write_text(
+        """
+from penny.classify import contains, rule
+
+DEFAULT_CATEGORY = "NeedsReview"
+
+@rule("Income:Salary", name="salary")
+def salary(transaction):
+    return contains(transaction.payee, "Employer")
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = asyncio.run(run_rules())
+
+    assert result["status"] == "success"
+    assert result["stats"]["matched_count"] == 1
+    assert result["stats"]["unmatched_count"] == 2
+    assert result["stats"]["categories"] == [
+        {"category": "Income:Salary", "count": 1},
+        {"category": "NeedsReview", "count": 2},
+    ]
+
+    storage = TransactionStorage(tmp_path / "penny.db")
+    transactions = storage.list_transaction_entries(limit=None)
+    categories = {transaction.payee: transaction.category for transaction in transactions}
+
+    assert categories["Example Employer"] == "Income:Salary"
+    assert categories["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
+    assert categories["AMAZON PAYMENTS EUROPE S.C.A."] == "NeedsReview"
+    assert all(transaction.category for transaction in transactions)
+
+
+def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, tmp_path):
+    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+    runner = CliRunner()
+    _import_fixture(runner, fixture_dir, tmp_path)
+
+    storage = TransactionStorage(tmp_path / "penny.db")
+    transactions = storage.list_transaction_entries(limit=None)
+
+    with pytest.raises(RuntimeError, match="without a category"):
+        storage.apply_classifications(
+            [
+                ClassificationDecision(
+                    fingerprint=transactions[0].fingerprint,
+                    category="TestOnly",
+                    rule_name="manual",
+                )
+            ]
+        )
+
+    after = storage.list_transaction_entries(limit=None)
+    assert all(transaction.category is None for transaction in after)

@@ -2,7 +2,6 @@
 
 import importlib.resources
 import traceback
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -10,7 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from penny.accounts.storage import default_db_path
-from penny.classify.engine import LoadedRuleset, load_rules
+from penny.classify import load_rules_config, run_classification_pass
+from penny.classify.engine import LoadedRulesConfig
 from penny.transactions.storage import TransactionStorage
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
@@ -111,12 +111,13 @@ async def run_rules():
         }
 
     # Load rules
-    ruleset: LoadedRuleset | None = None
+    config: LoadedRulesConfig | None = None
     try:
         log("info", f"Loading rules from {rules_path}")
-        ruleset = load_rules(rules_path)
-        log("info", f"Loaded {len(ruleset.rules)} rules")
-        for rule in ruleset.rules:
+        config = load_rules_config(rules_path)
+        log("info", f"Loaded {len(config.ruleset.rules)} rules")
+        log("info", f"Default category: {config.default_category}")
+        for rule in config.ruleset.rules:
             log("debug", f"  - {rule.name} -> {rule.category}")
     except SyntaxError as e:
         log("error", f"Syntax error in rules file: {e.msg}", line=e.lineno, offset=e.offset)
@@ -135,51 +136,37 @@ async def run_rules():
 
     # Get all transactions
     tx_storage = TransactionStorage()
-    transactions = tx_storage.list_transactions(limit=None)
+    transactions = tx_storage.list_transaction_entries(limit=None)
     log("info", f"Processing {len(transactions)} transactions")
 
-    # Run classification
-    decisions = []
-    category_counts: Counter[str] = Counter()
-    unmatched_transactions = []
-    errors_during_classification = []
+    result = run_classification_pass(transactions, config)
 
-    for tx in transactions:
-        try:
-            decision = ruleset.classify(tx)
-            if decision:
-                decisions.append(decision)
-                category_counts[decision.category] += 1
-            else:
-                unmatched_transactions.append(tx)
-        except Exception as e:
-            errors_during_classification.append(
-                {
-                    "transaction": tx.fingerprint[:12],
-                    "payee": tx.payee,
-                    "error": str(e),
-                }
-            )
-
-    # Apply classifications to database
-    matched_count, _ = tx_storage.apply_classifications(decisions)
+    try:
+        tx_storage.apply_classifications(result.decisions)
+    except Exception as e:
+        log("error", f"Failed to persist classifications: {e}", traceback=traceback.format_exc())
+        return {
+            "status": "error",
+            "logs": logs,
+            "stats": None,
+        }
 
     # Log classification errors
-    if errors_during_classification:
-        log("warning", f"{len(errors_during_classification)} errors during classification")
-        for err in errors_during_classification[:10]:  # Show first 10
-            log("error", f"Error classifying {err['payee']}: {err['error']}")
+    if result.errors:
+        log("warning", f"{len(result.errors)} errors during classification")
+        for err in result.errors[:10]:  # Show first 10
+            log("error", f"Error classifying {err.payee}: {err.error}")
 
     # Log category breakdown
-    log("info", f"Matched: {matched_count}, Unmatched: {len(unmatched_transactions)}")
-    for category, count in sorted(category_counts.items()):
+    log("info", f"Matched: {result.matched_count}, Unmatched: {result.default_count}")
+    for category, count in sorted(result.category_counts.items()):
         log("info", f"  {category}: {count}")
 
     # Log largest unmatched transactions (top 30 by absolute amount)
-    if unmatched_transactions:
+    if result.defaulted_transactions:
         log("warning", "Top unmatched transactions (by amount):")
         sorted_unmatched = sorted(
-            unmatched_transactions,
+            result.defaulted_transactions,
             key=lambda t: abs(t.amount_cents),
             reverse=True,
         )[:30]
@@ -194,13 +181,13 @@ async def run_rules():
         "status": "success",
         "logs": logs,
         "stats": {
-            "rules_count": len(ruleset.rules),
+            "rules_count": len(config.ruleset.rules),
             "transactions_count": len(transactions),
-            "matched_count": matched_count,
-            "unmatched_count": len(unmatched_transactions),
+            "matched_count": result.matched_count,
+            "unmatched_count": result.default_count,
             "categories": [
                 {"category": cat, "count": count}
-                for cat, count in sorted(category_counts.items())
+                for cat, count in sorted(result.category_counts.items())
             ],
             "elapsed_seconds": elapsed,
         },

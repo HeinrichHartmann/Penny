@@ -54,6 +54,15 @@ Example prompt:
 from penny.classify import contains, is_, rule
 
 
+# =============================================================================
+# DEFAULT CATEGORY
+# =============================================================================
+# Applied to transactions that don't match any rule.
+# Ensures all transactions have a non-null category for consistent UI filtering.
+
+DEFAULT_CATEGORY = "uncategorized"
+
+
 def payee_is(tx, *values):
     """Match if payee exactly equals any of the given values (case-insensitive)."""
     return any(is_(tx.payee, value) for value in values)
@@ -96,3 +105,54 @@ def text_contains(tx, *needles):
 # @rule("subscriptions/streaming")
 # def streaming_services(tx):
 #     return payee_contains(tx, "NETFLIX", "SPOTIFY", "DISNEY")
+
+
+# ==============================================================================
+# TRANSFER GROUPING
+# ==============================================================================
+# Link related transfer entries (e.g., money moved between your own accounts).
+# Grouped entries share a group_id and can be aggregated to show net effect.
+#
+# Usage:
+#   1. Classify transfer transactions with category prefix "transfer/"
+#   2. Define in_same_transfer_group(a, b) predicate below
+#   3. Run: penny link-transfers rules.py
+#
+# The system handles:
+#   - Pre-filtering by TRANSFER_PREFIX
+#   - Date-based windowing (only compares entries within TRANSFER_WINDOW_DAYS)
+#   - Transitive closure (if A-B and B-C match, all three are grouped)
+#
+# You define the matching logic in in_same_transfer_group(a, b).
+
+TRANSFER_PREFIX = "transfer/"
+TRANSFER_WINDOW_DAYS = 10
+
+
+def in_same_transfer_group(a, b):  # noqa: ARG001
+    """Return True if entries a and b belong to the same transfer.
+
+    This function is called for pairs of entries that:
+    - Both have category starting with TRANSFER_PREFIX
+    - Are within TRANSFER_WINDOW_DAYS of each other
+
+    Available fields on Transaction:
+        fingerprint, account_id, subaccount_type, date, payee, memo,
+        amount_cents, category, account_name, account_number
+
+    Args:
+        a: First Transaction
+        b: Second Transaction
+
+    Returns:
+        True if a and b are part of the same logical transfer
+
+    Example implementation:
+        days_apart = abs((a.date - b.date).days)
+        # Match opposite amounts between accounts within 1 day
+        if a.account_id != b.account_id:
+            if a.amount_cents == -b.amount_cents and days_apart <= 1:
+                return True
+        return False
+    """
+    return False  # No grouping by default

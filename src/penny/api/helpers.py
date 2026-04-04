@@ -69,11 +69,8 @@ def apply_filters(
         params.append(f"{category}%")
 
     if q:
-        # Search against concatenated row (all text fields)
         conditions.append(
-            f"(COALESCE({p}payee,'') || ' ' || COALESCE({p}memo,'') || ' ' || "
-            f"COALESCE({p}category,'') || ' ' || COALESCE({p}raw_buchungstext,'') || ' ' || "
-            f"COALESCE({p}reference,'') || ' ' || COALESCE({p}transaction_type,'')) LIKE ?"
+            f"COALESCE(NULLIF({p}raw_buchungstext, ''), COALESCE({p}payee, ''), '') LIKE ?"
         )
         params.append(f"%{q}%")
 
