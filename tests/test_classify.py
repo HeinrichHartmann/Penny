@@ -39,7 +39,7 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     assert result.exit_code == 0
     assert "Rules: 3" in result.output
     assert "Matched: 3" in result.output
-    assert "Unmatched: 0" in result.output
+    assert "Default: 0" in result.output
     assert "Income:Salary: 1" in result.output
     assert "Travel:Hotel: 1" in result.output
     assert "Shopping:GenericAmazon: 1" in result.output

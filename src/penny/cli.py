@@ -8,7 +8,7 @@ from collections import Counter
 import click
 
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
-from penny.classify import load_rules
+from penny.classify import ClassificationDecision
 from penny.classify.engine import _load_module, _ACTIVE_COLLECTOR, RuleCollector
 from penny.ingest import (
     DetectionError,
@@ -203,28 +203,49 @@ def classify(rules_file: Path):
     """Classify all imported transactions using a Python rules module."""
 
     storage = get_transaction_storage()
-    transactions = storage.list_transactions(limit=None)
+    transactions = storage.list_transactions(limit=None, consolidated=False)
     if not transactions:
         click.echo("No transactions found.")
         return
 
-    ruleset = load_rules(rules_file)
+    # Load rules module to get DEFAULT_CATEGORY
+    collector = RuleCollector(rules_file)
+    token = _ACTIVE_COLLECTOR.set(collector)
+    try:
+        module = _load_module(rules_file)
+    finally:
+        _ACTIVE_COLLECTOR.reset(token)
+
+    default_category = getattr(module, "DEFAULT_CATEGORY", "uncategorized")
+    ruleset = collector.build()
+
     decisions = []
     category_counts: Counter[str] = Counter()
+    matched_count = 0
+    default_count = 0
 
     for transaction in transactions:
         decision = ruleset.classify(transaction)
         if decision is None:
-            continue
+            # Apply default category to unmatched transactions
+            decision = ClassificationDecision(
+                fingerprint=transaction.fingerprint,
+                category=default_category,
+                rule_name="(default)",
+            )
+            default_count += 1
+        else:
+            matched_count += 1
         decisions.append(decision)
         category_counts[decision.category] += 1
 
-    matched_count, unmatched_count = storage.apply_classifications(decisions)
+    storage.apply_classifications(decisions)
 
     click.echo(f"Loaded rules: {rules_file}")
     click.echo(f"Rules: {len(ruleset.rules)}")
+    click.echo(f"Default category: {default_category}")
     click.echo(f"Matched: {matched_count}")
-    click.echo(f"Unmatched: {unmatched_count}")
+    click.echo(f"Default: {default_count}")
     for category, count in sorted(category_counts.items()):
         click.echo(f"  {category}: {count}")
 

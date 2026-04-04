@@ -54,6 +54,15 @@ Example prompt:
 from penny.classify import contains, is_, rule
 
 
+# =============================================================================
+# DEFAULT CATEGORY
+# =============================================================================
+# Applied to transactions that don't match any rule.
+# Ensures all transactions have a non-null category for consistent UI filtering.
+
+DEFAULT_CATEGORY = "uncategorized"
+
+
 def payee_is(tx, *values):
     """Match if payee exactly equals any of the given values (case-insensitive)."""
     return any(is_(tx.payee, value) for value in values)
