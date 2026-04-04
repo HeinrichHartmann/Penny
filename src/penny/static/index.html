@@ -247,21 +247,10 @@
     <div v-if="view === 'transactions'">
       <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Transactions</h2>
 
-      <!-- Date Filters -->
-      <date-filter-panel
-        :filters="filters"
-        :meta="meta"
-        :year-buttons="yearButtons"
-        :month-shortcut-year="monthShortcutYear"
-        :set-year="setYear"
-        :set-all="setAll"
-        :set-month="setMonth"
-        :set-year-all-months="setYearAllMonths"
-        :is-active-year="isActiveYear"
-        :is-active-month="isActiveMonth"
-        @update:from="filters.from = $event"
-        @update:to="filters.to = $event"
-      ></date-filter-panel>
+      <selector-header
+        :state="selectorState"
+        :actions="selectorActions"
+      ></selector-header>
 
       <!-- Transaction Table -->
       <div class="panel transactions-panel">
@@ -271,9 +260,6 @@
               Transactions
               <span class="sub" v-if="transactions">{{ transactions.count }} transactions</span>
             </div>
-          </div>
-          <div class="txn-header-search">
-            <input v-model="searchQuery" class="search-input" type="text" placeholder="Search transactions…">
           </div>
           <div class="txn-header-total">
             <div v-if="transactions" class="txn-total">
@@ -286,10 +272,6 @@
               </span>
             </div>
           </div>
-        </div>
-        <div v-if="selectedCategory" class="filter-tag">
-          Filtered by category: <code>{{ selectedCategory }}</code>
-          <button @click="clearSelection()">clear</button>
         </div>
         <div class="txn-table-wrap">
           <table>
@@ -501,21 +483,10 @@
 
     <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Report</h2>
 
-    <!-- Date Filters -->
-    <date-filter-panel
-      :filters="filters"
-      :meta="meta"
-      :year-buttons="yearButtons"
-      :month-shortcut-year="monthShortcutYear"
-      :set-year="setYear"
-      :set-all="setAll"
-      :set-month="setMonth"
-      :set-year-all-months="setYearAllMonths"
-      :is-active-year="isActiveYear"
-      :is-active-month="isActiveMonth"
-      @update:from="filters.from = $event"
-      @update:to="filters.to = $event"
-    ></date-filter-panel>
+    <selector-header
+      :state="selectorState"
+      :actions="selectorActions"
+    ></selector-header>
 
     <!-- Summary -->
     <div class="summary-grid" v-if="summary">
@@ -558,19 +529,6 @@
       <!-- Treemap chart (expense / income tabs) -->
       <div v-if="tab === 'expense' || tab === 'income'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
         <div ref="treemapEl" style="width:100%; height:500px;"></div>
-        <div class="category-breadcrumb">
-          <button @click="clearSelection()"
-            :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
-            All Categories
-          </button>
-          <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
-            <span class="breadcrumb-sep">/</span>
-            <button @click="applyCategorySelection(crumb.path)"
-              :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
-              {{ crumb.label }}
-            </button>
-          </template>
-        </div>
       </div>
 
       <!-- Breakout chart -->
@@ -614,19 +572,6 @@
           </div>
         </div>
         <div ref="breakoutEl" style="width:100%; height:520px;"></div>
-        <div class="category-breadcrumb">
-          <button @click="clearSelection()"
-            :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
-            All Categories
-          </button>
-          <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
-            <span class="breadcrumb-sep">/</span>
-            <button @click="applyCategorySelection(crumb.path)"
-              :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
-              {{ crumb.label }}
-            </button>
-          </template>
-        </div>
         <div v-if="breakout && breakoutNetByPeriod.length" class="breakout-net-caption">Balance</div>
         <div v-if="breakout && breakoutNetByPeriod.length" class="breakout-net-row"
           :style="{ gridTemplateColumns: `repeat(${breakoutNetByPeriod.length}, minmax(0, 1fr))` }">
@@ -646,19 +591,6 @@
       <!-- Sankey chart (cashflow tab) -->
       <div v-if="tab === 'cashflow'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
         <div ref="sankeyEl" style="width:100%; height:500px;"></div>
-        <div class="category-breadcrumb">
-          <button @click="clearSelection()"
-            :class="['breadcrumb-link', !selectedCategory ? 'active' : '']">
-            All Categories
-          </button>
-          <template v-for="crumb in categoryBreadcrumbs" :key="crumb.path">
-            <span class="breadcrumb-sep">/</span>
-            <button @click="applyCategorySelection(crumb.path)"
-              :class="['breadcrumb-link', selectedCategory === crumb.path ? 'active' : '']">
-              {{ crumb.label }}
-            </button>
-          </template>
-        </div>
       </div>
 
       <!-- Text report (report tab) -->

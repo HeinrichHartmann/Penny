@@ -48,6 +48,19 @@ export const fetchAccounts = async () => {
 };
 
 /**
+ * Fetch distinct category paths for the current filter selection.
+ * @param {object} filters
+ * @param {string} searchQuery
+ * @returns {Promise<{ categories: string[] }>}
+ */
+export const fetchCategoryOptions = async (filters, searchQuery = '') => {
+  const qs = buildQueryString(filters);
+  const qParam = searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : '';
+  const resp = await fetch(`/api/categories?${qs}${qParam}`);
+  return resp.json();
+};
+
+/**
  * Update an account.
  * @param {number} accountId
  * @param {object} updates - { display_name?, iban?, holder?, notes? }
@@ -172,7 +185,11 @@ export const createApi = ({
 
   const loadSummary = async () => {
     const requestId = beginRequest('summary');
-    const data = await fetchJson('/api/summary', filters);
+    const query = new URLSearchParams();
+    if (selectedCategory.value) query.set('category', selectedCategory.value);
+    if (searchQuery.value) query.set('q', searchQuery.value);
+    const path = query.size ? `/api/summary?${query.toString()}` : '/api/summary';
+    const data = await fetchJson(path, filters);
     if (!isCurrentRequest('summary', requestId)) return;
     summary.value = data;
   };
@@ -182,7 +199,10 @@ export const createApi = ({
     const catParam = selectedCategory.value
       ? `&category=${encodeURIComponent(selectedCategory.value)}`
       : '';
-    const data = await fetchJson(`/api/tree?tab=${tab.value}${catParam}`, filters);
+    const qParam = searchQuery.value
+      ? `&q=${encodeURIComponent(searchQuery.value)}`
+      : '';
+    const data = await fetchJson(`/api/tree?tab=${tab.value}${catParam}${qParam}`, filters);
     if (!isCurrentRequest('tree', requestId)) return;
     tree.value = data;
     if (data?.children) {
@@ -198,8 +218,11 @@ export const createApi = ({
     const catParam = selectedCategory.value
       ? `&category=${encodeURIComponent(selectedCategory.value)}`
       : '';
+    const qParam = searchQuery.value
+      ? `&q=${encodeURIComponent(searchQuery.value)}`
+      : '';
     const data = await fetchJson(
-      `/api/pivot?tab=${tab.value}&depth=${pivotDepth.value}${catParam}`,
+      `/api/pivot?tab=${tab.value}&depth=${pivotDepth.value}${catParam}${qParam}`,
       filters
     );
     if (!isCurrentRequest('pivot', requestId)) return;
@@ -208,9 +231,10 @@ export const createApi = ({
 
   const loadCashflow = async () => {
     const requestId = beginRequest('cashflow');
-    const params = selectedCategory.value
-      ? `?category=${encodeURIComponent(selectedCategory.value)}`
-      : '';
+    const query = new URLSearchParams();
+    if (selectedCategory.value) query.set('category', selectedCategory.value);
+    if (searchQuery.value) query.set('q', searchQuery.value);
+    const params = query.size ? `?${query.toString()}` : '';
     const data = await fetchJson(`/api/cashflow${params}`, filters);
     if (!isCurrentRequest('cashflow', requestId)) return;
     cashflow.value = data;
@@ -224,8 +248,11 @@ export const createApi = ({
     const catParam = selectedCategory.value
       ? `&category=${encodeURIComponent(selectedCategory.value)}`
       : '';
+    const qParam = searchQuery.value
+      ? `&q=${encodeURIComponent(searchQuery.value)}`
+      : '';
     const data = await fetchJson(
-      `/api/breakout?granularity=${breakoutGranularity.value}${catParam}`,
+      `/api/breakout?granularity=${breakoutGranularity.value}${catParam}${qParam}`,
       filters
     );
     if (!isCurrentRequest('breakout', requestId)) return;
@@ -239,7 +266,13 @@ export const createApi = ({
   const loadReport = async () => {
     const requestId = beginRequest('report');
     const qs = buildQueryString(filters);
-    const resp = await fetch(`/api/report?${qs}`);
+    const catParam = selectedCategory.value
+      ? `&category=${encodeURIComponent(selectedCategory.value)}`
+      : '';
+    const qParam = searchQuery.value
+      ? `&q=${encodeURIComponent(searchQuery.value)}`
+      : '';
+    const resp = await fetch(`/api/report?${qs}${catParam}${qParam}`);
     const text = await resp.text();
     if (!isCurrentRequest('report', requestId)) return;
     reportText.value = text;

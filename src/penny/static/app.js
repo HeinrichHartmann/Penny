@@ -12,13 +12,23 @@ import {
   computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
-import { fetchMeta, fetchAccounts, uploadCsv, updateAccount, fetchRules, saveRules, runRules, createApi } from './api.js';
+import {
+  fetchMeta,
+  fetchAccounts,
+  fetchCategoryOptions,
+  uploadCsv,
+  updateAccount,
+  fetchRules,
+  saveRules,
+  runRules,
+  createApi,
+} from './api.js';
 import { createChartManager } from './charts.js';
-import { DateFilterPanel } from './components/DateFilterPanel.js';
+import { SelectorHeader } from './components/SelectorHeader.js';
 
 createApp({
   components: {
-    DateFilterPanel,
+    SelectorHeader,
   },
   setup() {
     const readUrlState = () => {
@@ -71,6 +81,8 @@ createApp({
     const pivotCopyLabel = ref('MD');
     const transactionsCopyLabel = ref('MD');
     const searchQuery = ref(initialUrlState.q || '');
+    const categorySelectValue = ref('');
+    const availableCategories = ref([]);
     const currentTransactionPage = ref(Math.max(1, parseInt(initialUrlState.transactionPage || '1', 10) || 1));
     const transactionSort = reactive({ key: 'booking_date', direction: 'desc' });
     const monthRangeAnchor = ref(null);
@@ -242,32 +254,47 @@ createApp({
       }));
     });
 
+    const nextCategoryOptions = computed(() => {
+      const options = new Map();
+      const prefix = selectedCategory.value ? `${selectedCategory.value}/` : '';
+
+      for (const category of availableCategories.value) {
+        if (!category) continue;
+        if (selectedCategory.value && !category.startsWith(prefix)) continue;
+
+        const remainder = selectedCategory.value ? category.slice(prefix.length) : category;
+        if (!remainder) continue;
+
+        const nextSegment = remainder.split('/')[0];
+        if (!nextSegment) continue;
+
+        const path = selectedCategory.value
+          ? `${selectedCategory.value}/${nextSegment}`
+          : nextSegment;
+
+        if (!options.has(path)) {
+          options.set(path, { path, label: nextSegment });
+        }
+      }
+
+      return Array.from(options.values()).sort((left, right) =>
+        left.label.localeCompare(right.label, undefined, {
+          sensitivity: 'base',
+          numeric: true,
+        })
+      );
+    });
+
     const applyCategorySelection = async (category) => {
       selectedCategory.value = category;
-      searchQuery.value = '';
 
       if (view.value === 'transactions') {
         await loadTransactionsForCurrentView({ resetPage: true });
         return;
       }
 
-      if (tab.value === 'expense' || tab.value === 'income') {
-        await Promise.all([loadTree(), loadPivot()]);
-        return;
-      }
-
-      if (tab.value === 'cashflow') {
-        await loadCashflow();
-        return;
-      }
-
-      if (tab.value === 'breakout') {
-        await loadBreakout();
-        return;
-      }
-
-      if (tab.value === 'report') {
-        await loadReport();
+      if (view.value === 'report') {
+        await loadAll();
       }
     };
 
@@ -305,25 +332,8 @@ createApp({
       });
     };
 
-    // Client-side search filter - matches against all text fields concatenated
     const filteredTransactions = computed(() => {
-      const rows = transactions.value?.transactions || [];
-      const q = searchQuery.value?.toLowerCase().trim();
-      if (!q) return rows;
-
-      return rows.filter((tx) => {
-        // Concatenate all text fields for matching
-        const searchable = [
-          tx.description,
-          tx.category,
-          tx.account,
-          tx.raw_description,
-          tx.merchant,
-          tx.booking_date,
-        ].filter(Boolean).join(' ').toLowerCase();
-
-        return searchable.includes(q);
-      });
+      return transactions.value?.transactions || [];
     });
 
     const sortedTransactions = computed(() => {
@@ -620,10 +630,56 @@ createApp({
       return rulesState.content !== rulesState.originalContent;
     });
 
+    const loadCategoryOptions = async () => {
+      const result = await fetchCategoryOptions(filters, searchQuery.value);
+      availableCategories.value = result.categories || [];
+    };
+
+    const selectorState = computed(() => ({
+      filters,
+      meta,
+      yearButtons: yearButtons.value,
+      monthShortcutYear: monthShortcutYear.value,
+      selectedCategory: selectedCategory.value,
+      categoryBreadcrumbs: categoryBreadcrumbs.value,
+      nextCategoryOptions: nextCategoryOptions.value,
+      categorySelectValue: categorySelectValue.value,
+      searchQuery: searchQuery.value,
+    }));
+
+    const selectorActions = {
+      updateFrom: (value) => {
+        filters.from = value;
+      },
+      updateTo: (value) => {
+        filters.to = value;
+      },
+      updateCategorySelectValue: (value) => {
+        categorySelectValue.value = value;
+      },
+      updateSearchQuery: (value) => {
+        searchQuery.value = value;
+      },
+      setYear,
+      setAll,
+      setMonth,
+      setYearAllMonths,
+      isActiveYear,
+      isActiveMonth,
+      toggleAccount,
+      applyCategorySelection,
+      clearSelection,
+    };
+
     // ── Watchers ─────────────────────────────────────────────────────────────
+    watch(selectedCategory, () => {
+      categorySelectValue.value = '';
+    });
+
     watch(
       () => [filters.from, filters.to, filters.accounts.join(','), filters.neutralize],
       () => {
+        loadCategoryOptions();
         loadCurrentViewData({ resetTransactionsPage: true });
       }
     );
@@ -648,9 +704,9 @@ createApp({
     });
 
     watch(searchQuery, () => {
-      if (isHydratingFromUrl || view.value !== 'transactions') return;
-      // Client-side filtering - just reset pagination, no server request needed
-      resetTransactionPagination();
+      if (isHydratingFromUrl) return;
+      loadCategoryOptions();
+      loadCurrentViewData({ resetTransactionsPage: true });
     });
 
     watch(totalTransactionPages, (pageCount) => {
@@ -742,6 +798,7 @@ createApp({
         : initialUrlState.neutralize !== 'false';
 
       isHydratingFromUrl = false;
+      await loadCategoryOptions();
       syncUrlState();
       await loadCurrentViewData();
     });
@@ -766,6 +823,10 @@ createApp({
       pivotCopyLabel,
       transactionsCopyLabel,
       searchQuery,
+      categorySelectValue,
+      nextCategoryOptions,
+      selectorState,
+      selectorActions,
       currentTransactionPage,
       transactionSort,
       pivotDepth,
