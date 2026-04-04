@@ -120,22 +120,16 @@ TRANSFER_PREFIX = "transfer/"
 TRANSFER_WINDOW_DAYS = 10
 
 
-def in_same_transfer_group(_a, _b):
+def in_same_transfer_group(a, b):
     """Return True if entries a and b belong to the same transfer.
 
     This function is called for pairs of entries that:
     - Both have category starting with TRANSFER_PREFIX
     - Are within TRANSFER_WINDOW_DAYS of each other
 
-    Common patterns:
-    - Match by reference number embedded in memo/raw text
-    - Match by account pair (a.account_id, b.account_id)
-    - Match by specific payee patterns
-
-    Example: Match transfers between your own accounts by reference:
-        ref_a = extract_reference(a.raw_buchungstext)
-        ref_b = extract_reference(b.raw_buchungstext)
-        return ref_a and ref_b and ref_a == ref_b
+    Available fields on Transaction:
+        fingerprint, account_id, subaccount_type, date, payee, memo,
+        amount_cents, category, account_name, account_number
 
     Args:
         a: First Transaction
@@ -144,6 +138,31 @@ def in_same_transfer_group(_a, _b):
     Returns:
         True if a and b are part of the same logical transfer
     """
-    # Uncomment and customize:
-    # return False  # No automatic grouping
+    days_apart = abs((a.date - b.date).days)
+
+    # --- Card settlements: Visa credit ↔ Giro debit, same account ---
+    if a.category == "transfer/card_settlement" and b.category == "transfer/card_settlement":
+        if a.account_id == b.account_id:
+            is_visa_giro_pair = (
+                (a.subaccount_type == "visa" and b.subaccount_type == "giro") or
+                (a.subaccount_type == "giro" and b.subaccount_type == "visa")
+            )
+            if is_visa_giro_pair and a.amount_cents == -b.amount_cents and days_apart <= 5:
+                return True
+
+    # --- Internal transfers: Private ↔ Shared accounts ---
+    # Match opposite amounts between different accounts within 1 day
+    if a.account_id != b.account_id:
+        if a.amount_cents == -b.amount_cents and days_apart <= 1:
+            return True
+
+    # --- Tagesgeld: Giro ↔ Tagesgeld within same account ---
+    if a.account_id == b.account_id:
+        is_giro_tagesgeld_pair = (
+            (a.subaccount_type == "giro" and b.subaccount_type == "tagesgeld") or
+            (a.subaccount_type == "tagesgeld" and b.subaccount_type == "giro")
+        )
+        if is_giro_tagesgeld_pair and a.amount_cents == -b.amount_cents and days_apart == 0:
+            return True
+
     return False
