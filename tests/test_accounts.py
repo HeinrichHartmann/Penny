@@ -1,47 +1,54 @@
 from click.testing import CliRunner
 
+from penny.accounts import (
+    add_account,
+    find_account_by_bank_account_number,
+    get_account,
+    list_accounts,
+    remove_account,
+)
 from penny.cli import main
 
 
-def test_add_account_assigns_sequential_id(registry):
-    a1 = registry.add("comdirect")
-    a2 = registry.add("sparkasse")
+def test_add_account_assigns_sequential_id(db):
+    a1 = add_account("comdirect")
+    a2 = add_account("sparkasse")
 
     assert a1.id == 1
     assert a2.id == 2
 
 
-def test_add_with_account_number(registry):
-    account = registry.add("comdirect", bank_account_number="9788862492")
+def test_add_with_account_number(db):
+    account = add_account("comdirect", bank_account_number="9788862492")
 
     assert "9788862492" in account.bank_account_numbers
 
 
-def test_find_by_account_number(registry):
-    registry.add("comdirect", bank_account_number="9788862492")
+def test_find_by_account_number(db):
+    add_account("comdirect", bank_account_number="9788862492")
 
-    found = registry.find_by_bank_account_number("comdirect", "9788862492")
+    found = find_account_by_bank_account_number("comdirect", "9788862492")
 
     assert found is not None
     assert found.bank == "comdirect"
 
 
-def test_remove_soft_deletes(registry):
-    account = registry.add("comdirect")
+def test_remove_soft_deletes(db):
+    account = add_account("comdirect")
 
-    registry.remove(account.id)
+    remove_account(account.id)
 
-    assert registry.get(account.id).hidden is True
-    assert len(registry.list()) == 0
-    assert len(registry.list(include_hidden=True)) == 1
+    assert get_account(account.id).hidden is True
+    assert len(list_accounts()) == 0
+    assert len(list_accounts(include_hidden=True)) == 1
 
 
-def test_add_duplicate_hidden_account_fails(registry):
-    account = registry.add("comdirect", bank_account_number="9788862492")
-    registry.remove(account.id)
+def test_add_duplicate_hidden_account_fails(db):
+    account = add_account("comdirect", bank_account_number="9788862492")
+    remove_account(account.id)
 
     try:
-        registry.add("comdirect", bank_account_number="9788862492")
+        add_account("comdirect", bank_account_number="9788862492")
     except ValueError as exc:
         assert "already exists" in str(exc)
     else:

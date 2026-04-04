@@ -5,8 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from penny.accounts.models import Account
-from penny.accounts.storage import AccountStorage
+from penny.accounts import Account, get_account as get_account_by_id, list_accounts as list_all_accounts, soft_delete_account
 from penny.api.helpers import get_db
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -32,8 +31,7 @@ def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
 @router.get("")
 async def list_accounts(include_hidden: bool = Query(False)):
     """List all bank accounts."""
-    storage = AccountStorage()
-    accounts = storage.list_accounts(include_hidden=include_hidden)
+    accounts = list_all_accounts(include_hidden=include_hidden)
 
     # Get transaction counts per account
     conn = get_db()
@@ -56,8 +54,7 @@ async def list_accounts(include_hidden: bool = Query(False)):
 @router.get("/{account_id}")
 async def get_account(account_id: int):
     """Get a single account by ID."""
-    storage = AccountStorage()
-    account = storage.get_account(account_id)
+    account = get_account_by_id(account_id)
 
     if account is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
@@ -82,8 +79,7 @@ async def update_account(
     notes: Optional[str] = None,
 ):
     """Update account metadata."""
-    storage = AccountStorage()
-    account = storage.get_account(account_id)
+    account = get_account_by_id(account_id)
 
     if account is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
@@ -127,8 +123,7 @@ async def update_account(
 @router.delete("/{account_id}")
 async def delete_account(account_id: int):
     """Soft-delete an account (hide it)."""
-    storage = AccountStorage()
-    if not storage.soft_delete_account(account_id):
+    if not soft_delete_account(account_id):
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     return {"status": "deleted", "account_id": account_id}

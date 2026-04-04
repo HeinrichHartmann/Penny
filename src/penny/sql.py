@@ -417,3 +417,104 @@ def count_transactions_sql(account_id: int | None = None) -> tuple[str, list]:
         sql += " WHERE account_id = ?"
         params.append(account_id)
     return sql, params
+
+
+# =============================================================================
+# ACCOUNT QUERIES
+# =============================================================================
+
+
+def insert_account_sql() -> str:
+    """SQL for inserting an account."""
+    return """
+        INSERT INTO accounts (
+            bank, display_name, iban, holder, notes,
+            balance_cents, balance_date, created_at, updated_at, hidden
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    """
+
+
+def insert_account_identifier_sql() -> str:
+    """SQL for inserting an account identifier."""
+    return """
+        INSERT INTO account_identifiers (account_id, identifier_type, identifier_value)
+        VALUES (?, 'bank_account_number', ?)
+    """
+
+
+def insert_subaccount_sql() -> str:
+    """SQL for inserting a subaccount."""
+    return """
+        INSERT INTO subaccounts (account_id, type, display_name)
+        VALUES (?, ?, ?)
+    """
+
+
+def upsert_subaccount_sql() -> str:
+    """SQL for upserting a subaccount."""
+    return """
+        INSERT OR IGNORE INTO subaccounts (account_id, type, display_name)
+        VALUES (?, ?, NULL)
+    """
+
+
+def list_account_ids_sql(include_hidden: bool) -> str:
+    """SQL for listing account IDs."""
+    sql = "SELECT id FROM accounts"
+    if not include_hidden:
+        sql += " WHERE hidden = 0"
+    sql += " ORDER BY id"
+    return sql
+
+
+def get_account_sql(include_hidden: bool) -> str:
+    """SQL for getting an account by ID."""
+    sql = "SELECT * FROM accounts WHERE id = ?"
+    if not include_hidden:
+        sql += " AND hidden = 0"
+    return sql
+
+
+def soft_delete_account_sql() -> str:
+    """SQL for soft-deleting an account."""
+    return """
+        UPDATE accounts
+        SET hidden = 1, updated_at = ?
+        WHERE id = ? AND hidden = 0
+    """
+
+
+def find_account_by_bank_account_number_sql(include_hidden: bool) -> str:
+    """SQL for finding an account by bank and account number."""
+    sql = """
+        SELECT a.*
+        FROM accounts a
+        JOIN account_identifiers ai ON ai.account_id = a.id
+        WHERE a.bank = ?
+          AND ai.identifier_type = 'bank_account_number'
+          AND ai.identifier_value = ?
+    """
+    if not include_hidden:
+        sql += " AND a.hidden = 0"
+    sql += " ORDER BY a.id LIMIT 1"
+    return sql
+
+
+def get_account_identifiers_sql() -> str:
+    """SQL for getting account identifiers."""
+    return """
+        SELECT identifier_value
+        FROM account_identifiers
+        WHERE account_id = ? AND identifier_type = 'bank_account_number'
+        ORDER BY id
+    """
+
+
+def get_subaccounts_sql() -> str:
+    """SQL for getting subaccounts."""
+    return """
+        SELECT type, display_name
+        FROM subaccounts
+        WHERE account_id = ?
+        ORDER BY type
+    """

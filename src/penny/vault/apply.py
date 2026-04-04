@@ -39,11 +39,9 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     Reads the CSV files from the entry directory, parses them,
     reconciles the account, and stores transactions.
     """
-    from penny.accounts.registry import AccountRegistry
-    from penny.accounts.storage import AccountStorage
+    from penny.accounts import reconcile_account
     from penny.db import init_default_db
-    from penny.ingest import match_file
-    from penny.ingest.formats.utils import read_file_with_encoding
+    from penny.ingest import match_file, read_file_with_encoding
     from penny.transactions import store_transactions
 
     manifest: IngestManifest = entry.read_manifest()  # type: ignore
@@ -69,8 +67,7 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
 
         # Detect and reconcile account
         detection = parser.detect(csv_filename, content)
-        registry = AccountRegistry(AccountStorage())
-        account = registry.reconcile(detection)
+        account = reconcile_account(detection)
 
         # Parse transactions
         transactions = parser.parse(csv_filename, content, account_id=account.id)
@@ -129,11 +126,9 @@ def apply_entry(entry: LogEntry) -> None:
 
 def _apply_account_created(entry: LogEntry, manifest: AccountCreatedManifest) -> None:
     """Apply account_created entry."""
-    from penny.accounts.registry import AccountRegistry
-    from penny.accounts.storage import AccountStorage
+    from penny.accounts import add_account
 
-    registry = AccountRegistry(AccountStorage())
-    registry.add(
+    add_account(
         bank=manifest.bank,
         bank_account_number=manifest.bank_account_number,
         display_name=manifest.display_name,

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from penny.transactions.models import Transaction
+    from penny.transactions import Transaction
 
 
 @dataclass

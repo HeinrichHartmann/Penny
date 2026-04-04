@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from penny.accounts.storage import default_db_path
+from penny.config import default_db_path
 
 
 class Database:
@@ -59,16 +59,15 @@ class Database:
                 CREATE TABLE IF NOT EXISTS accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bank TEXT NOT NULL,
-                    bank_account_number TEXT,
                     display_name TEXT,
                     iban TEXT,
                     holder TEXT,
                     notes TEXT,
                     balance_cents INTEGER,
                     balance_date TEXT,
-                    hidden INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    hidden INTEGER DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS account_identifiers (
@@ -76,7 +75,15 @@ class Database:
                     account_id INTEGER NOT NULL REFERENCES accounts(id),
                     identifier_type TEXT NOT NULL,
                     identifier_value TEXT NOT NULL,
-                    UNIQUE(identifier_type, identifier_value)
+                    UNIQUE(account_id, identifier_type, identifier_value)
+                );
+
+                CREATE TABLE IF NOT EXISTS subaccounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL REFERENCES accounts(id),
+                    type TEXT NOT NULL,
+                    display_name TEXT,
+                    UNIQUE(account_id, type)
                 );
 
                 CREATE TABLE IF NOT EXISTS transactions (
@@ -143,28 +150,32 @@ def init_db(path: Path | None = None) -> Database:
 def init_default_db() -> Database:
     """Initialize database at default path from PENNY_DATA_DIR.
 
-    Idempotent: returns existing instance if already initialized with same path.
+    Forces file-based database. Use this for CLI/production.
     """
-    global _instance
-    path = default_db_path()
-    if _instance is not None and _instance.path == path:
-        return _instance
-    return init_db(path)
+    return init_db(default_db_path())
 
 
 def get_db() -> Database:
-    """Get the database instance. Raises if not initialized."""
-    if _instance is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
-    return _instance
+    """Get the database instance. Auto-initializes with default path if needed.
 
-
-def reset_db() -> None:
-    """Close and clear the database instance. For testing."""
+    Re-initializes if default path changed (e.g., PENNY_DATA_DIR changed).
+    Does not re-init if instance was explicitly set to in-memory (path=None).
+    """
     global _instance
-    if _instance:
-        _instance.close()
-        _instance = None
+    if _instance is None:
+        # No instance - auto-initialize with default path
+        path = default_db_path()
+        _instance = Database(path)
+        _instance.init_schema()
+    elif _instance.path is not None:
+        # File-based instance - check if path changed
+        path = default_db_path()
+        if _instance.path != path:
+            _instance.close()
+            _instance = Database(path)
+            _instance.init_schema()
+    # If path is None (in-memory), keep the existing instance
+    return _instance
 
 
 # Convenience functions that delegate to the instance

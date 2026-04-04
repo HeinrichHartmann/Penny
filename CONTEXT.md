@@ -104,6 +104,7 @@ Native macOS app bundle provides:
 | **007** | Transaction Parsing | Header-driven multi-section parsing |
 | **008** | Transaction Classification | Python rules, file-order precedence |
 | **009** | Transfer Neutralization | Union-Find grouping with user predicate |
+| **011** | Layered Architecture | Interface/Domain/Model separation, no Storage classes |
 
 ## Core Data Models
 
