@@ -15,7 +15,7 @@ from penny.api.helpers import (
     roll_up_top_buckets,
     sort_period_keys,
 )
-from penny.api.sql import (
+from penny.sql import (
     breakout_query,
     cashflow_query,
     categories_query,
