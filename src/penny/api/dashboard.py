@@ -488,13 +488,15 @@ async def account_value_history(
         manifest = entry.read_manifest()
         if isinstance(manifest, BalanceSnapshotManifest):
             if manifest.account_id in account_ids:
-                balance_snapshots.append({
-                    "account_id": manifest.account_id,
-                    "date": manifest.snapshot_date,
-                    "balance_cents": manifest.balance_cents,
-                    "subaccount_type": manifest.subaccount_type,
-                    "note": manifest.note,
-                })
+                balance_snapshots.append(
+                    {
+                        "account_id": manifest.account_id,
+                        "date": manifest.snapshot_date,
+                        "balance_cents": manifest.balance_cents,
+                        "subaccount_type": manifest.subaccount_type,
+                        "note": manifest.note,
+                    }
+                )
 
     # Sort balance snapshots by date
     balance_snapshots.sort(key=lambda x: x["date"])
@@ -546,7 +548,9 @@ async def account_value_history(
         anchor_balance = latest_snapshot["balance_cents"]
 
         # Calculate balance at each date by adding/subtracting transactions
-        all_dates = sorted(set(txn["date"] for txn in transactions) | {s["date"] for s in balance_snapshots})
+        all_dates = sorted(
+            set(txn["date"] for txn in transactions) | {s["date"] for s in balance_snapshots}
+        )
 
         # Filter dates if needed
         if from_date:
@@ -585,21 +589,25 @@ async def account_value_history(
                 )
                 balance = anchor_balance + txns_between
 
-            value_points.append({
-                "date": d,
-                "balance_cents": balance,
-                "is_snapshot": d in [s["date"] for s in balance_snapshots],
-            })
+            value_points.append(
+                {
+                    "date": d,
+                    "balance_cents": balance,
+                    "is_snapshot": d in [s["date"] for s in balance_snapshots],
+                }
+            )
     else:
         # No balance snapshots - just show cumulative transaction flow
         cumulative = 0
         for d in sorted(txn_by_date.keys()):
             cumulative += txn_by_date[d]["total_cents"]
-            value_points.append({
-                "date": d,
-                "balance_cents": cumulative,
-                "is_snapshot": False,
-            })
+            value_points.append(
+                {
+                    "date": d,
+                    "balance_cents": cumulative,
+                    "is_snapshot": False,
+                }
+            )
 
     # Build transaction volume data
     volume_points = [
