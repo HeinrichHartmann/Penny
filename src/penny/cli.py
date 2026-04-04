@@ -41,6 +41,7 @@ from penny.vault import (
     ensure_vault_initialized,
     latest_rules_path,
     replay_vault,
+    save_rules_snapshot,
 )
 from penny.vault import (
     ingest_csv as ingest_vault_csv,
@@ -601,6 +602,30 @@ def apply(rules_file: Path, verbose: int):
     """Apply classification rules and optional transfer linking."""
 
     _apply_rules(rules_file, verbose=verbose)
+
+
+@main.command("import-rules")
+@click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def import_rules(rules_file: Path):
+    """Import a rules.py file into the vault.
+
+    The rules file will be copied to the vault's rules directory with a timestamp.
+    This makes it the active rules file for classification.
+    """
+    content = rules_file.read_text(encoding="utf-8")
+
+    # Validate the rules file by attempting to load it
+    try:
+        config, _module = _load_rules_bundle(rules_file)
+        click.echo(f"Validated: {len(config.ruleset.rules)} rules loaded")
+        click.echo(f"Default category: {config.default_category}")
+    except Exception as exc:
+        raise click.ClickException(f"Invalid rules file: {exc}") from exc
+
+    # Save to vault
+    saved_path = save_rules_snapshot(content)
+    click.echo(f"Saved to: {saved_path}")
+    click.echo("Rules imported successfully.")
 
 
 if __name__ == "__main__":

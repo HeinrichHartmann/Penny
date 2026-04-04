@@ -134,24 +134,17 @@ def apply_classifications(
     decisions: list[ClassificationDecision],
     config: VaultConfig | None = None,
 ) -> tuple[int, int]:
-    from penny.transactions import count_transactions
+    """Apply classifications directly to SQLite projection.
 
-    cfg = config or VaultConfig()
-    row = MutationLog(cfg).append(
-        "classifications_applied",
-        entity_type="transactions",
-        payload={
-            "decisions": [
-                {
-                    "fingerprint": decision.fingerprint,
-                    "category": decision.category,
-                    "rule_name": decision.rule_name,
-                }
-                for decision in decisions
-            ]
-        },
-    )
-    _apply_mutations(cfg, upto_seq=row.seq)
+    Classifications are NOT persisted to the mutation log - they are computed
+    at runtime from the rules file. Only the rules.py changes are stored.
+    """
+    from penny.db import transaction
+    from penny.transactions import _apply_classifications_direct, count_transactions
+
+    with transaction() as conn:
+        _apply_classifications_direct(conn, decisions)
+
     total = count_transactions()
     return len(decisions), total - len(decisions)
 
