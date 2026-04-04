@@ -189,3 +189,151 @@ class TestVaultReplay:
         # Same transactions with same fingerprints
         assert fingerprints1 == fingerprints2
         assert len(fingerprints1) == 3
+
+
+class TestVaultAccountMutations:
+    """Tests for account metadata updates and balance snapshots via vault."""
+
+    @pytest.fixture
+    def vault_config(self, tmp_path, monkeypatch):
+        """Create a vault config pointing to tmp_path."""
+        vault_path = tmp_path / "vault"
+        monkeypatch.setenv("PENNY_VAULT_DIR", str(vault_path))
+        monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+        config = VaultConfig(vault_path)
+        config.initialize()
+        return config
+
+    def test_account_updated_applies_on_replay(self, vault_config):
+        """Account metadata updates should be replayed from vault."""
+        from penny.db import init_db
+        from penny.accounts import add_account, get_account, update_account_metadata
+        from penny.vault.manifests import AccountUpdatedManifest, AccountCreatedManifest
+
+        # Create initial database and account
+        init_db()
+        account = add_account("testbank", bank_account_number="123456")
+        account_id = account.id
+
+        # Create vault log entry for account creation
+        log = LogManager(vault_config)
+        create_manifest = AccountCreatedManifest(
+            bank="testbank",
+            bank_account_number="123456",
+        )
+        log.append(
+            entry_type="account_created",
+            manifest=create_manifest,
+            content_files=None,
+        )
+
+        # Update account metadata
+        update_account_metadata(
+            account_id,
+            display_name="My Account",
+            iban="DE1234567890",
+            holder="John Doe",
+            notes="Test notes",
+        )
+
+        # Create vault log entry for the update
+        update_manifest = AccountUpdatedManifest(
+            account_id=account_id,
+            fields={
+                "display_name": "My Account",
+                "iban": "DE1234567890",
+                "holder": "John Doe",
+                "notes": "Test notes",
+            },
+        )
+        log.append(
+            entry_type="account_updated",
+            manifest=update_manifest,
+            content_files=None,
+        )
+
+        # Verify update worked
+        updated = get_account(account_id)
+        assert updated is not None
+        assert updated.display_name == "My Account"
+
+        # Nuke DB and replay from vault
+        init_db()
+        replay_result = replay_vault(vault_config)
+        assert replay_result.entries_processed == 2
+        assert replay_result.entries_by_type["account_created"] == 1
+        assert replay_result.entries_by_type["account_updated"] == 1
+
+        # Verify account metadata was restored
+        # Note: account_id should be the same since replay is deterministic
+        restored = get_account(account_id)
+        assert restored is not None
+        assert restored.display_name == "My Account"
+        assert restored.iban == "DE1234567890"
+        assert restored.holder == "John Doe"
+        assert restored.notes == "Test notes"
+
+    def test_balance_snapshot_applies_on_replay(self, vault_config):
+        """Balance snapshots should be replayed from vault."""
+        from datetime import date as date_type
+        from penny.db import init_db
+        from penny.accounts import add_account, get_account, update_account_balance
+        from penny.vault.manifests import BalanceSnapshotManifest, AccountCreatedManifest
+
+        # Create initial database and account
+        init_db()
+        account = add_account("testbank", bank_account_number="123456")
+        account_id = account.id
+
+        # Create vault log entry for account creation
+        log = LogManager(vault_config)
+        create_manifest = AccountCreatedManifest(
+            bank="testbank",
+            bank_account_number="123456",
+        )
+        log.append(
+            entry_type="account_created",
+            manifest=create_manifest,
+            content_files=None,
+        )
+
+        # Record balance snapshot
+        snapshot_date = date_type(2024, 3, 31)
+        update_account_balance(
+            account_id,
+            balance_cents=123456,
+            balance_date=snapshot_date,
+        )
+
+        # Create vault log entry for balance snapshot
+        balance_manifest = BalanceSnapshotManifest(
+            account_id=account_id,
+            subaccount_type="giro",
+            snapshot_date=snapshot_date.isoformat(),
+            balance_cents=123456,
+            note="Test balance",
+        )
+        log.append(
+            entry_type="balance_snapshot",
+            manifest=balance_manifest,
+            content_files=None,
+        )
+
+        # Verify balance was recorded
+        updated = get_account(account_id)
+        assert updated is not None
+        assert updated.balance_cents == 123456
+
+        # Nuke DB and replay from vault
+        init_db()
+        replay_result = replay_vault(vault_config)
+        assert replay_result.entries_processed == 2
+        assert replay_result.entries_by_type["account_created"] == 1
+        assert replay_result.entries_by_type["balance_snapshot"] == 1
+
+        # Verify balance was restored
+        # Note: account_id should be the same since replay is deterministic
+        restored = get_account(account_id)
+        assert restored is not None
+        assert restored.balance_cents == 123456
+        assert restored.balance_date == snapshot_date

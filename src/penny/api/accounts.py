@@ -1,19 +1,33 @@
 """Accounts API router."""
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from penny.accounts import (
     Account,
     get_account as get_account_by_id,
     list_accounts as list_all_accounts,
     soft_delete_account,
+    update_account_balance,
     update_account_metadata,
 )
 from penny.api.helpers import get_db
+from penny.vault import LogManager, VaultConfig
+from penny.vault.manifests import AccountUpdatedManifest, BalanceSnapshotManifest
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
+
+
+class BalanceSnapshotRequest(BaseModel):
+    """Request body for recording a balance snapshot."""
+
+    balance_cents: int
+    balance_date: str  # ISO date format
+    subaccount_type: str = "giro"
+    note: Optional[str] = None
 
 
 def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
@@ -104,6 +118,18 @@ async def update_account(
         if updated is None:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
+        # Create vault log entry for account update
+        config = VaultConfig()
+        manifest = AccountUpdatedManifest(
+            account_id=account_id,
+            fields=changes,
+        )
+        LogManager(config).append(
+            entry_type="account_updated",
+            manifest=manifest,  # type: ignore
+            content_files=None,
+        )
+
     # Return updated account
     return await get_account(account_id)
 
@@ -115,3 +141,46 @@ async def delete_account(account_id: int):
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     return {"status": "deleted", "account_id": account_id}
+
+
+@router.post("/{account_id}/balance")
+async def record_balance_snapshot(account_id: int, request: BalanceSnapshotRequest):
+    """Record a balance snapshot for an account."""
+    account = get_account_by_id(account_id)
+
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+
+    # Parse and validate date
+    try:
+        snapshot_date = date.fromisoformat(request.balance_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}") from e
+
+    # Update the account balance
+    updated = update_account_balance(
+        account_id,
+        balance_cents=request.balance_cents,
+        balance_date=snapshot_date,
+    )
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+
+    # Create vault log entry for balance snapshot
+    config = VaultConfig()
+    manifest = BalanceSnapshotManifest(
+        account_id=account_id,
+        subaccount_type=request.subaccount_type,
+        snapshot_date=request.balance_date,
+        balance_cents=request.balance_cents,
+        note=request.note,
+    )
+    LogManager(config).append(
+        entry_type="balance_snapshot",
+        manifest=manifest,  # type: ignore
+        content_files=None,
+    )
+
+    # Return updated account
+    return await get_account(account_id)

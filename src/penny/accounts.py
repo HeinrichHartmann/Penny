@@ -292,6 +292,26 @@ def _update_account_metadata_direct(
     return _get_account_in_conn(conn, account_id, include_hidden=True)
 
 
+def update_account_balance(
+    account_id: int,
+    *,
+    balance_cents: int,
+    balance_date: date,
+) -> Account | None:
+    """Update account balance snapshot and return the refreshed account."""
+    with closing(connect()) as conn:
+        cursor = conn.execute(
+            "UPDATE accounts SET balance_cents = ?, balance_date = ?, updated_at = ? WHERE id = ?",
+            (balance_cents, balance_date.isoformat(), datetime.now().isoformat(), account_id),
+        )
+        conn.commit()
+
+    if cursor.rowcount == 0:
+        return None
+
+    return get_account(account_id, include_hidden=True)
+
+
 def find_account_by_bank_account_number(
     bank: str,
     account_number: str,
