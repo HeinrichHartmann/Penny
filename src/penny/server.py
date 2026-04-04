@@ -26,7 +26,9 @@ FRONTEND_DIST_DIR = STATIC_DIR / "dist"
 FRONTEND_INDEX_PATH = FRONTEND_DIST_DIR / "index.html"
 
 # Mount frontend asset directories
-app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets", check_dir=False), name="assets")
+app.mount(
+    "/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets", check_dir=False), name="assets"
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
 # Mount API routers
@@ -56,6 +58,7 @@ async def health():
 def run_server(host: str = "127.0.0.1", port: int = 8000):
     """Run the uvicorn server."""
     import uvicorn
+
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

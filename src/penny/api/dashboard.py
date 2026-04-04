@@ -2,7 +2,6 @@
 
 from collections import defaultdict
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import PlainTextResponse
@@ -83,9 +82,7 @@ async def meta():
     ]
 
     # Get date range from transactions
-    date_range = cursor.execute(
-        "SELECT MIN(date), MAX(date) FROM transactions"
-    ).fetchone()
+    date_range = cursor.execute("SELECT MIN(date), MAX(date) FROM transactions").fetchone()
 
     conn.close()
 
@@ -101,15 +98,13 @@ async def categories(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    q: Optional[str] = Query(None),
+    q: str | None = Query(None),
 ):
     """Return distinct category paths for the current raw filter selection."""
     conn = connect()
     cursor = conn.cursor()
 
-    sql, params = categories_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, q=q
-    )
+    sql, params = categories_query(from_date=from_date, to_date=to_date, accounts=accounts, q=q)
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
@@ -123,8 +118,8 @@ async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return expense/income summary."""
     conn = connect()
@@ -161,8 +156,8 @@ async def tree(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return hierarchical category tree for treemap."""
     conn = connect()
@@ -215,8 +210,8 @@ async def pivot(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return pivot table data."""
     conn = connect()
@@ -274,8 +269,8 @@ async def cashflow(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return Sankey diagram data derived from filtered transactions."""
     conn = connect()
@@ -307,7 +302,9 @@ async def cashflow(
         if name not in visible_names:
             return 0
         if name.startswith("other "):
-            return sum(value for bucket, value in buckets.items() if bucket not in visible_names[:-1])
+            return sum(
+                value for bucket, value in buckets.items() if bucket not in visible_names[:-1]
+            )
         return buckets[name]
 
     links = []
@@ -335,8 +332,8 @@ async def breakout(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return time-series breakout data."""
     conn = connect()
@@ -399,8 +396,8 @@ async def report(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return plain text financial report."""
     filters = _build_transaction_filter(
@@ -416,8 +413,8 @@ async def transactions(
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
     neutralize: bool = Query(True),
-    category: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     """Return filtered transaction list using the shared domain filter logic."""
     filtered = list_transactions(

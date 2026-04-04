@@ -1,7 +1,7 @@
 """Tests for vault CLI commands."""
 
-from click.testing import CliRunner
 import pytest
+from click.testing import CliRunner
 
 from penny.cli import main
 from penny.db import init_db

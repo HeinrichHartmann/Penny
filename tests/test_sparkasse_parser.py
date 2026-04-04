@@ -1,7 +1,7 @@
-from penny.ingest import read_file_with_encoding, match_file, DetectionError
-from penny.ingest.banks.sparkasse import SparkasseBank
-
 import pytest
+
+from penny.ingest import DetectionError, match_file, read_file_with_encoding
+from penny.ingest.banks.sparkasse import SparkasseBank
 
 
 def test_sparkasse_filename_match():

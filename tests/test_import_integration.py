@@ -1,9 +1,8 @@
-from click.testing import CliRunner
 import pytest
+from click.testing import CliRunner
 
 from penny.cli import main
 from penny.transactions import count_transactions
-
 
 pytestmark = pytest.mark.integration
 

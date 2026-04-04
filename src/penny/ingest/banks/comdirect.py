@@ -33,20 +33,19 @@ class ComdirectBank(BankModule):
     def content_signature_matches(self, content: str) -> bool:
         """Return True when the file content looks like Comdirect."""
         return any(
-            marker in content
-            for markers in self.SECTION_PATTERNS.values()
-            for marker in markers
+            marker in content for markers in self.SECTION_PATTERNS.values() for marker in markers
         )
 
     def match(self, filename: str, content: str) -> bool:
-        return bool(self.filename_pattern.match(filename)) and self.content_signature_matches(content)
+        return bool(self.filename_pattern.match(filename)) and self.content_signature_matches(
+            content
+        )
 
     def detect(self, filename: str, content: str) -> DetectionResult:
         match = self.filename_pattern.match(filename)
         if match is None:
             raise ValueError(
-                "Filename does not match expected Comdirect format: "
-                f"{self.expected_filename_hint}"
+                f"Filename does not match expected Comdirect format: {self.expected_filename_hint}"
             )
 
         subaccounts = [
@@ -67,8 +66,7 @@ class ComdirectBank(BankModule):
         """Parse Comdirect transactions."""
         if not self.filename_pattern.match(filename):
             raise ValueError(
-                "Filename does not match expected Comdirect format: "
-                f"{self.expected_filename_hint}"
+                f"Filename does not match expected Comdirect format: {self.expected_filename_hint}"
             )
 
         transactions: list[Transaction] = []
@@ -79,7 +77,7 @@ class ComdirectBank(BankModule):
             if header is None:
                 continue
             header_index, headers = header
-            for raw_row in rows[header_index + 1:]:
+            for raw_row in rows[header_index + 1 :]:
                 row = self._row_to_dict(headers, raw_row)
                 transaction = self._parse_row(row, account_id=account_id, subaccount=subaccount)
                 if transaction is not None:
@@ -166,7 +164,9 @@ class ComdirectBank(BankModule):
         values = row + [""] * max(0, len(headers) - len(row))
         return {header: values[index].strip() for index, header in enumerate(headers)}
 
-    def _parse_row(self, row: dict[str, str], *, account_id: int, subaccount: str) -> Transaction | None:
+    def _parse_row(
+        self, row: dict[str, str], *, account_id: int, subaccount: str
+    ) -> Transaction | None:
         booking_date = row.get("Buchungstag", "").strip()
         amount_value = row.get("Umsatz in EUR", "").strip()
         if not booking_date or booking_date in {"Alter Kontostand", "Neuer Kontostand"}:
@@ -183,7 +183,11 @@ class ComdirectBank(BankModule):
         )
 
         date_value = parse_german_date(booking_date)
-        value_date = None if not value_date_raw or value_date_raw == "--" else parse_german_date(value_date_raw)
+        value_date = (
+            None
+            if not value_date_raw or value_date_raw == "--"
+            else parse_german_date(value_date_raw)
+        )
         amount_cents = parse_german_amount(amount_value)
 
         if subaccount == "visa":

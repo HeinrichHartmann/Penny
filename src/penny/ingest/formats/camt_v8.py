@@ -101,9 +101,7 @@ class CamtV8Parser:
         if not memo:
             memo = transaction_type or ""
 
-        fingerprint = generate_fingerprint(
-            account_id, date_value, amount_cents, payee, reference
-        )
+        fingerprint = generate_fingerprint(account_id, date_value, amount_cents, payee, reference)
 
         return Transaction(
             fingerprint=fingerprint,

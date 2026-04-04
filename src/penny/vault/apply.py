@@ -167,7 +167,9 @@ def _apply_account_created(entry: LogEntry, manifest: AccountCreatedManifest) ->
         _create_account_direct(
             conn,
             bank=manifest.bank,
-            bank_account_numbers=[manifest.bank_account_number] if manifest.bank_account_number else [],
+            bank_account_numbers=[manifest.bank_account_number]
+            if manifest.bank_account_number
+            else [],
             display_name=manifest.display_name,
             iban=manifest.iban,
             created_at=manifest.timestamp,
@@ -243,9 +245,13 @@ def apply_mutation(row: MutationRow) -> None:
                 holder=payload.get("holder"),
                 notes=payload.get("notes"),
                 balance_cents=payload.get("balance_cents"),
-                balance_date=date.fromisoformat(payload["balance_date"]) if payload.get("balance_date") else None,
+                balance_date=date.fromisoformat(payload["balance_date"])
+                if payload.get("balance_date")
+                else None,
                 subaccounts={
-                    item["type"]: Subaccount(type=item["type"], display_name=item.get("display_name"))
+                    item["type"]: Subaccount(
+                        type=item["type"], display_name=item.get("display_name")
+                    )
                     for item in payload.get("subaccounts", [])
                 },
                 created_at=row.timestamp,
@@ -269,7 +275,9 @@ def apply_mutation(row: MutationRow) -> None:
         if row.type == "subaccounts_upserted":
             from penny.accounts import _upsert_subaccounts_direct
 
-            _upsert_subaccounts_direct(conn, int(row.entity_id), payload.get("subaccount_types", []))
+            _upsert_subaccounts_direct(
+                conn, int(row.entity_id), payload.get("subaccount_types", [])
+            )
             return
 
         if row.type == "transactions_stored":
@@ -284,7 +292,9 @@ def apply_mutation(row: MutationRow) -> None:
                     payee=item["payee"],
                     memo=item["memo"],
                     amount_cents=item["amount_cents"],
-                    value_date=date.fromisoformat(item["value_date"]) if item.get("value_date") else None,
+                    value_date=date.fromisoformat(item["value_date"])
+                    if item.get("value_date")
+                    else None,
                     transaction_type=item.get("transaction_type") or "",
                     reference=item.get("reference"),
                     raw_buchungstext=item.get("raw_buchungstext") or "",

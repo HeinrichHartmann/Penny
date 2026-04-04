@@ -35,8 +35,14 @@ def generate_report_text(filters: TransactionFilter | None = None) -> str:
     """Generate the plain-text financial report used by API and CLI."""
     transactions = list_transactions(filters=filters, limit=None, neutralize=False)
 
-    expense_total = sum(abs(transaction.amount_cents) for transaction in transactions if transaction.amount_cents < 0)
-    income_total = sum(transaction.amount_cents for transaction in transactions if transaction.amount_cents > 0)
+    expense_total = sum(
+        abs(transaction.amount_cents)
+        for transaction in transactions
+        if transaction.amount_cents < 0
+    )
+    income_total = sum(
+        transaction.amount_cents for transaction in transactions if transaction.amount_cents > 0
+    )
     net_flow = income_total - expense_total
 
     expense_categories: dict[str, int] = defaultdict(int)

@@ -54,9 +54,7 @@ class VaultConfig:
     def is_initialized(self) -> bool:
         """Return True if the portable storage structure exists."""
         return (
-            self.imports_dir.exists()
-            and self.rules_dir.exists()
-            and self.mutations_path.exists()
+            self.imports_dir.exists() and self.rules_dir.exists() and self.mutations_path.exists()
         )
 
     def initialize(self) -> None:

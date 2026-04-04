@@ -75,7 +75,9 @@ class Transaction:
             raw_buchungstext=row["raw_buchungstext"] or "",
             raw_row=json.loads(row["raw_row"]) if row["raw_row"] else {},
             category=row["category"],
-            classification_rule=row["classification_rule"] if "classification_rule" in keys else None,
+            classification_rule=row["classification_rule"]
+            if "classification_rule" in keys
+            else None,
             group_id=row["group_id"] if "group_id" in keys else None,
             account_name=row["account_name"] if "account_name" in keys else None,
             account_number=row["account_number"] if "account_number" in keys else None,
@@ -211,7 +213,9 @@ def filter_transactions(
         if filters.account_ids is not None and transaction.account_id not in filters.account_ids:
             continue
         if filters.category_prefix:
-            if not transaction.category or not transaction.category.startswith(filters.category_prefix):
+            if not transaction.category or not transaction.category.startswith(
+                filters.category_prefix
+            ):
                 continue
         if search_query:
             search_text = f"{transaction.raw_buchungstext} {transaction.payee}".lower()

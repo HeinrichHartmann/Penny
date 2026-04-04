@@ -2,7 +2,6 @@
 
 import sqlite3
 from datetime import datetime
-from typing import Optional
 
 from penny.config import default_db_path
 
@@ -142,6 +141,7 @@ def transaction_scope_sql(
     query += f"\n GROUP BY {grouping_col}"
     return f"({query}) {alias}"
 
+
 def format_currency(cents: int) -> str:
     """Format cents as EUR using German separators."""
     amount = abs(cents) / 100
@@ -155,7 +155,7 @@ def parse_date(value: str) -> datetime.date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def category_bucket(category: Optional[str], selected_category: Optional[str] = None) -> str:
+def category_bucket(category: str | None, selected_category: str | None = None) -> str:
     """Group categories at the first visible level for charts."""
     cat = category or "uncategorized"
     if selected_category:

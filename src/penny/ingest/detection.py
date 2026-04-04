@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from penny.ingest.base import BankModule
 from penny.ingest.banks import get_banks
+from penny.ingest.base import BankModule
 from penny.ingest.formats.utils import read_file_with_encoding as _read_file
 
 
@@ -44,8 +44,7 @@ def _validate_bank_match(bank: BankModule, filename: str, content: str) -> BankM
         if not bank.filename_pattern.match(filename):
             expected = getattr(bank, "expected_filename_hint", bank.filename_pattern.pattern)
             raise DetectionError(
-                "Filename does not match expected export format. "
-                f"Expected: {expected}"
+                f"Filename does not match expected export format. Expected: {expected}"
             )
 
     raise DetectionError(f"File does not match selected parser: {bank.bank}")
@@ -70,8 +69,7 @@ def match_file(filename: str, content: str, csv_type: str | None = None) -> Bank
             if not bank.filename_pattern.match(filename):
                 expected = getattr(bank, "expected_filename_hint", bank.filename_pattern.pattern)
                 raise DetectionError(
-                    "Filename does not match expected export format. "
-                    f"Expected: {expected}"
+                    f"Filename does not match expected export format. Expected: {expected}"
                 )
 
     raise DetectionError(f"Unknown file format: {filename}")

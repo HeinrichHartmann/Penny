@@ -6,13 +6,14 @@ Provides a native macOS/Linux window that:
 3. Displays server status
 """
 
-import socket
 import random
+import socket
 import threading
 import webbrowser
+
 import toga
 from toga.style import Pack
-from toga.style.pack import COLUMN, CENTER
+from toga.style.pack import CENTER, COLUMN
 
 # Server configuration
 HOST = "127.0.0.1"
@@ -65,8 +66,7 @@ class PennyApp(toga.App):
 
         # Status label
         self.status_label = toga.Label(
-            "Starting server...",
-            style=Pack(padding=(20, 10), text_align=CENTER)
+            "Starting server...", style=Pack(padding=(20, 10), text_align=CENTER)
         )
 
         # Open Dashboard button
@@ -74,13 +74,12 @@ class PennyApp(toga.App):
             "Open Dashboard",
             on_press=self.open_dashboard,
             enabled=False,
-            style=Pack(padding=10, width=200)
+            style=Pack(padding=10, width=200),
         )
 
         # URL display (instance variable so we can update it)
         self.url_label = toga.Label(
-            self.url,
-            style=Pack(padding=(20, 10), text_align=CENTER, color="#888888")
+            self.url, style=Pack(padding=(20, 10), text_align=CENTER, color="#888888")
         )
 
         # Layout
@@ -88,17 +87,18 @@ class PennyApp(toga.App):
             children=[
                 toga.Label(
                     "Penny",
-                    style=Pack(padding=(30, 10), text_align=CENTER, font_size=24, font_weight="bold")
+                    style=Pack(
+                        padding=(30, 10), text_align=CENTER, font_size=24, font_weight="bold"
+                    ),
                 ),
                 toga.Label(
-                    "Personal Finance Tracker",
-                    style=Pack(padding=(0, 10), text_align=CENTER)
+                    "Personal Finance Tracker", style=Pack(padding=(0, 10), text_align=CENTER)
                 ),
                 self.status_label,
                 self.open_btn,
                 self.url_label,
             ],
-            style=Pack(direction=COLUMN, alignment=CENTER, padding=20)
+            style=Pack(direction=COLUMN, alignment=CENTER, padding=20),
         )
 
         self.main_window.content = box
@@ -109,15 +109,13 @@ class PennyApp(toga.App):
 
     def _start_server(self):
         """Start the FastAPI server in a background thread."""
+
         def run():
             import uvicorn
+
             from penny.server import app
-            uvicorn.run(
-                app,
-                host=HOST,
-                port=self.port,
-                log_level="warning"
-            )
+
+            uvicorn.run(app, host=HOST, port=self.port, log_level="warning")
 
         server_thread = threading.Thread(target=run, daemon=True)
         server_thread.start()
@@ -127,8 +125,8 @@ class PennyApp(toga.App):
 
     def _check_server(self):
         """Check if server is running and update UI."""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         try:
             urllib.request.urlopen(f"{self.url}/api/health", timeout=1)
@@ -148,11 +146,7 @@ class PennyApp(toga.App):
 
 def main():
     """Entry point for the application."""
-    return PennyApp(
-        formal_name="Penny",
-        app_id="com.hartmann.penny",
-        app_name="penny"
-    )
+    return PennyApp(formal_name="Penny", app_id="com.hartmann.penny", app_name="penny")
 
 
 def run():

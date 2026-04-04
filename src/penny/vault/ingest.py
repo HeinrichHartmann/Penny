@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING
 
+from penny.vault.apply import IngestResult, apply_ingest
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.manifests import IngestManifest
-from penny.vault.apply import apply_ingest, IngestResult
 
 if TYPE_CHECKING:
     pass
@@ -109,7 +107,7 @@ def ingest_csv_files(
     Returns:
         IngestResult with combined account and transaction details
     """
-    from penny.ingest import DetectionError, match_file
+    from penny.ingest import match_file
 
     if not files:
         raise ValueError("No files to ingest")
@@ -141,9 +139,7 @@ def ingest_csv_files(
         if parser is None:
             parser = file_parser
         elif parser.bank != file_parser.bank:
-            raise ValueError(
-                f"Mixed file formats: {parser.bank} vs {file_parser.bank}"
-            )
+            raise ValueError(f"Mixed file formats: {parser.bank} vs {file_parser.bank}")
 
         content_dict[filename] = content_bytes
         filenames.append(filename)

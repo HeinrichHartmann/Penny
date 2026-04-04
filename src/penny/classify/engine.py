@@ -6,14 +6,13 @@ import importlib.util
 import re
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Callable
 
 from penny.transactions import Transaction
-
 
 Predicate = Callable[[Transaction], bool]
 
@@ -155,7 +154,9 @@ class RuleCollector:
         self.path = path
         self.rules: list[Rule] = []
 
-    def register(self, category: str, predicate: Predicate, *, name: str | None = None) -> Predicate:
+    def register(
+        self, category: str, predicate: Predicate, *, name: str | None = None
+    ) -> Predicate:
         rule_name = name or predicate.__name__
         self.rules.append(Rule(name=rule_name, category=category, predicate=predicate))
         return predicate
@@ -215,7 +216,9 @@ def load_rules_config(path: Path) -> LoadedRulesConfig:
         _ACTIVE_COLLECTOR.reset(token)
 
 
-def classify_transaction(transaction: Transaction, ruleset: LoadedRuleset) -> ClassificationDecision | None:
+def classify_transaction(
+    transaction: Transaction, ruleset: LoadedRuleset
+) -> ClassificationDecision | None:
     """Convenience wrapper for classifying one transaction."""
 
     return ruleset.classify(transaction)

@@ -16,7 +16,7 @@ from penny.accounts import (
     remove_account,
 )
 from penny.classify import run_classification_pass
-from penny.classify.engine import LoadedRulesConfig, RuleCollector, _ACTIVE_COLLECTOR, _load_module
+from penny.classify.engine import _ACTIVE_COLLECTOR, LoadedRulesConfig, RuleCollector, _load_module
 from penny.db import init_db, init_default_db
 from penny.ingest import (
     DetectionError,
@@ -39,9 +39,11 @@ from penny.vault import (
     MutationLog,
     VaultConfig,
     ensure_vault_initialized,
-    ingest_csv as ingest_vault_csv,
     latest_rules_path,
     replay_vault,
+)
+from penny.vault import (
+    ingest_csv as ingest_vault_csv,
 )
 
 
@@ -67,6 +69,7 @@ def _extract_transfer_settings(module: object) -> tuple[str, int, object | None]
         getattr(module, "TRANSFER_WINDOW_DAYS", 10),
         getattr(module, "in_same_transfer_group", None),
     )
+
 
 def _format_account_row(account) -> str:
     name = account.display_name or "-"
@@ -99,10 +102,7 @@ def _echo_classification_lines(transactions, decisions, traces, *, verbose: int)
     if verbose <= 0:
         return
 
-    decisions_by_fingerprint = {
-        decision.fingerprint: decision
-        for decision in decisions
-    }
+    decisions_by_fingerprint = {decision.fingerprint: decision for decision in decisions}
 
     for transaction in transactions:
         decision = decisions_by_fingerprint.get(transaction.fingerprint)
@@ -170,10 +170,7 @@ def _apply_rules(rules_file: Path, *, verbose: int = 0) -> None:
     )
     _echo_classification_summary(rules_file, config, result)
 
-    decisions_by_fingerprint = {
-        decision.fingerprint: decision
-        for decision in result.decisions
-    }
+    decisions_by_fingerprint = {decision.fingerprint: decision for decision in result.decisions}
     for transaction in transactions:
         decision = decisions_by_fingerprint[transaction.fingerprint]
         transaction.category = decision.category
@@ -444,9 +441,10 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
 
     parsed_transactions = parser.parse(csv_file.name, content, account_id=account_id)
     section_counts = Counter(transaction.subaccount_type for transaction in parsed_transactions)
-    sections_text = ", ".join(
-        f"{section} ({count})" for section, count in sorted(section_counts.items())
-    ) or "-"
+    sections_text = (
+        ", ".join(f"{section} ({count})" for section, count in sorted(section_counts.items()))
+        or "-"
+    )
 
     if dry_run:
         click.echo(f"Detected: {detection.parser_name}")
@@ -469,7 +467,9 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
     )
 
     click.echo(f"Detected: {result.parser_name}")
-    click.echo(f"Account: #{result.account_id} ({result.account_bank} {detection.bank_account_number})")
+    click.echo(
+        f"Account: #{result.account_id} ({result.account_bank} {detection.bank_account_number})"
+    )
     click.echo(
         "Sections: "
         + ", ".join(f"{section} ({count})" for section, count in sorted(result.sections.items()))
@@ -493,13 +493,29 @@ def serve(host: str, port: int):
 
 
 @transactions.command("list")
-@click.option("--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)")
-@click.option("--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)")
-@click.option("--account", "-a", "account_ids", multiple=True, type=int, help="Filter by account ID (repeatable)")
+@click.option(
+    "--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)"
+)
+@click.option(
+    "--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)"
+)
+@click.option(
+    "--account",
+    "-a",
+    "account_ids",
+    multiple=True,
+    type=int,
+    help="Filter by account ID (repeatable)",
+)
 @click.option("--category", help="Filter by category prefix")
 @click.option("--query", "-q", help="Search booking text or payee")
 @click.option("--tab", type=click.Choice(["expense", "income"]), help="Filter by amount sign")
-@click.option("--neutralize/--no-neutralize", default=True, show_default=True, help="Collapse transfer groups to net sums")
+@click.option(
+    "--neutralize/--no-neutralize",
+    default=True,
+    show_default=True,
+    help="Collapse transfer groups to net sums",
+)
 @click.option("--limit", "-n", type=int, help="Number of transactions to show")
 def transactions_list(
     from_date: datetime | None,
@@ -538,9 +554,20 @@ def transactions_list(
 
 
 @main.command("report")
-@click.option("--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)")
-@click.option("--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)")
-@click.option("--account", "-a", "account_ids", multiple=True, type=int, help="Filter by account ID (repeatable)")
+@click.option(
+    "--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)"
+)
+@click.option(
+    "--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)"
+)
+@click.option(
+    "--account",
+    "-a",
+    "account_ids",
+    multiple=True,
+    type=int,
+    help="Filter by account ID (repeatable)",
+)
 @click.option("--category", help="Filter by category prefix")
 @click.option("--query", "-q", help="Search booking text or payee")
 def report(
@@ -567,7 +594,9 @@ def report(
 
 @main.command("apply")
 @click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-v", "verbose", count=True, help="Increase verbosity (-v result lines, -vv rule trace)")
+@click.option(
+    "-v", "verbose", count=True, help="Increase verbosity (-v result lines, -vv rule trace)"
+)
 def apply(rules_file: Path, verbose: int):
     """Apply classification rules and optional transfer linking."""
 

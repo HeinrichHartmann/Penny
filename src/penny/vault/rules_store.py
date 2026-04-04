@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.resources
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from penny.vault.config import VaultConfig
@@ -12,11 +12,13 @@ from penny.vault.mutations import MutationLog
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def default_rules_template() -> str:
-    return importlib.resources.files("penny").joinpath("default_rules.py").read_text(encoding="utf-8")
+    return (
+        importlib.resources.files("penny").joinpath("default_rules.py").read_text(encoding="utf-8")
+    )
 
 
 def latest_rules_path(config: VaultConfig | None = None) -> Path | None:

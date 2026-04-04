@@ -5,7 +5,12 @@ from click.testing import CliRunner
 from penny.accounts import add_account
 from penny.cli import main
 from penny.db import init_default_db
-from penny.transactions import Transaction, generate_fingerprint, list_transactions, store_transactions
+from penny.transactions import (
+    Transaction,
+    generate_fingerprint,
+    list_transactions,
+    store_transactions,
+)
 
 
 def make_transaction(

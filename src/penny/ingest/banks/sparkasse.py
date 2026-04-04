@@ -33,8 +33,7 @@ class SparkasseBank(BankModule):
         match = self.filename_pattern.match(filename)
         if match is None:
             raise ValueError(
-                "Filename does not match expected Sparkasse format: "
-                f"{self.expected_filename_hint}"
+                f"Filename does not match expected Sparkasse format: {self.expected_filename_hint}"
             )
 
         # Extract account number from filename: YYYYMMDD-ACCOUNTNUM-umsatz-camt52v8.CSV

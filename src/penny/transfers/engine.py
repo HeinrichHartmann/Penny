@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from penny.transactions import Transaction
 
@@ -100,10 +100,7 @@ def link_transfers(
         LinkingResult with group assignments and statistics
     """
     # 1. Pre-filter by category prefix
-    transfers = [
-        e for e in entries
-        if e.category and e.category.startswith(prefix)
-    ]
+    transfers = [e for e in entries if e.category and e.category.startswith(prefix)]
 
     # 2. Sort by date
     transfers.sort(key=lambda e: e.date)

@@ -7,9 +7,8 @@ from penny.api.rules import RulesUpdate, get_rules_path, run_rules, save_rules
 from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
 from penny.cli import main
 from penny.db import init_db
-from penny.vault import MutationLog, VaultConfig
-from penny.vault import replay_vault
 from penny.transactions import apply_classifications, list_transactions
+from penny.vault import MutationLog, VaultConfig, replay_vault
 
 
 def _import_fixture(runner: CliRunner, fixture_dir):
@@ -91,8 +90,7 @@ def test_api_run_rules_applies_default_category_to_unmatched(fixture_dir):
     result_save = asyncio.run(
         save_rules(
             RulesUpdate(
-                content=
-        """
+                content="""
 from penny.classify import contains, rule
 
 DEFAULT_CATEGORY = "NeedsReview"
@@ -105,7 +103,8 @@ def salary(transaction):
             )
         )
     )
-    rules_path = get_rules_path()
+    # Verify rules file exists (used by run_rules internally)
+    _ = get_rules_path()
 
     result = asyncio.run(run_rules())
 
@@ -132,7 +131,10 @@ def salary(transaction):
 
     init_db(None)
     replay_vault(VaultConfig())
-    replayed = {transaction.payee: transaction.category for transaction in list_transactions(limit=None, neutralize=False)}
+    replayed = {
+        transaction.payee: transaction.category
+        for transaction in list_transactions(limit=None, neutralize=False)
+    }
     assert replayed["Example Employer"] == "Income:Salary"
     assert replayed["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
 

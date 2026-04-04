@@ -1,18 +1,21 @@
 """Accounts API router."""
 
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from penny.accounts import (
     Account,
-    get_account as get_account_by_id,
-    list_accounts as list_all_accounts,
     soft_delete_account,
     update_account_balance,
     update_account_metadata,
+)
+from penny.accounts import (
+    get_account as get_account_by_id,
+)
+from penny.accounts import (
+    list_accounts as list_all_accounts,
 )
 from penny.api.helpers import get_db
 from penny.vault import LogManager, VaultConfig
@@ -27,7 +30,7 @@ class BalanceSnapshotRequest(BaseModel):
     balance_cents: int
     balance_date: str  # ISO date format
     subaccount_type: str = "giro"
-    note: Optional[str] = None
+    note: str | None = None
 
 
 def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
@@ -64,9 +67,7 @@ async def list_accounts(include_hidden: bool = Query(False)):
     conn.close()
 
     return {
-        "accounts": [
-            _account_to_dict(account, counts.get(account.id, 0)) for account in accounts
-        ]
+        "accounts": [_account_to_dict(account, counts.get(account.id, 0)) for account in accounts]
     }
 
 
@@ -92,10 +93,10 @@ async def get_account(account_id: int):
 @router.patch("/{account_id}")
 async def update_account(
     account_id: int,
-    display_name: Optional[str] = None,
-    iban: Optional[str] = None,
-    holder: Optional[str] = None,
-    notes: Optional[str] = None,
+    display_name: str | None = None,
+    iban: str | None = None,
+    holder: str | None = None,
+    notes: str | None = None,
 ):
     """Update account metadata."""
     account = get_account_by_id(account_id)

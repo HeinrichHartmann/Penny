@@ -1,13 +1,14 @@
 """Tests for vault module."""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from penny.vault import (
-    VaultConfig,
-    LogManager,
     IngestManifest,
+    LogManager,
     MutationLog,
+    VaultConfig,
     ensure_rules_snapshot,
     save_rules_snapshot,
 )
@@ -116,7 +117,9 @@ class TestLogManager:
         assert content[0].name == "export.csv"
 
     def test_list_entries_sorted(self, vault):
-        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        manifest = IngestManifest(
+            csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1"
+        )
         vault.append("ingest_comdirect", manifest)
         vault.append("ingest_comdirect", manifest)
         vault.append("ingest_comdirect", manifest)
@@ -126,7 +129,9 @@ class TestLogManager:
         assert sequences == [1, 2, 3]  # Sorted by sequence
 
     def test_get_entry_by_sequence(self, vault):
-        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        manifest = IngestManifest(
+            csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1"
+        )
         vault.append("ingest_comdirect", manifest)
         vault.append("ingest_comdirect", manifest)
 
@@ -137,7 +142,9 @@ class TestLogManager:
         assert vault.get_entry(99) is None
 
     def test_latest_entry(self, vault):
-        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        manifest = IngestManifest(
+            csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1"
+        )
         vault.append("ingest_comdirect", manifest)
         vault.append("ingest_comdirect", manifest)
 
@@ -145,7 +152,9 @@ class TestLogManager:
         assert latest.sequence == 2
 
     def test_iter_entries(self, vault):
-        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        manifest = IngestManifest(
+            csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1"
+        )
         vault.append("ingest_comdirect", manifest)
         vault.append("ingest_comdirect", manifest)
 

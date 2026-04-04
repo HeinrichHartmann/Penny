@@ -32,10 +32,9 @@ def create_account(
     notes: str | None = None,
     balance_cents: int | None = None,
     balance_date: date | None = None,
-    subaccounts: dict[str, "Subaccount"] | None = None,
+    subaccounts: dict[str, Subaccount] | None = None,
     config: VaultConfig | None = None,
-) -> "Account":
-    from penny.accounts import get_account
+) -> Account:
 
     cfg = config or VaultConfig()
     row = MutationLog(cfg).append(
@@ -71,7 +70,7 @@ def update_account(
     holder: str | None = None,
     notes: str | None = None,
     config: VaultConfig | None = None,
-) -> "Account | None":
+) -> Account | None:
     from penny.accounts import get_account
 
     changes = {}
@@ -132,7 +131,7 @@ def upsert_subaccounts(
 
 
 def apply_classifications(
-    decisions: list["ClassificationDecision"],
+    decisions: list[ClassificationDecision],
     config: VaultConfig | None = None,
 ) -> tuple[int, int]:
     from penny.transactions import count_transactions
@@ -177,7 +176,7 @@ def apply_groups(
 
 
 def store_transactions(
-    transactions: list["Transaction"],
+    transactions: list[Transaction],
     *,
     source_file: str | None = None,
     config: VaultConfig | None = None,

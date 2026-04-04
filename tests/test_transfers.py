@@ -12,8 +12,7 @@ from penny.transactions import (
     list_transactions,
     store_transactions,
 )
-from penny.transfers.engine import UnionFind, link_transfers, generate_group_id
-
+from penny.transfers.engine import UnionFind, generate_group_id, link_transfers
 
 # =============================================================================
 # FIXTURES
@@ -54,23 +53,55 @@ def sample_transactions() -> list[Transaction]:
     """Sample transactions covering various transfer scenarios."""
     return [
         # Card settlement pair (account 1, Visa ↔ Giro, opposite amounts, 3 days apart)
-        make_transaction(1, date(2024, 3, 1), 31322, "VISA CREDIT", subaccount_type="visa", category="transfer/card_settlement"),
-        make_transaction(1, date(2024, 3, 4), -31322, "Visa-Abrechnung", subaccount_type="giro", category="transfer/card_settlement"),
-
+        make_transaction(
+            1,
+            date(2024, 3, 1),
+            31322,
+            "VISA CREDIT",
+            subaccount_type="visa",
+            category="transfer/card_settlement",
+        ),
+        make_transaction(
+            1,
+            date(2024, 3, 4),
+            -31322,
+            "Visa-Abrechnung",
+            subaccount_type="giro",
+            category="transfer/card_settlement",
+        ),
         # Internal transfer pair (account 1 → account 2, opposite amounts, same day)
-        make_transaction(1, date(2024, 3, 10), -50000, "Transfer to Shared", category="transfer/private"),
-        make_transaction(2, date(2024, 3, 10), 50000, "Transfer from Private", category="transfer/shared"),
-
+        make_transaction(
+            1, date(2024, 3, 10), -50000, "Transfer to Shared", category="transfer/private"
+        ),
+        make_transaction(
+            2, date(2024, 3, 10), 50000, "Transfer from Private", category="transfer/shared"
+        ),
         # Tagesgeld pair (same account, Giro ↔ Tagesgeld, same day)
-        make_transaction(2, date(2024, 3, 15), -100000, "Savings transfer", subaccount_type="giro", category="transfer/savings"),
-        make_transaction(2, date(2024, 3, 15), 100000, "Savings transfer", subaccount_type="tagesgeld", category="transfer/savings"),
-
+        make_transaction(
+            2,
+            date(2024, 3, 15),
+            -100000,
+            "Savings transfer",
+            subaccount_type="giro",
+            category="transfer/savings",
+        ),
+        make_transaction(
+            2,
+            date(2024, 3, 15),
+            100000,
+            "Savings transfer",
+            subaccount_type="tagesgeld",
+            category="transfer/savings",
+        ),
         # Standalone transfer (no matching pair)
-        make_transaction(1, date(2024, 3, 20), -25000, "Outgoing transfer", category="transfer/other"),
-
+        make_transaction(
+            1, date(2024, 3, 20), -25000, "Outgoing transfer", category="transfer/other"
+        ),
         # Non-transfer transactions (should be ignored by link_transfers)
         make_transaction(1, date(2024, 3, 5), -1500, "Coffee shop", category="food/coffee"),
-        make_transaction(2, date(2024, 3, 12), -8999, "Subscription", category="subscriptions/software"),
+        make_transaction(
+            2, date(2024, 3, 12), -8999, "Subscription", category="subscriptions/software"
+        ),
     ]
 
 
@@ -81,9 +112,8 @@ def sample_predicate(a: Transaction, b: Transaction) -> bool:
     # Card settlements: Visa ↔ Giro, same account
     if a.category == "transfer/card_settlement" and b.category == "transfer/card_settlement":
         if a.account_id == b.account_id:
-            is_visa_giro_pair = (
-                (a.subaccount_type == "visa" and b.subaccount_type == "giro") or
-                (a.subaccount_type == "giro" and b.subaccount_type == "visa")
+            is_visa_giro_pair = (a.subaccount_type == "visa" and b.subaccount_type == "giro") or (
+                a.subaccount_type == "giro" and b.subaccount_type == "visa"
             )
             if is_visa_giro_pair and a.amount_cents == -b.amount_cents and days_apart <= 5:
                 return True
@@ -96,9 +126,8 @@ def sample_predicate(a: Transaction, b: Transaction) -> bool:
     # Tagesgeld: Giro ↔ Tagesgeld, same account, same day
     if a.account_id == b.account_id:
         is_giro_tagesgeld_pair = (
-            (a.subaccount_type == "giro" and b.subaccount_type == "tagesgeld") or
-            (a.subaccount_type == "tagesgeld" and b.subaccount_type == "giro")
-        )
+            a.subaccount_type == "giro" and b.subaccount_type == "tagesgeld"
+        ) or (a.subaccount_type == "tagesgeld" and b.subaccount_type == "giro")
         if is_giro_tagesgeld_pair and a.amount_cents == -b.amount_cents and days_apart == 0:
             return True
 
@@ -199,7 +228,9 @@ def test_link_transfers_respects_window():
     # Create entries too far apart
     entries = [
         make_transaction(1, date(2024, 1, 1), -10000, "Transfer out", category="transfer/test"),
-        make_transaction(2, date(2024, 1, 20), 10000, "Transfer in", category="transfer/test"),  # 19 days apart
+        make_transaction(
+            2, date(2024, 1, 20), 10000, "Transfer in", category="transfer/test"
+        ),  # 19 days apart
     ]
 
     def match_opposite_amounts(a, b):
@@ -277,10 +308,12 @@ def test_consolidated_query_groups_entries(storage_with_accounts):
 
     # Apply grouping
     group_id = generate_group_id([tx1.fingerprint, tx2.fingerprint])
-    apply_groups({
-        tx1.fingerprint: group_id,
-        tx2.fingerprint: group_id,
-    })
+    apply_groups(
+        {
+            tx1.fingerprint: group_id,
+            tx2.fingerprint: group_id,
+        }
+    )
 
     # Unconsolidated: 2 entries
     raw = list_transactions(neutralize=False)
@@ -319,10 +352,12 @@ def test_apply_groups_updates_existing(storage_with_accounts):
 
     # Apply grouping
     group_id = "test-group-123"
-    grouped, standalone = apply_groups({
-        tx1.fingerprint: group_id,
-        tx2.fingerprint: group_id,
-    })
+    grouped, standalone = apply_groups(
+        {
+            tx1.fingerprint: group_id,
+            tx2.fingerprint: group_id,
+        }
+    )
 
     assert grouped == 2
     assert standalone == 0

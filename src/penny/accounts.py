@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import sqlite3
 from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import date, datetime
-import sqlite3
 from typing import TYPE_CHECKING
 
 from penny.db import connect
@@ -192,14 +192,9 @@ def _create_account_direct(
 def list_accounts(*, include_hidden: bool = False) -> list[Account]:
     """Return all accounts."""
     with closing(connect()) as conn:
-        ids = [
-            row["id"]
-            for row in conn.execute(list_account_ids_sql(include_hidden)).fetchall()
-        ]
+        ids = [row["id"] for row in conn.execute(list_account_ids_sql(include_hidden)).fetchall()]
     return [
-        account
-        for account_id in ids
-        if (account := get_account(account_id, include_hidden=True))
+        account for account_id in ids if (account := get_account(account_id, include_hidden=True))
     ]
 
 

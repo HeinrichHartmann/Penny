@@ -5,7 +5,6 @@ Internal helpers handle common patterns like WHERE clause construction.
 """
 
 
-
 # =============================================================================
 # INTERNAL HELPERS
 # =============================================================================

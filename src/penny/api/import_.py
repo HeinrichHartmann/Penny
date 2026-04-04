@@ -3,7 +3,7 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from penny.ingest import DetectionError
-from penny.vault import ingest_csv, IngestRequest
+from penny.vault import IngestRequest, ingest_csv
 
 router = APIRouter(prefix="/api", tags=["import"])
 
@@ -86,8 +86,7 @@ async def import_csv(file: UploadFile = File(...)):
             "is_new": result.is_new_account,
         },
         "sections": [
-            {"type": section, "count": count}
-            for section, count in sorted(result.sections.items())
+            {"type": section, "count": count} for section, count in sorted(result.sections.items())
         ],
         "transactions": {
             "new": result.transactions_new,

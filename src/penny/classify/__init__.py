@@ -1,8 +1,8 @@
 """Runtime-loaded transaction classification rules."""
 
 from penny.classify.engine import (
-    ClassificationError,
     ClassificationDecision,
+    ClassificationError,
     ClassificationPassResult,
     LoadedRulesConfig,
     LoadedRuleset,

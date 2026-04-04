@@ -1,11 +1,13 @@
 """Tests for vault startup bootstrap."""
 
 import asyncio
+
 import pytest
 
 from penny.accounts import add_account, list_accounts
 from penny.api.accounts import update_account
 from penny.db import transaction
+from penny.ingest import read_file_with_encoding
 from penny.transactions import count_transactions
 from penny.vault import (
     IngestRequest,
@@ -13,7 +15,6 @@ from penny.vault import (
     bootstrap_application_state,
     ingest_csv,
 )
-from penny.ingest import read_file_with_encoding
 
 pytestmark = pytest.mark.integration
 
@@ -71,7 +72,17 @@ def test_bootstrap_clears_projection_drift(tmp_path, fixture_dir):
                 balance_cents, balance_date, created_at, updated_at, hidden
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
-            ("manual", None, None, None, None, None, None, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            (
+                "manual",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
         )
 
     assert len(list_accounts()) == 2

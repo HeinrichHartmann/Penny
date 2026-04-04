@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 from penny.vault.config import VaultConfig
 from penny.vault.manifests import (
-    IngestManifest,
-    load_manifest,
-    ManifestType,
     BaseManifest,
+    ManifestType,
+    load_manifest,
 )
-
 
 # Import directory name pattern: 000001-2026-04-04T11:19:00Z
 ENTRY_PATTERN = re.compile(r"^(\d{6})-(.+)$")

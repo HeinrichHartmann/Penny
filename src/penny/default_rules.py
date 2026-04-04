@@ -51,8 +51,8 @@ Example prompt:
 
 ================================================================================
 """
-from penny.classify import contains, is_, rule
 
+from penny.classify import contains, is_
 
 # =============================================================================
 # DEFAULT CATEGORY

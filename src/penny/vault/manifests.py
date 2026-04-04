@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Any
+from typing import Any, Literal
 
 
 def _now_iso() -> str:
     """Return current UTC timestamp in ISO format."""
-    from datetime import timezone
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass
@@ -35,17 +34,17 @@ class BaseManifest:
         path.write_text(self.to_json())
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BaseManifest":
+    def from_dict(cls, data: dict[str, Any]) -> BaseManifest:
         """Create manifest from dictionary."""
         return cls(**data)
 
     @classmethod
-    def from_json(cls, json_str: str) -> "BaseManifest":
+    def from_json(cls, json_str: str) -> BaseManifest:
         """Create manifest from JSON string."""
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
-    def read(cls, path: Path) -> "BaseManifest":
+    def read(cls, path: Path) -> BaseManifest:
         """Read manifest from file."""
         return cls.from_json(path.read_text())
 
