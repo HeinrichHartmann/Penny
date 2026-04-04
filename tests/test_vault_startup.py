@@ -25,8 +25,8 @@ def test_bootstrap_initializes_empty_vault(tmp_path):
     result = bootstrap_application_state(config)
 
     assert result.init_entry_created is True
-    assert result.replay_result.entries_processed == 0
-    assert result.replay_result.entries_by_type == {}
+    assert result.demo_data_loaded is True  # Demo data loaded on first init
+    assert result.replay_result.entries_processed == 1  # Demo import entry
     assert config.imports_dir.exists()
     assert config.rules_dir.exists()
     assert config.mutations_path.exists()
@@ -48,6 +48,7 @@ def test_bootstrap_replays_existing_ingests(tmp_path, fixture_dir):
     result = bootstrap_application_state(config)
 
     assert result.init_entry_created is False
+    assert result.demo_data_loaded is False  # Vault not empty, no demo data
     assert result.replay_result.entries_processed == 1
     assert result.replay_result.entries_by_type == {"ingest": 1}
     assert count_transactions() == 3
