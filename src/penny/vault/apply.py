@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
-import json
 
 from penny.vault.log import LogEntry
 from penny.vault.manifests import (
-    IngestManifest,
     AccountCreatedManifest,
-    AccountUpdatedManifest,
     AccountHiddenManifest,
+    AccountUpdatedManifest,
+    BalanceSnapshotManifest,
+    IngestManifest,
     RulesManifest,
-    load_manifest,
 )
 from penny.vault.mutations import MutationRow
 
@@ -151,7 +151,7 @@ def apply_entry(entry: LogEntry) -> None:
         case "account_hidden":
             _apply_account_hidden(entry, manifest)  # type: ignore
         case "balance_snapshot":
-            pass  # TODO
+            _apply_balance_snapshot(entry, manifest)  # type: ignore
         case "rules":
             _apply_rules(entry, manifest)  # type: ignore
         case _:
@@ -202,6 +202,18 @@ def _apply_account_hidden(entry: LogEntry, manifest: AccountHiddenManifest) -> N
         )
 
 
+def _apply_balance_snapshot(entry: LogEntry, manifest: BalanceSnapshotManifest) -> None:
+    """Apply balance_snapshot entry."""
+    from penny.accounts import update_account_balance
+
+    snapshot_date = date.fromisoformat(manifest.snapshot_date)
+    update_account_balance(
+        manifest.account_id,
+        balance_cents=manifest.balance_cents,
+        balance_date=snapshot_date,
+    )
+
+
 def _apply_rules(entry: LogEntry, manifest: RulesManifest) -> None:
     """Apply rules entry by ensuring the snapshot exists on disk."""
     return None
@@ -209,7 +221,12 @@ def _apply_rules(entry: LogEntry, manifest: RulesManifest) -> None:
 
 def apply_mutation(row: MutationRow) -> None:
     """Apply a mutation row directly to the SQLite projection."""
-    from penny.accounts import _create_account_direct, _soft_delete_account_direct, _update_account_metadata_direct, Subaccount
+    from penny.accounts import (
+        Subaccount,
+        _create_account_direct,
+        _soft_delete_account_direct,
+        _update_account_metadata_direct,
+    )
     from penny.db import transaction
     from penny.transactions import _apply_classifications_direct, _apply_groups_direct
 

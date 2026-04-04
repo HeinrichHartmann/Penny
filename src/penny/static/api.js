@@ -84,6 +84,25 @@ export const updateAccount = async (accountId, updates) => {
 };
 
 /**
+ * Record a balance snapshot for an account.
+ * @param {number} accountId
+ * @param {object} snapshot - { balance_cents, balance_date, subaccount_type?, note? }
+ * @returns {Promise<object>}
+ */
+export const recordBalanceSnapshot = async (accountId, snapshot) => {
+  const resp = await fetch(`/api/accounts/${accountId}/balance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(snapshot),
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Failed to record balance');
+  }
+  return resp.json();
+};
+
+/**
  * Fetch the rules file content and path.
  * @returns {Promise<{ path: string, directory: string, exists: boolean, content: string|null }>}
  */

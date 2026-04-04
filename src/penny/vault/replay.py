@@ -6,10 +6,10 @@ from dataclasses import dataclass
 
 from penny.config import default_db_path
 from penny.db import transaction
+from penny.vault.apply import apply_entry, apply_mutation
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.mutations import MutationLog
-from penny.vault.apply import apply_ingest, apply_mutation
 
 
 @dataclass
@@ -55,7 +55,7 @@ class ReplayEngine:
         entries_by_type: dict[str, int] = {}
 
         for entry in self.log.iter_entries():
-            apply_ingest(entry)
+            apply_entry(entry)
             entries_processed += 1
 
             manifest = entry.read_manifest()

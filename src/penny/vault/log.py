@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Iterator
 
 from penny.vault.config import VaultConfig
-from penny.vault.manifests import IngestManifest, load_manifest, ManifestType
+from penny.vault.manifests import (
+    IngestManifest,
+    load_manifest,
+    ManifestType,
+    BaseManifest,
+)
 
 
 # Import directory name pattern: 000001-2026-04-04T11:19:00Z
@@ -103,21 +108,21 @@ class LogManager:
         entries = self.list_entries()
         return entries[-1] if entries else None
 
-    def _entry_dir_name(self, sequence: int, manifest: IngestManifest) -> str:
+    def _entry_dir_name(self, sequence: int, manifest: BaseManifest) -> str:
         """Generate entry directory name."""
         return f"{sequence:06d}-{manifest.timestamp}"
 
     def append(
         self,
         entry_type: str,
-        manifest: IngestManifest,
+        manifest: ManifestType,
         content_files: list[Path] | None = None,
     ) -> LogEntry:
         """Append a new archived import.
 
         Args:
             entry_type: Ignored legacy parameter kept for API compatibility.
-            manifest: The import manifest to write.
+            manifest: The manifest to write.
             content_files: Optional files to copy into the entry directory
 
         Returns:
@@ -151,14 +156,14 @@ class LogManager:
     def append_with_content(
         self,
         entry_type: str,
-        manifest: IngestManifest,
+        manifest: ManifestType,
         content: dict[str, str | bytes],
     ) -> LogEntry:
         """Append a new archived import with inline content.
 
         Args:
             entry_type: Ignored legacy parameter kept for API compatibility.
-            manifest: The import manifest to write.
+            manifest: The manifest to write.
             content: Dict of filename -> content (str or bytes)
 
         Returns:
