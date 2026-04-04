@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from penny.accounts import AccountRegistry, AccountStorage
-from penny.db import init_schema, set_db_path
+from penny.db import init_db
 from penny.transactions import (
     Transaction,
     apply_groups,
@@ -260,9 +260,8 @@ def storage_with_accounts(tmp_path):
     registry.add("testbank")
     registry.add("testbank")
 
-    # Set up transaction storage to use same database
-    set_db_path(db_path)
-    init_schema()
+    # Initialize transaction database
+    init_db(db_path)
 
 
 def test_group_id_never_null(storage_with_accounts):

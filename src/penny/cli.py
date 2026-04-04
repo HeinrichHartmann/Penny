@@ -10,7 +10,7 @@ import click
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import RuleCollector, _ACTIVE_COLLECTOR, _load_module
-from penny.db import init_schema
+from penny.db import init_default_db
 from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
@@ -163,7 +163,7 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             )
         return
 
-    init_schema()
+    init_default_db()
     new_count, duplicate_count = store_transactions(
         parsed_transactions,
         source_file=csv_file.name,
@@ -183,7 +183,7 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
 def transactions_list(account_id: int | None, limit: int):
     """List recent transactions."""
 
-    init_schema()
+    init_default_db()
     transaction_list = list_transactions(account_id=account_id, limit=limit, neutralize=True)
     if not transaction_list:
         click.echo("No transactions found.")
@@ -202,7 +202,7 @@ def transactions_list(account_id: int | None, limit: int):
 def classify(rules_file: Path):
     """Classify all imported transactions using a Python rules module."""
 
-    init_schema()
+    init_default_db()
     transactions = list_transactions(limit=None, neutralize=False)
     if not transactions:
         click.echo("No transactions found.")
@@ -259,7 +259,7 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
     click.echo("")
 
     # Load all transactions (unconsolidated - need raw entries for linking)
-    init_schema()
+    init_default_db()
     entries = list_transactions(limit=None, neutralize=False)
     if not entries:
         click.echo("No entries found.")

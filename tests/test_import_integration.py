@@ -1,7 +1,7 @@
 from click.testing import CliRunner
 
 from penny.cli import main
-from penny.db import init_schema, set_db_path
+from penny.db import init_db
 from penny.transactions import count_transactions
 
 
@@ -24,8 +24,7 @@ def test_import_creates_transactions_and_account(monkeypatch, fixture_dir, tmp_p
     assert "HOTEL EXAMPLE BERLIN" in list_result.output
     assert "AMAZON PAYMENTS EUROPE" in list_result.output
 
-    set_db_path(tmp_path / "penny.db")
-    init_schema()
+    init_db(tmp_path / "penny.db")
     assert count_transactions() == 3
 
 

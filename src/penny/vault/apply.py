@@ -41,7 +41,7 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     """
     from penny.accounts.registry import AccountRegistry
     from penny.accounts.storage import AccountStorage
-    from penny.db import init_schema
+    from penny.db import init_default_db
     from penny.ingest import match_file
     from penny.ingest.formats.utils import read_file_with_encoding
     from penny.transactions import store_transactions
@@ -51,8 +51,8 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     if manifest.type != "ingest":
         raise ValueError(f"Expected ingest manifest, got {manifest.type}")
 
-    # Initialize DB schema
-    init_schema()
+    # Initialize DB (idempotent, initializes schema too)
+    init_default_db()
 
     # Process each CSV file in the entry
     all_transactions: list[Transaction] = []
