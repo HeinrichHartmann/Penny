@@ -61,7 +61,8 @@ Adopt a strict three-layer architecture:
 4. **No Storage classes**
    - Replace `AccountStorage` class with module functions in `accounts.py`
    - Replace `TransactionStorage` with functions in `transactions.py`
-   - Dataclasses for models stay in domain files or `models.py`
+   - Dataclasses live in their domain files (`Account` in `accounts.py`, `Transaction` in `transactions.py`)
+   - Factor out to `models.py` only if domain files become too large
 
 ### File Structure (Target)
 
@@ -73,8 +74,8 @@ src/penny/
 │   ├── import_.py
 │   └── rules.py
 ├── cli.py             # Interface: CLI commands (shallow)
-├── accounts.py        # Domain: account logic + Account dataclass
-├── transactions.py    # Domain: transaction logic + Transaction dataclass
+├── accounts.py        # Domain: Account dataclass + account logic
+├── transactions.py    # Domain: Transaction dataclass + transaction logic
 ├── classify.py        # Domain: classification engine
 ├── transfers.py       # Domain: transfer linking
 ├── ingest/            # Domain: CSV parsing (complex enough for submodule)
