@@ -7,7 +7,6 @@ from fastapi import APIRouter, Query
 from fastapi.responses import PlainTextResponse
 
 from penny.api.helpers import (
-    apply_filters,
     category_bucket,
     format_currency,
     get_db,
@@ -15,6 +14,15 @@ from penny.api.helpers import (
     period_label,
     roll_up_top_buckets,
     sort_period_keys,
+)
+from penny.api.sql import (
+    breakout_query,
+    cashflow_query,
+    categories_query,
+    pivot_query,
+    report_query,
+    summary_query,
+    tree_query,
 )
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -67,14 +75,10 @@ async def categories(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT DISTINCT category FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, q=q)
-    query += " AND " if " WHERE " in query else " WHERE "
-    query += "category IS NOT NULL AND category != ''"
-    query += " ORDER BY category"
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = categories_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     return {
@@ -95,11 +99,10 @@ async def summary(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    transactions = cursor.execute(query, params).fetchall()
+    sql, params = summary_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    transactions = cursor.execute(sql, params).fetchall()
     conn.close()
 
     expenses = [t[0] for t in transactions if t[0] < 0]
@@ -135,19 +138,10 @@ async def tree(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT category, payee, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    # Filter by tab
-    if tab == "expense":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents < 0"
-    elif tab == "income":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents > 0"
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = tree_query(
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     # Build tree from categories
@@ -199,19 +193,10 @@ async def pivot(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    # Filter by tab
-    if tab == "expense":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents < 0"
-    elif tab == "income":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents > 0"
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = pivot_query(
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     # Group by category at specified depth
@@ -268,11 +253,10 @@ async def cashflow(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = cashflow_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     income_buckets = defaultdict(int)
@@ -331,11 +315,10 @@ async def breakout(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT date, category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = breakout_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     period_totals = defaultdict(lambda: defaultdict(int))
@@ -397,10 +380,10 @@ async def report(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT date, account_id, category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = report_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     expense_total = sum(abs(row[3]) for row in rows if row[3] < 0)
