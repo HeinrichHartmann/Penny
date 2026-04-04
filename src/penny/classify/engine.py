@@ -12,7 +12,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable
 
-from penny.transactions.models import Transaction
+from penny.transactions import Transaction
 
 
 Predicate = Callable[[Transaction], bool]

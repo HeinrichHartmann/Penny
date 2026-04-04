@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from penny.accounts.storage import default_db_path
+from penny.config import default_db_path
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import LoadedRulesConfig
 from penny.transactions import apply_classifications, list_transactions

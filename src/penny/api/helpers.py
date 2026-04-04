@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from penny.accounts.storage import default_db_path
+from penny.config import default_db_path
 
 # Database path - use same path as CLI (supports PENNY_DATA_DIR env var)
 DB_PATH = default_db_path()

@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable
 
-from penny.transactions.models import Transaction
+from penny.transactions import Transaction
 
 
 class UnionFind:

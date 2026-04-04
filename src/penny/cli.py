@@ -7,7 +7,14 @@ from pathlib import Path
 
 import click
 
-from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
+from penny.accounts import (
+    DuplicateAccountError,
+    add_account,
+    find_account_by_bank_account_number,
+    list_accounts,
+    reconcile_account,
+    remove_account,
+)
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import RuleCollector, _ACTIVE_COLLECTOR, _load_module
 from penny.db import init_default_db
@@ -26,10 +33,6 @@ from penny.transactions import (
 from penny.transfers import link_transfers
 
 
-def get_registry() -> AccountRegistry:
-    """Construct the default account registry."""
-
-    return AccountRegistry(AccountStorage())
 
 
 def _format_account_row(account) -> str:
@@ -58,9 +61,8 @@ def accounts():
 def accounts_add(bank: str, account_number: str | None, display_name: str | None, iban: str | None):
     """Add a new bank account."""
 
-    registry = get_registry()
     try:
-        account = registry.add(
+        account = add_account(
             bank,
             bank_account_number=account_number,
             display_name=display_name,
@@ -77,8 +79,7 @@ def accounts_add(bank: str, account_number: str | None, display_name: str | None
 def accounts_remove(account_id: int):
     """Remove an account by hiding it."""
 
-    registry = get_registry()
-    if not registry.remove(account_id):
+    if not remove_account(account_id):
         raise click.ClickException(f"Account #{account_id} not found")
 
     click.echo(f"Removed account #{account_id}")
@@ -89,8 +90,7 @@ def accounts_remove(account_id: int):
 def accounts_list(include_hidden: bool):
     """List all accounts."""
 
-    registry = get_registry()
-    account_list = registry.list(include_hidden=include_hidden)
+    account_list = list_accounts(include_hidden=include_hidden)
     if not account_list:
         click.echo("No accounts found.")
         return
@@ -126,9 +126,10 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
     except DetectionError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    registry = get_registry()
     detection = parser.detect(csv_file.name, content)
-    existing_account = registry.find_by_bank_account_number(detection.bank, detection.bank_account_number)
+    existing_account = find_account_by_bank_account_number(
+        detection.bank, detection.bank_account_number, include_hidden=False
+    )
 
     if dry_run:
         account_id = existing_account.id if existing_account is not None else 0
@@ -139,7 +140,7 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
         )
     else:
         try:
-            account = registry.reconcile(detection)
+            account = reconcile_account(detection)
         except (DuplicateAccountError, ValueError) as exc:
             raise click.ClickException(str(exc)) from exc
         account_id = account.id

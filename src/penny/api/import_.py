@@ -4,8 +4,7 @@ from collections import Counter
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from penny.accounts.registry import AccountRegistry
-from penny.accounts.storage import AccountStorage
+from penny.accounts import reconcile_account
 from penny.db import init_default_db
 from penny.ingest import DetectionError, match_file
 from penny.transactions import store_transactions
@@ -47,9 +46,8 @@ async def import_csv(file: UploadFile = File(...)):
     detection = parser.detect(filename, content)
 
     # Reconcile account (find existing or create new)
-    registry = AccountRegistry(AccountStorage())
     try:
-        account = registry.reconcile(detection)
+        account = reconcile_account(detection)
     except Exception as e:
         raise HTTPException(
             status_code=400,
