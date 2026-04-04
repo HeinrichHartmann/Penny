@@ -84,8 +84,8 @@ clean:
 	@echo "Cleaned build artifacts"
 
 # Run tests
-test: sync
-	uv run pytest tests/ -v
+test: install
+	uv run python -m pytest tests/ -v
 
 # Show help
 help:
