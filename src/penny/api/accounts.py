@@ -47,6 +47,7 @@ def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
         "subaccounts": list(account.subaccounts.keys()),
         "transaction_count": transaction_count,
         "label": account.display_name or f"{account.bank} #{account.id}",
+        "hidden": account.hidden,
     }
 
 

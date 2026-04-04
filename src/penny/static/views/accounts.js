@@ -1,8 +1,9 @@
 import { ref } from 'vue/dist/vue.esm-bundler.js';
 
-export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBalanceSnapshot, refreshMeta }) => {
+export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBalanceSnapshot, deleteAccount, refreshMeta }) => {
   const accountsList = ref([]);
   const accountsLoading = ref(false);
+  const includeHidden = ref(false);
   const editingAccountId = ref(null);
   const editingAccountData = ref({
     display_name: '',
@@ -20,7 +21,7 @@ export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBa
   const loadAccounts = async () => {
     accountsLoading.value = true;
     try {
-      const data = await fetchAccounts();
+      const data = await fetchAccounts(includeHidden.value);
       accountsList.value = data.accounts;
     } finally {
       accountsLoading.value = false;
@@ -113,9 +114,28 @@ export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBa
     }
   };
 
+  const hideAccount = async (accountId) => {
+    if (!confirm('Are you sure you want to hide this account? You can show it again using the "Show Archived" toggle.')) {
+      return;
+    }
+    try {
+      await deleteAccount(accountId);
+      await Promise.all([loadAccounts(), refreshMeta()]);
+    } catch (error) {
+      console.error('Failed to hide account:', error);
+      alert('Failed to hide account: ' + error.message);
+    }
+  };
+
+  const toggleIncludeHidden = async () => {
+    includeHidden.value = !includeHidden.value;
+    await loadAccounts();
+  };
+
   return {
     accountsList,
     accountsLoading,
+    includeHidden,
     editingAccountId,
     editingAccountData,
     recordingBalanceForId,
@@ -127,5 +147,7 @@ export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBa
     startRecordingBalance,
     cancelRecordingBalance,
     saveBalanceSnapshot,
+    hideAccount,
+    toggleIncludeHidden,
   };
 };
