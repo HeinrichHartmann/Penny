@@ -1,8 +1,8 @@
-from penny.import_.parsers.comdirect import ComdirectParser
+from penny.ingest.banks.comdirect import ComdirectBank
 
 
 def test_parse_skips_empty_section_without_header():
-    parser = ComdirectParser()
+    parser = ComdirectBank()
     content = (
         '"Umsätze Girokonto";"Zeitraum: 01.01.2025 - 31.01.2025";\n'
         "\n"
@@ -23,7 +23,7 @@ def test_parse_skips_empty_section_without_header():
 
 
 def test_parse_merges_split_visa_rows_marked_as_new():
-    parser = ComdirectParser()
+    parser = ComdirectBank()
     content = (
         '"Umsätze Visa-Karte (Kreditkarte)";"Zeitraum: 01.01.2025 - 31.01.2025";\n'
         "\n"

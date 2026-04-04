@@ -3,12 +3,12 @@ from click.testing import CliRunner
 import pytest
 
 from penny.cli import main
-from penny.import_.detection import DetectionError, match_file, read_file_with_encoding
-from penny.import_.parsers.comdirect import ComdirectParser
+from penny.ingest import DetectionError, match_file, read_file_with_encoding
+from penny.ingest.banks.comdirect import ComdirectBank
 
 
 def test_comdirect_filename_match():
-    parser = ComdirectParser()
+    parser = ComdirectBank()
 
     assert parser.filename_pattern.match("umsaetze_9788862492_20260331-1354.csv")
     assert parser.filename_pattern.match("umsaetze_9788862492_20260331-1354(1).csv")
@@ -17,7 +17,7 @@ def test_comdirect_filename_match():
 
 def test_comdirect_detection(fixture_dir):
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
-    parser = ComdirectParser()
+    parser = ComdirectBank()
     content = read_file_with_encoding(csv_path)
 
     assert parser.match(csv_path.name, content)

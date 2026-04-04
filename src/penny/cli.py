@@ -9,7 +9,7 @@ import click
 
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
 from penny.classify import load_rules
-from penny.import_.detection import (
+from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
     match_file,

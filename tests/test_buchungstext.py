@@ -1,4 +1,4 @@
-from penny.import_.parsers.buchungstext import extract_memo, extract_payee, extract_reference
+from penny.ingest.formats.buchungstext import extract_memo, extract_payee, extract_reference
 
 
 def test_extract_payee_auftraggeber():
