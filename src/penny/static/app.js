@@ -3,39 +3,35 @@
  */
 import { computed, createApp, nextTick, onMounted, reactive, ref, watch } from 'vue/dist/vue.esm-bundler.js';
 
-import { formatCurrency, formatCompactSigned } from './utils/format.js';
 import {
   MONTH_BUTTONS,
   createDateHelpers,
-  breakoutGranularityLabel,
   computeYearButtons,
   computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
 import {
   fetchMeta,
-  fetchAccounts,
   fetchCategoryOptions,
-  uploadCsv,
-  updateAccount,
   createApi,
 } from './api.js';
 import { createChartManager } from './charts.js';
-import { SelectorHeader } from './components/SelectorHeader.js';
 import { AccountsView } from './views/AccountsView.js';
-import { createImportViewState } from './views/import.js';
 import { ImportView } from './views/ImportView.js';
+import { ReportView } from './views/ReportView.js';
 import { createReportViewState } from './views/report.js';
 import { RulesView } from './views/RulesView.js';
 import { createSelectorState } from './views/selector.js';
 import { createTransactionsViewState } from './views/transactions.js';
+import { TransactionsView } from './views/TransactionsView.js';
 
 createApp({
   components: {
     AccountsView,
     ImportView,
-    SelectorHeader,
+    ReportView,
     RulesView,
+    TransactionsView,
   },
   setup() {
     const readUrlState = () => {
@@ -91,6 +87,15 @@ createApp({
     const treemapEl = ref(null);
     const sankeyEl = ref(null);
     const breakoutEl = ref(null);
+    const setTreemapEl = (el) => {
+      treemapEl.value = el;
+    };
+    const setSankeyEl = (el) => {
+      sankeyEl.value = el;
+    };
+    const setBreakoutEl = (el) => {
+      breakoutEl.value = el;
+    };
 
     // ── Date Helpers ─────────────────────────────────────────────────────────
     const dateHelpers = createDateHelpers(filters, meta, monthRangeAnchor);
@@ -174,11 +179,8 @@ createApp({
     });
 
     const {
-      transactionsCopyLabel,
       currentTransactionPage,
-      transactionSort,
       resetTransactionPagination,
-      sortedTransactions,
       totalTransactionPages,
       visibleTransactions,
       filteredTransactionCount,
@@ -190,7 +192,6 @@ createApp({
       goToTransactionPage,
       goToPreviousTransactionPage,
       goToNextTransactionPage,
-      copyTransactionsTable,
     } = transactionsView;
 
     const loadTransactionsForCurrentView = async ({ resetPage = false } = {}) => {
@@ -285,6 +286,69 @@ createApp({
       copyReport,
       copyPivotTable,
     } = reportView;
+
+    const transactionsViewModel = computed(() => ({
+      selectorState: selectorState.value,
+      selectorActions,
+      transactions: transactions.value,
+      currentTransactionPage: currentTransactionPage.value,
+      totalTransactionPages: totalTransactionPages.value,
+      transactionPageButtons: transactionPageButtons.value,
+      visibleTransactions: visibleTransactions.value,
+      filteredTransactionCount: filteredTransactionCount.value,
+      transactionRangeStart: transactionRangeStart.value,
+      transactionRangeEnd: transactionRangeEnd.value,
+      searchQuery: searchQuery.value,
+      categoryColor: getCategoryColor,
+      applyCategorySelection,
+      toggleTransactionSort,
+      transactionSortMarker,
+      goToTransactionPage,
+      goToPreviousTransactionPage,
+      goToNextTransactionPage,
+    }));
+
+    const reportViewModel = computed(() => ({
+      selectorState: selectorState.value,
+      selectorActions,
+      summary: summary.value,
+      tab: tab.value,
+      setTab: (value) => {
+        tab.value = value;
+      },
+      breakout: breakout.value,
+      breakoutGranularity: breakoutGranularity.value,
+      breakoutGranularityMode: breakoutGranularityMode.value,
+      setBreakoutGranularityMode: (value) => {
+        breakoutGranularityMode.value = value;
+      },
+      breakoutShowIncome: breakoutShowIncome.value,
+      setBreakoutShowIncome: (value) => {
+        breakoutShowIncome.value = value;
+      },
+      breakoutShowExpenses: breakoutShowExpenses.value,
+      setBreakoutShowExpenses: (value) => {
+        breakoutShowExpenses.value = value;
+      },
+      breakoutNet: breakoutNet.value,
+      breakoutNetByPeriod: breakoutNetByPeriod.value,
+      reportText: reportText.value,
+      copyReport,
+      copyLabel: copyLabel.value,
+      pivot: pivot.value,
+      pivotCopyLabel: pivotCopyLabel.value,
+      copyPivotTable,
+      pivotDepth: pivotDepth.value,
+      setPivotDepth: (value) => {
+        pivotDepth.value = value;
+      },
+      applyCategorySelection,
+      selectedMatchesCategory,
+      categoryColor: getCategoryColor,
+      setTreemapEl,
+      setSankeyEl,
+      setBreakoutEl,
+    }));
 
     // ── Watchers ─────────────────────────────────────────────────────────────
     watch(
@@ -425,23 +489,13 @@ createApp({
       nextCategoryOptions,
       selectorState,
       selectorActions,
-      currentTransactionPage,
-      transactionSort,
+      transactionsViewModel,
+      reportViewModel,
       pivotDepth,
       breakoutGranularityMode,
       breakoutGranularity,
       breakoutShowIncome,
       breakoutShowExpenses,
-
-      // Chart refs
-      treemapEl,
-      sankeyEl,
-      breakoutEl,
-
-      // Formatting
-      formatCurrency,
-      formatCompactSigned,
-      breakoutGranularityLabel,
 
       // Date helpers
       monthButtons: MONTH_BUTTONS,
@@ -463,29 +517,6 @@ createApp({
       applyCategorySelection,
       clearSelection,
       previewCategorySelection,
-
-      // Breakout
-      breakoutNet,
-      breakoutNetByPeriod,
-
-      // Transactions
-      sortedTransactions,
-      totalTransactionPages,
-      transactionRangeStart,
-      transactionRangeEnd,
-      transactionPageButtons,
-      visibleTransactions,
-      filteredTransactionCount,
-      toggleTransactionSort,
-      transactionSortMarker,
-      goToTransactionPage,
-      goToPreviousTransactionPage,
-      goToNextTransactionPage,
-
-      // Copy
-      copyReport,
-      copyPivotTable,
-      copyTransactionsTable,
       handleImportComplete,
 
       refreshMeta,
