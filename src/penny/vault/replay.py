@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.apply import apply_entry
 
-if TYPE_CHECKING:
-    pass
+
+@dataclass
+class ReplayResult:
+    """Result of a vault replay operation."""
+
+    entries_processed: int
+    entries_by_type: dict[str, int]
+
+    def __repr__(self) -> str:
+        return f"ReplayResult(entries={self.entries_processed}, types={self.entries_by_type})"
 
 
 class ReplayEngine:
@@ -19,29 +27,25 @@ class ReplayEngine:
     and applies each one to rebuild the database state.
     """
 
-    def __init__(self, config: VaultConfig | None = None, in_memory: bool = False):
+    def __init__(self, config: VaultConfig | None = None):
         if config is None:
             config = VaultConfig()
         self.config = config
         self.log = LogManager(config)
-        self.in_memory = in_memory
 
     def replay(self) -> ReplayResult:
         """Replay all log entries and rebuild database.
 
+        Clears existing database and rebuilds from vault log.
+
         Returns:
             ReplayResult with counts of entries processed.
         """
-        from penny.db import init_db, reset_db
+        from penny.db import init_db
 
-        # Start fresh - clear any existing database state
-        reset_db()
-
-        # Initialize fresh database with schema
-        if self.in_memory:
-            init_db(None)  # in-memory for tests
-        else:
-            init_db(self.config.db_path)  # use config path
+        # Initialize fresh database with schema (in-memory or at default path)
+        # For tests, caller should set PENNY_DATA_DIR to tmp_path
+        init_db()
 
         entries_processed = 0
         entries_by_type: dict[str, int] = {}
@@ -61,29 +65,14 @@ class ReplayEngine:
         )
 
 
-class ReplayResult:
-    """Result of a vault replay operation."""
-
-    def __init__(self, entries_processed: int, entries_by_type: dict[str, int]):
-        self.entries_processed = entries_processed
-        self.entries_by_type = entries_by_type
-
-    def __repr__(self) -> str:
-        return f"ReplayResult(entries={self.entries_processed}, types={self.entries_by_type})"
-
-
-def replay_vault(
-    config: VaultConfig | None = None,
-    in_memory: bool = False,
-) -> ReplayResult:
+def replay_vault(config: VaultConfig | None = None) -> ReplayResult:
     """Convenience function to replay vault and rebuild database.
 
     Args:
         config: Optional vault config (uses default if not provided)
-        in_memory: If True, use in-memory database (for tests)
 
     Returns:
         ReplayResult with counts of entries processed.
     """
-    engine = ReplayEngine(config, in_memory=in_memory)
+    engine = ReplayEngine(config)
     return engine.replay()

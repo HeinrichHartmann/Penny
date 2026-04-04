@@ -13,6 +13,7 @@ from penny.vault.manifests import (
 )
 from penny.vault.apply import apply_ingest, apply_entry, IngestResult
 from penny.vault.ingest import ingest_csv, ingest_csv_files, IngestRequest
+from penny.vault.replay import ReplayEngine, ReplayResult, replay_vault
 
 __all__ = [
     # Config
@@ -36,4 +37,8 @@ __all__ = [
     "ingest_csv",
     "ingest_csv_files",
     "IngestRequest",
+    # Replay
+    "ReplayEngine",
+    "ReplayResult",
+    "replay_vault",
 ]
