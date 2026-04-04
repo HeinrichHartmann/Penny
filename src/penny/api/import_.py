@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from penny.accounts.registry import AccountRegistry
 from penny.accounts.storage import AccountStorage
-from penny.db import init_schema
+from penny.db import init_default_db
 from penny.ingest import DetectionError, match_file
 from penny.transactions import store_transactions
 
@@ -60,7 +60,7 @@ async def import_csv(file: UploadFile = File(...)):
     parsed_transactions = parser.parse(filename, content, account_id=account.id)
 
     # Store transactions with deduplication
-    init_schema()
+    init_default_db()
     new_count, duplicate_count = store_transactions(
         parsed_transactions,
         source_file=filename,
