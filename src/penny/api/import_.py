@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from penny.ingest import DetectionError
+from penny.runtime_rules import run_stored_rules
 from penny.vault import IngestRequest, ingest_csv
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
@@ -17,23 +18,8 @@ def _auto_run_classification() -> None:
     """Run classification rules automatically after import.
 
     This is called after transactions are stored to immediately classify them.
-    Missing rules are allowed; invalid rules fail the import request loudly.
     """
-    from penny.classify import load_rules_config, run_classification_pass
-    from penny.transactions import apply_classifications, list_transactions
-    from penny.vault import latest_rules_path
-
-    rules_path = latest_rules_path()
-    if not rules_path or not rules_path.exists():
-        return
-
-    config = load_rules_config(rules_path)
-    transactions = list_transactions(limit=None, neutralize=False)
-    if not transactions:
-        return
-
-    result = run_classification_pass(transactions, config)
-    apply_classifications(result.decisions)
+    run_stored_rules(ensure_rules=True, include_hidden=True)
 
 
 @router.post("/import")

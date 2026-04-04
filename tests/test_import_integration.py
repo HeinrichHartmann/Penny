@@ -8,7 +8,7 @@ from starlette.datastructures import UploadFile
 
 from penny.api.import_ import import_csv as import_csv_api
 from penny.cli import main
-from penny.transactions import count_transactions
+from penny.transactions import count_transactions, list_transactions
 from penny.vault import save_rules_snapshot
 
 pytestmark = pytest.mark.integration
@@ -61,6 +61,18 @@ def test_import_dry_run_does_not_persist(fixture_dir):
     list_result = runner.invoke(main, ["transactions", "list"])
     assert list_result.exit_code == 0
     assert "No transactions found." in list_result.output
+
+
+def test_import_auto_classifies_with_default_rules(fixture_dir):
+    runner = CliRunner()
+    csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
+
+    result = runner.invoke(main, ["import", str(csv_path)])
+
+    assert result.exit_code == 0
+    transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
+    assert len(transactions) == 3
+    assert all(transaction.category for transaction in transactions)
 
 
 def test_api_import_fails_loudly_when_rules_are_invalid(fixture_dir):

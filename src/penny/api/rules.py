@@ -86,7 +86,7 @@ def run_rules_path(rules_path: Path) -> dict:
             "stats": None,
         }
 
-    transactions = list_transactions(limit=None, neutralize=False)
+    transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
     log("info", f"Processing {len(transactions)} transactions")
 
     result = run_classification_pass(transactions, config)

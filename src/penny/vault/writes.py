@@ -162,7 +162,7 @@ def apply_groups(
         payload={"groups": groups},
     )
     _apply_mutations(cfg, upto_seq=row.seq)
-    raw = list_transactions(limit=None, neutralize=False)
+    raw = list_transactions(limit=None, neutralize=False, include_hidden=True)
     grouped = sum(1 for tx in raw if tx.group_id != tx.fingerprint)
     standalone = sum(1 for tx in raw if tx.group_id == tx.fingerprint)
     return grouped, standalone

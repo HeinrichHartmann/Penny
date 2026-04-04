@@ -43,6 +43,20 @@ def _parse_account_ids(value: str | None) -> frozenset[int] | None:
     return frozenset(account_ids)
 
 
+def _visible_account_ids(account_ids: frozenset[int]) -> frozenset[int]:
+    if not account_ids:
+        return frozenset()
+
+    conn = connect()
+    placeholders = ",".join("?" * len(account_ids))
+    rows = conn.execute(
+        f"SELECT id FROM accounts WHERE hidden = 0 AND id IN ({placeholders})",
+        tuple(sorted(account_ids)),
+    ).fetchall()
+    conn.close()
+    return frozenset(int(row[0]) for row in rows)
+
+
 def _build_transaction_filter(
     *,
     from_date: str | None = None,
@@ -84,7 +98,14 @@ async def meta():
     ]
 
     # Get date range from transactions
-    date_range = cursor.execute("SELECT MIN(date), MAX(date) FROM transactions").fetchone()
+    date_range = cursor.execute(
+        """
+        SELECT MIN(t.date), MAX(t.date)
+        FROM transactions t
+        JOIN accounts a ON a.id = t.account_id
+        WHERE a.hidden = 0
+        """
+    ).fetchone()
 
     conn.close()
 
@@ -478,6 +499,14 @@ async def account_value_history(
     account_ids = _parse_account_ids(accounts)
     if not account_ids:
         return {"error": "No accounts specified"}
+    account_ids = _visible_account_ids(account_ids)
+    if not account_ids:
+        return {
+            "account_ids": [],
+            "balance_snapshots": [],
+            "value_points": [],
+            "volume_points": [],
+        }
 
     # Get all balance snapshots from the vault log
     config = VaultConfig()

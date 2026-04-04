@@ -147,6 +147,10 @@ def test_apply_classifications_requires_complete_pass(fixture_dir):
     _import_fixture(runner, fixture_dir)
 
     transactions = list_transactions(limit=None, neutralize=False)
+    before = {
+        transaction.fingerprint: (transaction.category, transaction.classification_rule)
+        for transaction in transactions
+    }
 
     with pytest.raises(RuntimeError, match="without a category"):
         apply_classifications(
@@ -160,7 +164,11 @@ def test_apply_classifications_requires_complete_pass(fixture_dir):
         )
 
     after = list_transactions(limit=None, neutralize=False)
-    assert all(transaction.category is None for transaction in after)
+    after_map = {
+        transaction.fingerprint: (transaction.category, transaction.classification_rule)
+        for transaction in after
+    }
+    assert after_map == before
 
 
 @pytest.mark.integration

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from penny.vault.config import VaultConfig
 from penny.vault.replay import ReplayResult, replay_vault
+from penny.vault.rules_store import ensure_rules_snapshot
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ def bootstrap_application_state(config: VaultConfig | None = None) -> StartupRes
     # Load demo data on first initialization
     demo_data_loaded = bootstrap_demo_data(config)
 
+    ensure_rules_snapshot(config)
     replay_result = replay_vault(config)
 
     return StartupResult(

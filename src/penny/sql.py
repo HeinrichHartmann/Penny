@@ -83,6 +83,17 @@ def _where_and(where_clause: str, condition: str) -> str:
     return f" WHERE {condition}"
 
 
+def _visible_accounts_condition(prefix: str = "") -> str:
+    """Filter transaction rows to visible accounts only."""
+    return (
+        "EXISTS ("
+        "SELECT 1 FROM accounts visible_accounts "
+        f"WHERE visible_accounts.id = {prefix}account_id "
+        "AND visible_accounts.hidden = 0"
+        ")"
+    )
+
+
 # =============================================================================
 # PUBLIC QUERY BUILDERS
 # =============================================================================
@@ -101,6 +112,7 @@ def categories_query(
     """
     params: list = []
     where = _where(params, from_date=from_date, to_date=to_date, accounts=accounts, q=q)
+    where = _where_and(where, _visible_accounts_condition())
     where = _where_and(where, "category IS NOT NULL AND category != ''")
 
     sql = f"SELECT DISTINCT category FROM transactions{where} ORDER BY category"
@@ -128,6 +140,7 @@ def summary_query(
         category=category,
         q=q,
     )
+    where = _where_and(where, _visible_accounts_condition())
 
     sql = f"SELECT amount_cents FROM transactions{where}"
     return sql, params
@@ -156,6 +169,7 @@ def tree_query(
         q=q,
         tab=tab,
     )
+    where = _where_and(where, _visible_accounts_condition())
 
     sql = f"SELECT category, payee, amount_cents FROM transactions{where}"
     return sql, params
@@ -184,6 +198,7 @@ def pivot_query(
         q=q,
         tab=tab,
     )
+    where = _where_and(where, _visible_accounts_condition())
 
     sql = f"SELECT category, amount_cents FROM transactions{where}"
     return sql, params
@@ -210,6 +225,7 @@ def cashflow_query(
         category=category,
         q=q,
     )
+    where = _where_and(where, _visible_accounts_condition())
 
     sql = f"SELECT category, amount_cents FROM transactions{where}"
     return sql, params
@@ -236,6 +252,7 @@ def breakout_query(
         category=category,
         q=q,
     )
+    where = _where_and(where, _visible_accounts_condition())
 
     sql = f"SELECT date, category, amount_cents FROM transactions{where}"
     return sql, params
@@ -262,6 +279,7 @@ def report_query(
         category=category,
         q=q,
     )
+    where = _where_and(where, _visible_accounts_condition())
 
     sql = f"SELECT date, account_id, category, amount_cents FROM transactions{where}"
     return sql, params
@@ -318,6 +336,7 @@ def list_transactions_query(
     account_id: int | None = None,
     limit: int | None = 20,
     neutralize: bool = True,
+    include_hidden: bool = False,
 ) -> tuple[str, list]:
     """Query for listing transactions with optional grouping.
 
@@ -331,8 +350,15 @@ def list_transactions_query(
 
     where_clause = ""
     params: list = []
+    hidden_clause = "" if include_hidden else "COALESCE(a.hidden, 0) = 0"
+    if hidden_clause:
+        where_clause = f"WHERE {hidden_clause}"
+
     if account_id is not None:
-        where_clause = "WHERE t.account_id = ?"
+        if where_clause:
+            where_clause += " AND t.account_id = ?"
+        else:
+            where_clause = "WHERE t.account_id = ?"
         params.append(account_id)
 
     limit_clause = ""

@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi.testclient import TestClient
 
-from penny.accounts import add_account
+from penny.accounts import add_account, soft_delete_account
 from penny.server import app
 from penny.transactions import Transaction, generate_fingerprint, store_transactions
 
@@ -70,3 +70,29 @@ def test_transactions_endpoint_uses_domain_filters(db):
     assert payload["count"] == 1
     assert payload["total_cents"] == -9900
     assert [transaction["merchant"] for transaction in payload["transactions"]] == ["Spotify"]
+
+
+def test_hidden_account_transactions_are_excluded_from_dashboard(db):
+    account = add_account("testbank")
+    store_transactions(
+        [
+            make_transaction(
+                account.id,
+                date(2024, 1, 10),
+                -1500,
+                "Coffee Shop",
+                category="food/coffee",
+            )
+        ]
+    )
+    assert soft_delete_account(account.id)
+
+    client = TestClient(app)
+    transactions_response = client.get("/api/transactions", params={"neutralize": "false"})
+    meta_response = client.get("/api/meta")
+
+    assert transactions_response.status_code == 200
+    assert transactions_response.json()["count"] == 0
+    assert transactions_response.json()["transactions"] == []
+    assert meta_response.status_code == 200
+    assert meta_response.json()["accounts"] == []

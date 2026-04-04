@@ -236,6 +236,7 @@ def list_transactions(
     account_id: int | None = None,
     limit: int | None = 20,
     neutralize: bool = True,
+    include_hidden: bool = False,
 ) -> list[Transaction]:
     """List transactions, optionally consolidating transfer groups."""
     merged_filters = _merge_filters(filters, account_id)
@@ -253,6 +254,7 @@ def list_transactions(
         account_id=query_account_id,
         limit=query_limit,
         neutralize=neutralize,
+        include_hidden=include_hidden,
     )
 
     with closing(connect()) as conn:

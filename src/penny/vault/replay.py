@@ -6,11 +6,11 @@ from dataclasses import dataclass
 
 from penny.config import default_db_path
 from penny.db import transaction
+from penny.runtime_rules import run_stored_rules
 from penny.vault.apply import apply_entry, apply_mutation
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.mutations import MutationLog
-from penny.vault.rules_store import latest_rules_path
 
 
 @dataclass
@@ -143,21 +143,7 @@ def _restore_runtime_classifications(config: VaultConfig) -> None:
     Classification results are intentionally not persisted in the mutation log,
     so replay needs to rebuild them after the projection has been restored.
     """
-    rules_path = latest_rules_path(config)
-    if rules_path is None or not rules_path.exists():
-        return
-
-    from penny.classify import load_rules_config, run_classification_pass
-    from penny.transactions import list_transactions
-    from penny.vault.writes import apply_classifications
-
-    rules_config = load_rules_config(rules_path)
-    transactions = list_transactions(limit=None, neutralize=False)
-    if not transactions:
-        return
-
-    result = run_classification_pass(transactions, rules_config)
-    apply_classifications(result.decisions, config=config)
+    run_stored_rules(config=config, ensure_rules=False, include_hidden=True)
 
 
 def replay_vault(config: VaultConfig | None = None) -> ReplayResult:

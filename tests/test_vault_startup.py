@@ -8,12 +8,13 @@ from penny.accounts import add_account, list_accounts
 from penny.api.accounts import update_account
 from penny.db import transaction
 from penny.ingest import read_file_with_encoding
-from penny.transactions import count_transactions
+from penny.transactions import count_transactions, list_transactions
 from penny.vault import (
     IngestRequest,
     VaultConfig,
     bootstrap_application_state,
     ingest_csv,
+    latest_rules_path,
 )
 
 pytestmark = pytest.mark.integration
@@ -32,6 +33,10 @@ def test_bootstrap_initializes_empty_vault(tmp_path):
     assert config.imports_dir.exists()
     assert config.rules_dir.exists()
     assert config.mutations_path.exists()
+    assert latest_rules_path(config) is not None
+    transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
+    assert transactions
+    assert all(transaction.category for transaction in transactions)
 
 
 def test_bootstrap_replays_existing_ingests(tmp_path, fixture_dir):
