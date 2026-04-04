@@ -8,7 +8,7 @@ from penny.classify import ClassificationDecision, contains, is_, load_rules, re
 from penny.cli import main
 from penny.db import init_db
 from penny.transactions import apply_classifications, list_transactions
-from penny.vault import MutationLog, VaultConfig, replay_vault
+from penny.vault import MutationLog, VaultConfig, replay_vault, save_rules_snapshot
 
 
 def _import_fixture(runner: CliRunner, fixture_dir):
@@ -161,3 +161,15 @@ def test_apply_classifications_requires_complete_pass(fixture_dir):
 
     after = list_transactions(limit=None, neutralize=False)
     assert all(transaction.category is None for transaction in after)
+
+
+@pytest.mark.integration
+def test_replay_vault_fails_loudly_for_invalid_rules(fixture_dir):
+    runner = CliRunner()
+    _import_fixture(runner, fixture_dir)
+    save_rules_snapshot("def broken(:\n")
+
+    init_db(None)
+
+    with pytest.raises(SyntaxError):
+        replay_vault(VaultConfig())

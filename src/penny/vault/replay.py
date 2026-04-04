@@ -10,6 +10,7 @@ from penny.vault.apply import apply_entry, apply_mutation
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.mutations import MutationLog
+from penny.vault.rules_store import latest_rules_path
 
 
 @dataclass
@@ -68,6 +69,8 @@ class ReplayEngine:
         entries_processed += mutation_result.entries_processed
         for entry_type, count in mutation_result.entries_by_type.items():
             entries_by_type[entry_type] = entries_by_type.get(entry_type, 0) + count
+
+        _restore_runtime_classifications(self.config)
 
         return ReplayResult(
             entries_processed=entries_processed,
@@ -132,6 +135,29 @@ def apply_pending_mutations(
         entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
 
     return ReplayResult(entries_processed=entries_processed, entries_by_type=entries_by_type)
+
+
+def _restore_runtime_classifications(config: VaultConfig) -> None:
+    """Recompute runtime-only classifications from the latest rules snapshot.
+
+    Classification results are intentionally not persisted in the mutation log,
+    so replay needs to rebuild them after the projection has been restored.
+    """
+    rules_path = latest_rules_path(config)
+    if rules_path is None or not rules_path.exists():
+        return
+
+    from penny.classify import load_rules_config, run_classification_pass
+    from penny.transactions import list_transactions
+    from penny.vault.writes import apply_classifications
+
+    rules_config = load_rules_config(rules_path)
+    transactions = list_transactions(limit=None, neutralize=False)
+    if not transactions:
+        return
+
+    result = run_classification_pass(transactions, rules_config)
+    apply_classifications(result.decisions, config=config)
 
 
 def replay_vault(config: VaultConfig | None = None) -> ReplayResult:
