@@ -23,7 +23,9 @@ def get_rules_path() -> Path:
 
 def get_default_rules_template() -> str:
     """Read the default rules template from the package."""
-    return importlib.resources.files("penny").joinpath("default_rules.py").read_text(encoding="utf-8")
+    return (
+        importlib.resources.files("penny").joinpath("default_rules.py").read_text(encoding="utf-8")
+    )
 
 
 @router.get("")
@@ -34,7 +36,7 @@ async def get_rules():
     try:
         content = rules_path.read_text(encoding="utf-8")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read rules file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read rules file: {e}") from e
 
     return {
         "path": str(rules_path),
@@ -86,7 +88,7 @@ def run_rules_path(rules_path: Path) -> dict:
             "stats": None,
         }
 
-    transactions = list_transactions(limit=None, neutralize=False)
+    transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
     log("info", f"Processing {len(transactions)} transactions")
 
     result = run_classification_pass(transactions, config)
@@ -147,7 +149,7 @@ async def save_rules(update: RulesUpdate):
     try:
         rules_path = save_rules_snapshot(update.content)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save rules file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save rules file: {e}") from e
 
     return {
         "status": "saved",

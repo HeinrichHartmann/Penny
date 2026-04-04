@@ -103,3 +103,27 @@ export const createReportViewModel = ({
   setSankeyEl,
   setBreakoutEl,
 }));
+
+export const createBalanceViewModel = ({
+  selectorState,
+  selectorActions,
+  valueHistory,
+  loading,
+  showVolume,
+  latestBalance,
+  setBalanceChartEl,
+  setShowVolume,
+  loadValueHistory,
+  renderBalanceChart,
+}) => computed(() => ({
+  selectorState: selectorState.value,
+  selectorActions,
+  valueHistory: valueHistory.value,
+  loading: loading.value,
+  showVolume: showVolume.value,
+  latestBalance: latestBalance.value,
+  setBalanceChartEl,
+  setShowVolume,
+  loadValueHistory,
+  renderBalanceChart,
+}));

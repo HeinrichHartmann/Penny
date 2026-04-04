@@ -16,7 +16,11 @@ import {
 import { initializeAppState } from './app/init.js';
 import { setupAppLifecycle } from './app/lifecycle.js';
 import { readUrlState, syncUrlState } from './app/urlState.js';
-import { createReportViewModel, createTransactionsViewModel } from './app/viewModels.js';
+import {
+  createBalanceViewModel,
+  createReportViewModel,
+  createTransactionsViewModel,
+} from './app/viewModels.js';
 import { createChartManager } from './charts.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { AccountsView } from './views/AccountsView.js';
@@ -356,11 +360,11 @@ createApp({
       filters,
     });
 
-    const balanceViewModel = {
+    const balanceViewModel = createBalanceViewModel({
       selectorState,
       selectorActions,
       ...balanceViewState,
-    };
+    });
 
     const syncUrl = () => {
       if (isHydratingFromUrl) return;

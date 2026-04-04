@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from penny.config import default_db_path
 from penny.db import transaction
+from penny.runtime_rules import run_stored_rules
 from penny.vault.apply import apply_entry, apply_mutation
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
@@ -68,6 +69,8 @@ class ReplayEngine:
         entries_processed += mutation_result.entries_processed
         for entry_type, count in mutation_result.entries_by_type.items():
             entries_by_type[entry_type] = entries_by_type.get(entry_type, 0) + count
+
+        _restore_runtime_classifications(self.config)
 
         return ReplayResult(
             entries_processed=entries_processed,
@@ -132,6 +135,15 @@ def apply_pending_mutations(
         entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
 
     return ReplayResult(entries_processed=entries_processed, entries_by_type=entries_by_type)
+
+
+def _restore_runtime_classifications(config: VaultConfig) -> None:
+    """Recompute runtime-only classifications from the latest rules snapshot.
+
+    Classification results are intentionally not persisted in the mutation log,
+    so replay needs to rebuild them after the projection has been restored.
+    """
+    run_stored_rules(config=config, ensure_rules=False, include_hidden=True)
 
 
 def replay_vault(config: VaultConfig | None = None) -> ReplayResult:

@@ -25,6 +25,7 @@ from penny.ingest import (
     read_file_with_encoding,
 )
 from penny.reports import generate_report_text
+from penny.runtime_rules import run_stored_rules
 from penny.server import run_server
 from penny.transactions import (
     TransactionFilter,
@@ -145,7 +146,7 @@ def _echo_classification_summary(rules_file: Path, config: LoadedRulesConfig, re
 
 def _apply_rules(rules_file: Path, *, verbose: int = 0) -> None:
     """Apply classification rules and optional transfer linking."""
-    transactions = list_transactions(limit=None, neutralize=False)
+    transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
     if not transactions:
         click.echo("No transactions found.")
         return
@@ -466,6 +467,13 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             csv_type=csv_type,
         )
     )
+
+    try:
+        run_stored_rules(ensure_rules=True, include_hidden=True)
+    except Exception as exc:
+        raise click.ClickException(
+            f"Import stored transactions, but rules evaluation failed: {exc}"
+        ) from exc
 
     click.echo(f"Detected: {result.parser_name}")
     click.echo(
