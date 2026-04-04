@@ -298,6 +298,22 @@ class TransactionStorage:
                     """,
                     (decision.category, decision.rule_name, classified_at, fingerprint),
                 )
+            uncategorized_count = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM transactions
+                    WHERE category IS NULL OR TRIM(category) = ''
+                    """
+                ).fetchone()[0]
+            )
+            if uncategorized_count:
+                conn.rollback()
+                raise RuntimeError(
+                    "Classification pass left "
+                    f"{uncategorized_count} transactions without a category"
+                )
+
             conn.commit()
 
             total = int(conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0])

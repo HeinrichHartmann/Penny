@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import uuid
+from collections import Counter
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +78,35 @@ class LoadedRuleset:
         return None
 
 
+@dataclass(frozen=True)
+class LoadedRulesConfig:
+    """Ruleset plus classification defaults declared by the module."""
+
+    ruleset: LoadedRuleset
+    default_category: str
+
+
+@dataclass(frozen=True)
+class ClassificationError:
+    """A classification failure for an individual transaction."""
+
+    fingerprint: str
+    payee: str
+    error: str
+
+
+@dataclass(frozen=True)
+class ClassificationPassResult:
+    """Result of a full classification pass over a transaction set."""
+
+    decisions: list[ClassificationDecision]
+    matched_count: int
+    default_count: int
+    category_counts: Counter[str]
+    defaulted_transactions: list[Transaction]
+    errors: list[ClassificationError]
+
+
 class RuleCollector:
     """Collect rules in module execution order."""
 
@@ -126,11 +156,20 @@ def _load_module(path: Path) -> ModuleType:
 def load_rules(path: Path) -> LoadedRuleset:
     """Load a rules module from disk in file order."""
 
+    return load_rules_config(path).ruleset
+
+
+def load_rules_config(path: Path) -> LoadedRulesConfig:
+    """Load a rules module plus its default category."""
+
     collector = RuleCollector(path)
     token = _ACTIVE_COLLECTOR.set(collector)
     try:
-        _load_module(path)
-        return collector.build()
+        module = _load_module(path)
+        return LoadedRulesConfig(
+            ruleset=collector.build(),
+            default_category=getattr(module, "DEFAULT_CATEGORY", "uncategorized"),
+        )
     finally:
         _ACTIVE_COLLECTOR.reset(token)
 
@@ -139,3 +178,50 @@ def classify_transaction(transaction: Transaction, ruleset: LoadedRuleset) -> Cl
     """Convenience wrapper for classifying one transaction."""
 
     return ruleset.classify(transaction)
+
+
+def run_classification_pass(
+    transactions: list[Transaction],
+    config: LoadedRulesConfig,
+) -> ClassificationPassResult:
+    """Classify a full transaction set using the module's default category."""
+
+    decisions: list[ClassificationDecision] = []
+    category_counts: Counter[str] = Counter()
+    defaulted_transactions: list[Transaction] = []
+    errors: list[ClassificationError] = []
+    matched_count = 0
+    default_count = 0
+
+    for transaction in transactions:
+        try:
+            decision = config.ruleset.classify(transaction)
+            if decision is None:
+                decision = ClassificationDecision(
+                    fingerprint=transaction.fingerprint,
+                    category=config.default_category,
+                    rule_name="(default)",
+                )
+                defaulted_transactions.append(transaction)
+                default_count += 1
+            else:
+                matched_count += 1
+            decisions.append(decision)
+            category_counts[decision.category] += 1
+        except Exception as exc:
+            errors.append(
+                ClassificationError(
+                    fingerprint=transaction.fingerprint,
+                    payee=transaction.payee,
+                    error=str(exc),
+                )
+            )
+
+    return ClassificationPassResult(
+        decisions=decisions,
+        matched_count=matched_count,
+        default_count=default_count,
+        category_counts=category_counts,
+        defaulted_transactions=defaulted_transactions,
+        errors=errors,
+    )

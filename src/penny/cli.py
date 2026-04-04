@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 import click
 
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
-from penny.classify import ClassificationDecision
-from penny.classify.engine import _load_module, _ACTIVE_COLLECTOR, RuleCollector
+from penny.classify import load_rules_config, run_classification_pass
 from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
@@ -208,45 +207,16 @@ def classify(rules_file: Path):
         click.echo("No transactions found.")
         return
 
-    # Load rules module to get DEFAULT_CATEGORY
-    collector = RuleCollector(rules_file)
-    token = _ACTIVE_COLLECTOR.set(collector)
-    try:
-        module = _load_module(rules_file)
-    finally:
-        _ACTIVE_COLLECTOR.reset(token)
-
-    default_category = getattr(module, "DEFAULT_CATEGORY", "uncategorized")
-    ruleset = collector.build()
-
-    decisions = []
-    category_counts: Counter[str] = Counter()
-    matched_count = 0
-    default_count = 0
-
-    for transaction in transactions:
-        decision = ruleset.classify(transaction)
-        if decision is None:
-            # Apply default category to unmatched transactions
-            decision = ClassificationDecision(
-                fingerprint=transaction.fingerprint,
-                category=default_category,
-                rule_name="(default)",
-            )
-            default_count += 1
-        else:
-            matched_count += 1
-        decisions.append(decision)
-        category_counts[decision.category] += 1
-
-    storage.apply_classifications(decisions)
+    config = load_rules_config(rules_file)
+    result = run_classification_pass(transactions, config)
+    storage.apply_classifications(result.decisions)
 
     click.echo(f"Loaded rules: {rules_file}")
-    click.echo(f"Rules: {len(ruleset.rules)}")
-    click.echo(f"Default category: {default_category}")
-    click.echo(f"Matched: {matched_count}")
-    click.echo(f"Default: {default_count}")
-    for category, count in sorted(category_counts.items()):
+    click.echo(f"Rules: {len(config.ruleset.rules)}")
+    click.echo(f"Default category: {config.default_category}")
+    click.echo(f"Matched: {result.matched_count}")
+    click.echo(f"Default: {result.default_count}")
+    for category, count in sorted(result.category_counts.items()):
         click.echo(f"  {category}: {count}")
 
 
