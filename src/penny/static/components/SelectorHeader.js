@@ -1,6 +1,7 @@
 /**
  * Shared selector header for report and transactions views.
  */
+import { ref } from 'vue/dist/vue.esm-bundler.js';
 import { DateFilterPanel } from './DateFilterPanel.js';
 
 export const SelectorHeader = {
@@ -12,19 +13,33 @@ export const SelectorHeader = {
     state: { type: Object, required: true },
     actions: { type: Object, required: true },
   },
+  setup() {
+    const showCategoryPicker = ref(false);
+    return {
+      showCategoryPicker,
+    };
+  },
   template: `
     <div class="panel selector-header">
-      <div class="selector-grid">
-        <section class="selector-block selector-block-dates">
-          <div class="selector-label">Dates</div>
+      <div class="selector-layout">
+        <section class="selector-row selector-row-dates">
           <date-filter-panel
             :state="state"
             :actions="actions"
           />
         </section>
 
-        <section class="selector-block">
-          <div class="selector-label">Accounts</div>
+        <section class="selector-row selector-row-search">
+          <input
+            class="search-input selector-wide-input"
+            type="text"
+            :value="state.searchQuery"
+            @input="actions.updateSearchQuery($event.target.value)"
+            placeholder="Search description"
+          >
+        </section>
+
+        <section class="selector-row selector-row-accounts">
           <div class="selector-account-list">
             <button
               v-for="acc in state.meta.accounts"
@@ -45,9 +60,8 @@ export const SelectorHeader = {
           </div>
         </section>
 
-        <section class="selector-block">
-          <div class="selector-label">Category</div>
-          <div class="selector-category-stack">
+        <section class="selector-row selector-row-category">
+          <div class="selector-category-line">
             <div class="category-breadcrumb compact selector-category-breadcrumb">
               <button
                 type="button"
@@ -67,11 +81,24 @@ export const SelectorHeader = {
                 </button>
               </template>
             </div>
-            <div class="selector-inline-row">
+            <div class="selector-category-actions">
+              <button
+                type="button"
+                class="selector-category-toggle"
+                @click="showCategoryPicker = !showCategoryPicker"
+                :disabled="state.nextCategoryOptions.length === 0"
+                :title="state.nextCategoryOptions.length === 0 ? 'No narrower categories' : 'Choose narrower category'"
+              >
+                <span aria-hidden="true">{{ showCategoryPicker ? '▾' : '▸' }}</span>
+              </button>
+              <button v-if="state.selectedCategory" type="button" class="shortcut-btn" @click="actions.clearSelection()">Clear</button>
+            </div>
+          </div>
+          <div v-if="showCategoryPicker && state.nextCategoryOptions.length > 0" class="selector-category-picker">
               <select
                 class="search-input selector-select"
                 :value="state.categorySelectValue"
-                @change="actions.updateCategorySelectValue($event.target.value); actions.applyCategorySelection($event.target.value || null)"
+                @change="actions.updateCategorySelectValue($event.target.value); actions.applyCategorySelection($event.target.value || null); showCategoryPicker = false"
                 :disabled="state.nextCategoryOptions.length === 0"
               >
                 <option value="">
@@ -89,20 +116,7 @@ export const SelectorHeader = {
                   {{ option.label }}
                 </option>
               </select>
-              <button v-if="state.selectedCategory" type="button" class="shortcut-btn" @click="actions.clearSelection()">Clear</button>
-            </div>
           </div>
-        </section>
-
-        <section class="selector-block">
-          <div class="selector-label">Search</div>
-          <input
-            class="search-input selector-wide-input"
-            type="text"
-            :value="state.searchQuery"
-            @input="actions.updateSearchQuery($event.target.value)"
-            placeholder="Search description"
-          >
         </section>
       </div>
     </div>

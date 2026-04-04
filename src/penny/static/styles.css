@@ -554,35 +554,57 @@ tbody tr:hover {
 
 .selector-header {
   margin-bottom: 20px;
-  padding: 20px 24px;
+  padding: 14px 18px;
 }
 
-.selector-grid {
+.selector-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px 20px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 12px 16px;
+  align-items: center;
 }
 
-.selector-block {
+.selector-row {
   min-width: 0;
 }
 
-.selector-block-dates {
+.selector-row-dates {
   grid-column: 1 / -1;
 }
 
-.selector-label {
-  margin-bottom: 10px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
+.selector-row-category {
+  grid-column: 1 / -1;
 }
 
 .selector-date-panel {
   min-width: 0;
+}
+
+.selector-date-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selector-date-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.selector-date-picker-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selector-date-arrow {
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .selector-account-list {
@@ -649,14 +671,63 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
-.selector-category-stack {
+.selector-row-search {
+  align-self: stretch;
+}
+
+.selector-row-accounts {
+  justify-self: end;
+}
+
+.selector-category-line {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.selector-category-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selector-category-picker {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .selector-category-breadcrumb {
   margin-top: 0;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.selector-category-toggle {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.selector-category-toggle:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.selector-category-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .selector-inline-row {
@@ -675,6 +746,8 @@ tbody tr:hover {
 .selector-select {
   appearance: none;
   cursor: pointer;
+  min-width: 220px;
+  max-width: 320px;
 }
 
 /* ── Category Badges ───────────────────────────────────────────────────────── */
@@ -887,8 +960,16 @@ tbody tr:hover {
 }
 
 @media (max-width: 900px) {
-  .selector-grid {
+  .selector-layout {
     grid-template-columns: 1fr;
+  }
+
+  .selector-row-accounts {
+    justify-self: stretch;
+  }
+
+  .selector-category-picker {
+    justify-content: flex-start;
   }
 }
 
