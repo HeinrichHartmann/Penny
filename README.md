@@ -16,6 +16,18 @@ Personal finance tracking and analysis app for non-technical users.
 - [Nix](https://nixos.org/download.html) with flakes enabled
 - [direnv](https://direnv.net/) (optional but recommended)
 
+## Install the CLI
+
+```bash
+# Install the latest CLI directly from GitHub
+uv tool install git+https://github.com/HeinrichHartmann/Penny.git
+
+# Install a specific release tag
+uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.1.0
+```
+
+This installs the `penny` command as a standalone CLI tool.
+
 ### Setup
 
 ```bash
@@ -51,6 +63,23 @@ make app-open
 ```
 
 Output will be in `dist/`.
+
+### Publish a GitHub Release
+
+```bash
+# Authenticate GitHub CLI once
+gh auth login
+
+# Build the DMG and publish/update the GitHub Release for the current version
+make release
+
+# Validate the release inputs without publishing anything
+make release-dry-run
+```
+
+`make release` publishes the `dist/Penny-<version>.dmg` artifact and a matching `.sha256`
+checksum to the GitHub Release for tag `v<version>`. The current `HEAD` must already be
+pushed to the branch upstream.
 
 ## Architecture
 

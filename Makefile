@@ -1,4 +1,4 @@
-.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build clean install sync test frontend-install frontend-build frontend-dev
+.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build release release-dry-run clean install sync test frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
 dev: sync frontend-build
@@ -65,6 +65,14 @@ build: install frontend-build
 	@echo "  DMG:  dist/"
 	@ls -la dist/*.dmg 2>/dev/null || true
 
+# Build and publish a GitHub release for the current version
+release: build
+	./scripts/release.sh
+
+# Validate the release inputs without creating or updating a GitHub release
+release-dry-run: build
+	DRY_RUN=1 ./scripts/release.sh
+
 # Build without packaging (faster iteration)
 build-dev: install frontend-build
 	uv run python -m briefcase dev
@@ -103,6 +111,8 @@ help:
 	@echo "Build Commands:"
 	@echo ""
 	@echo "  make app       - Build macOS app (.app + .dmg)"
+	@echo "  make release   - Build and publish the current version to GitHub Releases"
+	@echo "  make release-dry-run - Validate the release command without publishing"
 	@echo "  make app-open  - Open the built .app"
 	@echo "  make update    - Update existing build (faster)"
 	@echo "  make clean     - Remove build artifacts"
