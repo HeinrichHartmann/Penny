@@ -11,11 +11,16 @@ from penny.vault.manifests import (
     IngestManifest,
     RulesManifest,
 )
+from penny.vault.apply import apply_ingest, apply_entry, IngestResult
+from penny.vault.ingest import ingest_csv, ingest_csv_files, IngestRequest
 
 __all__ = [
+    # Config
     "VaultConfig",
+    # Log
     "LogManager",
     "LogEntry",
+    # Manifests
     "InitManifest",
     "AccountCreatedManifest",
     "AccountUpdatedManifest",
@@ -23,4 +28,12 @@ __all__ = [
     "BalanceSnapshotManifest",
     "IngestManifest",
     "RulesManifest",
+    # Apply
+    "apply_ingest",
+    "apply_entry",
+    "IngestResult",
+    # Ingest service
+    "ingest_csv",
+    "ingest_csv_files",
+    "IngestRequest",
 ]

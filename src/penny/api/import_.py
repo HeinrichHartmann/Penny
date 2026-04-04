@@ -1,14 +1,9 @@
 """Import API router."""
 
-from collections import Counter
-
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from penny.accounts.registry import AccountRegistry
-from penny.accounts.storage import AccountStorage
-from penny.db import init_schema
-from penny.ingest import DetectionError, match_file
-from penny.transactions import store_transactions
+from penny.ingest import DetectionError
+from penny.vault import ingest_csv, IngestRequest
 
 router = APIRouter(prefix="/api", tags=["import"])
 
@@ -17,76 +12,49 @@ router = APIRouter(prefix="/api", tags=["import"])
 async def import_csv(file: UploadFile = File(...)):
     """Import transactions from a CSV file.
 
-    This endpoint mirrors the CLI `penny import` command:
-    1. Detect the bank format from filename and content
-    2. Reconcile or create the bank account
-    3. Parse transactions
-    4. Store with deduplication
+    Flow (via vault):
+    1. Write CSV to vault log entry
+    2. Apply entry: detect parser, reconcile account, parse, store
+    3. Return result
     """
-    # Read file content
     content_bytes = await file.read()
-
-    # Try UTF-8 first, fall back to CP1252 (common for German bank CSVs)
-    try:
-        content = content_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        content = content_bytes.decode("cp1252")
-
     filename = file.filename or "upload.csv"
 
-    # Detect parser
+    request = IngestRequest(
+        filename=filename,
+        content=content_bytes,
+    )
+
     try:
-        parser = match_file(filename, content)
+        result = ingest_csv(request)
     except DetectionError as e:
         raise HTTPException(
             status_code=400,
             detail=f"Could not detect CSV format: {e}",
         )
-
-    # Detect account info
-    detection = parser.detect(filename, content)
-
-    # Reconcile account (find existing or create new)
-    registry = AccountRegistry(AccountStorage())
-    try:
-        account = registry.reconcile(detection)
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Account reconciliation failed: {e}",
+            detail=f"Import failed: {e}",
         )
-
-    # Parse transactions
-    parsed_transactions = parser.parse(filename, content, account_id=account.id)
-
-    # Store transactions with deduplication
-    init_schema()
-    new_count, duplicate_count = store_transactions(
-        parsed_transactions,
-        source_file=filename,
-    )
-
-    # Build section summary
-    section_counts = Counter(tx.subaccount_type for tx in parsed_transactions)
 
     return {
         "status": "success",
         "filename": filename,
-        "parser": detection.parser_name,
+        "parser": result.parser_name,
         "account": {
-            "id": account.id,
-            "bank": account.bank,
-            "display_name": account.display_name,
-            "label": account.display_name or f"{account.bank} #{account.id}",
-            "is_new": account.created_at == account.updated_at,  # New if timestamps match
+            "id": result.account_id,
+            "bank": result.account_bank,
+            "label": result.account_label,
+            "is_new": result.is_new_account,
         },
         "sections": [
             {"type": section, "count": count}
-            for section, count in sorted(section_counts.items())
+            for section, count in sorted(result.sections.items())
         ],
         "transactions": {
-            "new": new_count,
-            "duplicates": duplicate_count,
-            "total_parsed": len(parsed_transactions),
+            "new": result.transactions_new,
+            "duplicates": result.transactions_duplicate,
+            "total_parsed": result.transactions_total,
         },
     }

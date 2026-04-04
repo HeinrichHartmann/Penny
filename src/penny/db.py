@@ -58,6 +58,10 @@ def init_schema() -> None:
                 bank_account_number TEXT,
                 display_name TEXT,
                 iban TEXT,
+                holder TEXT,
+                notes TEXT,
+                balance_cents INTEGER,
+                balance_date TEXT,
                 hidden INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
