@@ -22,7 +22,7 @@ import {
 } from './api.js';
 import { createChartManager } from './charts.js';
 import { SelectorHeader } from './components/SelectorHeader.js';
-import { createAccountsViewState } from './views/accounts.js';
+import { AccountsView } from './views/AccountsView.js';
 import { createImportViewState } from './views/import.js';
 import { ImportView } from './views/ImportView.js';
 import { createReportViewState } from './views/report.js';
@@ -32,6 +32,7 @@ import { createTransactionsViewState } from './views/transactions.js';
 
 createApp({
   components: {
+    AccountsView,
     ImportView,
     SelectorHeader,
     RulesView,
@@ -219,25 +220,8 @@ createApp({
       meta.max_date = m.max_date;
     };
 
-    const accountsView = createAccountsViewState({
-      fetchAccounts,
-      updateAccount,
-      refreshMeta,
-    });
-
-    const {
-      accountsList,
-      accountsLoading,
-      editingAccountId,
-      editingAccountName,
-      loadAccounts,
-      startEditingAccount,
-      cancelEditingAccount,
-      saveAccountName,
-    } = accountsView;
-
     const handleImportComplete = async () => {
-      await Promise.all([loadAccounts(), refreshMeta()]);
+      await refreshMeta();
       await loadCategoryOptions();
     };
 
@@ -317,9 +301,7 @@ createApp({
     });
 
     watch(view, async () => {
-      if (view.value === 'accounts') {
-        await loadAccounts();
-      } else {
+      if (view.value !== 'accounts') {
         loadCurrentViewData();
       }
     });
@@ -506,15 +488,7 @@ createApp({
       copyTransactionsTable,
       handleImportComplete,
 
-      // Accounts
-      accountsList,
-      accountsLoading,
-      loadAccounts,
-      editingAccountId,
-      editingAccountName,
-      startEditingAccount,
-      cancelEditingAccount,
-      saveAccountName,
+      refreshMeta,
     };
   },
 }).mount('#app');
