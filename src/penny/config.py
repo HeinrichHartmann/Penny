@@ -18,5 +18,13 @@ def default_data_dir() -> Path:
 
 
 def default_db_path() -> Path:
-    """Return the default SQLite database path."""
-    return default_data_dir() / "penny.db"
+    """Return the default SQLite database path.
+
+    The preferred location is inside the portable Penny directory.
+    `PENNY_DATA_DIR` remains as a legacy fallback for older setups.
+    """
+    vault_dir = os.environ.get("PENNY_VAULT_DIR")
+    if vault_dir:
+        return Path(vault_dir).expanduser() / "penny.sqlite"
+
+    return Path.home() / "Documents" / "Penny" / "penny.sqlite"

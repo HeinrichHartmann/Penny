@@ -1,4 +1,4 @@
-"""Log manager for vault entries."""
+"""Import archive manager for raw CSV drops."""
 
 from __future__ import annotations
 
@@ -9,20 +9,20 @@ from pathlib import Path
 from typing import Iterator
 
 from penny.vault.config import VaultConfig
-from penny.vault.manifests import BaseManifest, load_manifest, ManifestType
+from penny.vault.manifests import IngestManifest, load_manifest, ManifestType
 
 
-# Entry directory name pattern: 000001_type
-ENTRY_PATTERN = re.compile(r"^(\d{6})_(.+)$")
+# Import directory name pattern: 000001-2026-04-04T11:19:00Z
+ENTRY_PATTERN = re.compile(r"^(\d{6})-(.+)$")
 
 
 @dataclass
 class LogEntry:
-    """A single log entry (directory with manifest + content)."""
+    """A single archived import (directory with manifest + raw files)."""
 
     path: Path
     sequence: int
-    entry_type: str
+    slug: str
 
     @property
     def manifest_path(self) -> Path:
@@ -38,19 +38,19 @@ class LogEntry:
         return [f for f in self.path.iterdir() if f.name != "manifest.json"]
 
     def __repr__(self) -> str:
-        return f"LogEntry({self.sequence:06d}_{self.entry_type})"
+        return f"LogEntry({self.sequence:06d}-{self.slug})"
 
 
 class LogManager:
-    """Manage the append-only vault log."""
+    """Manage the append-only import archive."""
 
     def __init__(self, config: VaultConfig):
         self.config = config
 
     @property
     def log_dir(self) -> Path:
-        """Return the log directory path."""
-        return self.config.log_dir
+        """Backward-compatible alias for the imports archive directory."""
+        return self.config.imports_dir
 
     def _parse_entry_dir(self, path: Path) -> LogEntry | None:
         """Parse an entry directory name into a LogEntry."""
@@ -59,7 +59,7 @@ class LogManager:
             return LogEntry(
                 path=path,
                 sequence=int(match.group(1)),
-                entry_type=match.group(2),
+                slug=match.group(2),
             )
         return None
 
@@ -103,28 +103,21 @@ class LogManager:
         entries = self.list_entries()
         return entries[-1] if entries else None
 
-    def latest_of_type(self, entry_type: str) -> LogEntry | None:
-        """Return the most recent entry of a given type."""
-        for entry in reversed(self.list_entries()):
-            if entry.entry_type == entry_type or entry.entry_type.startswith(entry_type + "_"):
-                return entry
-        return None
-
-    def _entry_dir_name(self, sequence: int, entry_type: str) -> str:
+    def _entry_dir_name(self, sequence: int, manifest: IngestManifest) -> str:
         """Generate entry directory name."""
-        return f"{sequence:06d}_{entry_type}"
+        return f"{sequence:06d}-{manifest.timestamp}"
 
     def append(
         self,
         entry_type: str,
-        manifest: BaseManifest,
+        manifest: IngestManifest,
         content_files: list[Path] | None = None,
     ) -> LogEntry:
-        """Append a new entry to the log.
+        """Append a new archived import.
 
         Args:
-            entry_type: Type suffix for directory name (e.g., "init", "ingest_comdirect")
-            manifest: The manifest to write
+            entry_type: Ignored legacy parameter kept for API compatibility.
+            manifest: The import manifest to write.
             content_files: Optional files to copy into the entry directory
 
         Returns:
@@ -134,7 +127,7 @@ class LogManager:
             self.config.initialize()
 
         sequence = self.next_sequence()
-        dir_name = self._entry_dir_name(sequence, entry_type)
+        dir_name = self._entry_dir_name(sequence, manifest)
         entry_path = self.log_dir / dir_name
 
         # Create entry directory
@@ -152,20 +145,20 @@ class LogManager:
         return LogEntry(
             path=entry_path,
             sequence=sequence,
-            entry_type=entry_type,
+            slug=manifest.timestamp,
         )
 
     def append_with_content(
         self,
         entry_type: str,
-        manifest: BaseManifest,
+        manifest: IngestManifest,
         content: dict[str, str | bytes],
     ) -> LogEntry:
-        """Append a new entry with inline content (not from files).
+        """Append a new archived import with inline content.
 
         Args:
-            entry_type: Type suffix for directory name
-            manifest: The manifest to write
+            entry_type: Ignored legacy parameter kept for API compatibility.
+            manifest: The import manifest to write.
             content: Dict of filename -> content (str or bytes)
 
         Returns:
@@ -175,7 +168,7 @@ class LogManager:
             self.config.initialize()
 
         sequence = self.next_sequence()
-        dir_name = self._entry_dir_name(sequence, entry_type)
+        dir_name = self._entry_dir_name(sequence, manifest)
         entry_path = self.log_dir / dir_name
 
         # Create entry directory
@@ -195,5 +188,5 @@ class LogManager:
         return LogEntry(
             path=entry_path,
             sequence=sequence,
-            entry_type=entry_type,
+            slug=manifest.timestamp,
         )

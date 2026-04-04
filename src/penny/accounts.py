@@ -195,6 +195,48 @@ def soft_delete_account(account_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def update_account_metadata(
+    account_id: int,
+    *,
+    display_name: str | None = None,
+    iban: str | None = None,
+    holder: str | None = None,
+    notes: str | None = None,
+) -> Account | None:
+    """Update mutable account metadata and return the refreshed account."""
+    updates = []
+    params: list[object] = []
+
+    if display_name is not None:
+        updates.append("display_name = ?")
+        params.append(display_name)
+    if iban is not None:
+        updates.append("iban = ?")
+        params.append(iban)
+    if holder is not None:
+        updates.append("holder = ?")
+        params.append(holder)
+    if notes is not None:
+        updates.append("notes = ?")
+        params.append(notes)
+
+    if not updates:
+        return get_account(account_id, include_hidden=True)
+
+    with closing(connect()) as conn:
+        params.extend([datetime.now().isoformat(), account_id])
+        cursor = conn.execute(
+            f"UPDATE accounts SET {', '.join(updates)}, updated_at = ? WHERE id = ?",
+            params,
+        )
+        conn.commit()
+
+    if cursor.rowcount == 0:
+        return None
+
+    return get_account(account_id, include_hidden=True)
+
+
 def find_account_by_bank_account_number(
     bank: str,
     account_number: str,

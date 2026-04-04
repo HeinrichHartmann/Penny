@@ -19,7 +19,8 @@ def test_vault_init_creates_first_entry():
 
     assert result.exit_code == 0
     assert "Status: initialized" in result.output
-    assert "Entries: 1" in result.output
+    assert "Imports: 0" in result.output
+    assert "Mutations: 0" in result.output
 
 
 def test_vault_status_reports_entries(fixture_dir):
@@ -38,8 +39,8 @@ def test_vault_status_reports_entries(fixture_dir):
 
     assert result.exit_code == 0
     assert "Initialized: yes" in result.output
-    assert "Entries: 1" in result.output
-    assert "ingest: 1" in result.output
+    assert "Imports: 1" in result.output
+    assert "Rules snapshots: 0" in result.output
 
 
 def test_vault_replay_restores_projection(fixture_dir):
@@ -61,6 +62,6 @@ def test_vault_replay_restores_projection(fixture_dir):
     result = runner.invoke(main, ["vault", "replay"])
 
     assert result.exit_code == 0
-    assert "Entries processed: 1" in result.output
+    assert "Imports processed: 1" in result.output
     assert "ingest: 1" in result.output
     assert count_transactions() == 3

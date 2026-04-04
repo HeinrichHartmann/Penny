@@ -1,12 +1,13 @@
 """Tests for vault startup bootstrap."""
 
+import asyncio
 import pytest
 
 from penny.accounts import add_account, list_accounts
+from penny.api.accounts import update_account
 from penny.transactions import count_transactions
 from penny.vault import (
     IngestRequest,
-    LogManager,
     VaultConfig,
     bootstrap_application_state,
     ingest_csv,
@@ -20,13 +21,13 @@ def test_bootstrap_initializes_empty_vault(tmp_path):
     config = VaultConfig(tmp_path / "vault")
 
     result = bootstrap_application_state(config)
-    log = LogManager(config)
 
     assert result.init_entry_created is True
-    assert result.replay_result.entries_processed == 1
-    assert result.replay_result.entries_by_type == {"init": 1}
-    assert log.count() == 1
-    assert log.latest_entry().entry_type == "init"
+    assert result.replay_result.entries_processed == 0
+    assert result.replay_result.entries_by_type == {}
+    assert config.imports_dir.exists()
+    assert config.rules_dir.exists()
+    assert config.mutations_path.exists()
 
 
 def test_bootstrap_replays_existing_ingests(tmp_path, fixture_dir):
@@ -71,3 +72,24 @@ def test_bootstrap_clears_projection_drift(tmp_path, fixture_dir):
     assert len(accounts) == 1
     assert accounts[0].bank == "comdirect"
     assert count_transactions() == 3
+
+
+def test_bootstrap_replays_account_naming_mutation(tmp_path, fixture_dir):
+    config = VaultConfig(tmp_path / "vault")
+    csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
+
+    ingest_csv(
+        IngestRequest(
+            filename=csv_path.name,
+            content=read_file_with_encoding(csv_path),
+        ),
+        config=config,
+    )
+
+    asyncio.run(update_account(1, display_name="Private Main"))
+
+    bootstrap_application_state(config)
+
+    accounts = list_accounts()
+    assert len(accounts) == 1
+    assert accounts[0].display_name == "Private Main"

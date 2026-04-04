@@ -6,10 +6,10 @@ from pathlib import Path
 from penny.vault import (
     VaultConfig,
     LogManager,
-    InitManifest,
-    AccountCreatedManifest,
     IngestManifest,
-    RulesManifest,
+    MutationLog,
+    ensure_rules_snapshot,
+    save_rules_snapshot,
 )
 
 
@@ -30,7 +30,7 @@ class TestVaultConfig:
 
     def test_log_dir(self, tmp_path):
         config = VaultConfig(tmp_path / "vault")
-        assert config.log_dir == tmp_path / "vault" / "log"
+        assert config.imports_dir == tmp_path / "vault" / "imports"
 
     def test_initialize_creates_structure(self, tmp_path):
         config = VaultConfig(tmp_path / "vault")
@@ -41,32 +41,12 @@ class TestVaultConfig:
 
         assert config.exists()
         assert config.is_initialized()
-        assert config.log_dir.exists()
+        assert config.imports_dir.exists()
+        assert config.rules_dir.exists()
+        assert config.mutations_path.exists()
 
 
 class TestManifests:
-    def test_init_manifest_roundtrip(self):
-        manifest = InitManifest(app_version="0.1.0")
-        json_str = manifest.to_json()
-        loaded = InitManifest.from_json(json_str)
-
-        assert loaded.type == "init"
-        assert loaded.app_version == "0.1.0"
-        assert loaded.schema_version == 1
-
-    def test_account_created_manifest(self):
-        manifest = AccountCreatedManifest(
-            bank="comdirect",
-            bank_account_number="12345678",
-            display_name="Main Account",
-            iban="DE89370400440532013000",
-        )
-
-        data = manifest.to_dict()
-        assert data["type"] == "account_created"
-        assert data["bank"] == "comdirect"
-        assert data["iban"] == "DE89370400440532013000"
-
     def test_ingest_manifest(self):
         manifest = IngestManifest(
             csv_files=["export.csv", "export2.csv"],
@@ -82,6 +62,8 @@ class TestManifests:
         assert data["parser_version"] == "comdirect@1"
 
     def test_manifest_write_read(self, tmp_path):
+        from penny.vault import InitManifest
+
         manifest = InitManifest(app_version="0.1.0")
         path = tmp_path / "manifest.json"
 
@@ -105,31 +87,6 @@ class TestLogManager:
         assert vault.latest_entry() is None
         assert vault.next_sequence() == 1
 
-    def test_append_simple_entry(self, vault):
-        manifest = InitManifest(app_version="0.1.0")
-        entry = vault.append("init", manifest)
-
-        assert entry.sequence == 1
-        assert entry.entry_type == "init"
-        assert entry.path.exists()
-        assert entry.manifest_path.exists()
-
-        # Verify manifest content
-        loaded = entry.read_manifest()
-        assert loaded.type == "init"
-        assert loaded.app_version == "0.1.0"
-
-    def test_append_increments_sequence(self, vault):
-        vault.append("init", InitManifest(app_version="0.1.0"))
-        vault.append("account_created", AccountCreatedManifest(bank="comdirect"))
-        vault.append("account_created", AccountCreatedManifest(bank="sparkasse"))
-
-        assert vault.count() == 3
-        assert vault.next_sequence() == 4
-
-        entries = vault.list_entries()
-        assert [e.sequence for e in entries] == [1, 2, 3]
-
     def test_append_with_content_files(self, vault, tmp_path):
         # Create source CSV
         csv_content = "col1;col2\nval1;val2\n"
@@ -145,7 +102,8 @@ class TestLogManager:
 
         entry = vault.append("ingest_comdirect", manifest, content_files=[csv_file])
 
-        assert entry.entry_type == "ingest_comdirect"
+        assert entry.sequence == 1
+        assert entry.path.name.startswith("000001-")
 
         # Verify CSV was copied
         copied_csv = entry.path / "export.csv"
@@ -157,74 +115,76 @@ class TestLogManager:
         assert len(content) == 1
         assert content[0].name == "export.csv"
 
-    def test_append_with_inline_content(self, vault):
-        manifest = RulesManifest(app_version="0.1.0")
-        rules_code = "from penny.classify import rule\n\n@rule('Food')\ndef food(tx): ..."
-
-        entry = vault.append_with_content(
-            "rules",
-            manifest,
-            content={"rules.py": rules_code},
-        )
-
-        rules_file = entry.path / "rules.py"
-        assert rules_file.exists()
-        assert rules_file.read_text() == rules_code
-
     def test_list_entries_sorted(self, vault):
-        vault.append("init", InitManifest(app_version="0.1.0"))
-        vault.append("account_created", AccountCreatedManifest(bank="b"))
-        vault.append("account_created", AccountCreatedManifest(bank="a"))
+        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        vault.append("ingest_comdirect", manifest)
+        vault.append("ingest_comdirect", manifest)
+        vault.append("ingest_comdirect", manifest)
 
         entries = vault.list_entries()
         sequences = [e.sequence for e in entries]
         assert sequences == [1, 2, 3]  # Sorted by sequence
 
     def test_get_entry_by_sequence(self, vault):
-        vault.append("init", InitManifest(app_version="0.1.0"))
-        vault.append("account_created", AccountCreatedManifest(bank="test"))
+        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        vault.append("ingest_comdirect", manifest)
+        vault.append("ingest_comdirect", manifest)
 
         entry = vault.get_entry(2)
         assert entry is not None
-        assert entry.entry_type == "account_created"
+        assert entry.sequence == 2
 
         assert vault.get_entry(99) is None
 
     def test_latest_entry(self, vault):
-        vault.append("init", InitManifest(app_version="0.1.0"))
-        vault.append("account_created", AccountCreatedManifest(bank="test"))
+        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        vault.append("ingest_comdirect", manifest)
+        vault.append("ingest_comdirect", manifest)
 
         latest = vault.latest_entry()
         assert latest.sequence == 2
-        assert latest.entry_type == "account_created"
-
-    def test_latest_of_type(self, vault):
-        vault.append("init", InitManifest(app_version="0.1.0"))
-        vault.append("rules", RulesManifest(app_version="0.1.0"))
-        vault.append("account_created", AccountCreatedManifest(bank="test"))
-        vault.append("rules", RulesManifest(app_version="0.2.0"))
-
-        latest_rules = vault.latest_of_type("rules")
-        assert latest_rules.sequence == 4
-
-        latest_init = vault.latest_of_type("init")
-        assert latest_init.sequence == 1
 
     def test_iter_entries(self, vault):
-        vault.append("init", InitManifest(app_version="0.1.0"))
-        vault.append("account_created", AccountCreatedManifest(bank="test"))
+        manifest = IngestManifest(csv_files=["a.csv"], parser="comdirect", parser_version="comdirect@1")
+        vault.append("ingest_comdirect", manifest)
+        vault.append("ingest_comdirect", manifest)
 
         entries = list(vault.iter_entries())
         assert len(entries) == 2
         assert entries[0].sequence == 1
         assert entries[1].sequence == 2
 
-    def test_auto_initialize_on_append(self, tmp_path):
+
+class TestMutationLog:
+    def test_append_row(self, tmp_path):
         config = VaultConfig(tmp_path / "vault")
-        vault = LogManager(config)
+        log = MutationLog(config)
 
-        assert not config.is_initialized()
+        row = log.append(
+            "rules_updated",
+            entity_type="rules",
+            payload={"path": "2026-01-01T00:00:00Z_rules.py"},
+        )
 
-        vault.append("init", InitManifest(app_version="0.1.0"))
+        assert row.seq == 1
+        assert len(log.list_rows()) == 1
+        assert "rules_updated" in config.mutations_path.read_text(encoding="utf-8")
 
-        assert config.is_initialized()
+
+class TestRulesStore:
+    def test_ensure_rules_snapshot_creates_default(self, tmp_path):
+        config = VaultConfig(tmp_path / "vault")
+        path = ensure_rules_snapshot(config)
+
+        assert path.exists()
+        assert path.parent == config.rules_dir
+        assert path.name.endswith("_rules.py")
+
+    def test_save_rules_snapshot_appends_mutation(self, tmp_path):
+        config = VaultConfig(tmp_path / "vault")
+        path = save_rules_snapshot("DEFAULT_CATEGORY = 'x'\n", config)
+        rows = MutationLog(config).list_rows()
+
+        assert path.exists()
+        assert rows[-1].type == "rules_updated"
+        assert path.name in rows[-1].payload_json

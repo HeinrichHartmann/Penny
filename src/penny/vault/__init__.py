@@ -2,6 +2,7 @@
 
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager, LogEntry
+from penny.vault.mutations import MutationLog, MutationRow
 from penny.vault.manifests import (
     InitManifest,
     AccountCreatedManifest,
@@ -15,6 +16,12 @@ from penny.vault.apply import apply_ingest, apply_entry, IngestResult
 from penny.vault.ingest import ingest_csv, ingest_csv_files, IngestRequest
 from penny.vault.replay import ReplayEngine, ReplayResult, replay_vault
 from penny.vault.startup import StartupResult, bootstrap_application_state, ensure_vault_initialized
+from penny.vault.rules_store import (
+    default_rules_template,
+    ensure_rules_snapshot,
+    latest_rules_path,
+    save_rules_snapshot,
+)
 
 __all__ = [
     # Config
@@ -22,6 +29,8 @@ __all__ = [
     # Log
     "LogManager",
     "LogEntry",
+    "MutationLog",
+    "MutationRow",
     # Manifests
     "InitManifest",
     "AccountCreatedManifest",
@@ -46,4 +55,9 @@ __all__ = [
     "StartupResult",
     "bootstrap_application_state",
     "ensure_vault_initialized",
+    # Rules storage
+    "default_rules_template",
+    "ensure_rules_snapshot",
+    "latest_rules_path",
+    "save_rules_snapshot",
 ]

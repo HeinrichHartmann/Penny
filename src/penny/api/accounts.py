@@ -1,12 +1,18 @@
 """Accounts API router."""
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from penny.accounts import Account, get_account as get_account_by_id, list_accounts as list_all_accounts, soft_delete_account
+from penny.accounts import (
+    Account,
+    get_account as get_account_by_id,
+    list_accounts as list_all_accounts,
+    soft_delete_account,
+    update_account_metadata,
+)
 from penny.api.helpers import get_db
+from penny.vault import MutationLog, VaultConfig
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -84,37 +90,26 @@ async def update_account(
     if account is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
-    # Update via direct SQL (AccountStorage doesn't have update method yet)
-    conn = get_db()
-    cursor = conn.cursor()
-
-    updates = []
-    params = []
+    changes = {}
     if display_name is not None:
-        updates.append("display_name = ?")
-        params.append(display_name)
+        changes["display_name"] = display_name
     if iban is not None:
-        updates.append("iban = ?")
-        params.append(iban)
+        changes["iban"] = iban
     if holder is not None:
-        updates.append("holder = ?")
-        params.append(holder)
+        changes["holder"] = holder
     if notes is not None:
-        updates.append("notes = ?")
-        params.append(notes)
+        changes["notes"] = notes
 
-    if updates:
-        updates.append("updated_at = ?")
-        params.append(datetime.now().isoformat())
-        params.append(account_id)
-
-        cursor.execute(
-            f"UPDATE accounts SET {', '.join(updates)} WHERE id = ?",
-            params,
+    if changes:
+        updated = update_account_metadata(account_id, **changes)
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        MutationLog(VaultConfig()).append(
+            "account_updated",
+            entity_type="account",
+            entity_id=account_id,
+            payload=changes,
         )
-        conn.commit()
-
-    conn.close()
 
     # Return updated account
     return await get_account(account_id)

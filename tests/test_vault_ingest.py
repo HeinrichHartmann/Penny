@@ -26,7 +26,7 @@ class TestVaultIngest:
         return VaultConfig(vault_path)
 
     def test_ingest_creates_log_entry(self, vault_config, fixture_dir):
-        """Ingest should create a log entry with manifest and CSV."""
+        """Ingest should create an archived import with manifest and CSV."""
         csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
         content = read_file_with_encoding(csv_path)
 
@@ -48,7 +48,8 @@ class TestVaultIngest:
         assert log.count() == 1
 
         entry = log.latest_entry()
-        assert entry.entry_type == "ingest_comdirect"
+        assert entry is not None
+        assert entry.path.name.startswith("000001-")
 
         # Check manifest
         manifest = entry.read_manifest()
@@ -97,7 +98,8 @@ class TestVaultIngest:
         # Check log entry
         log = LogManager(vault_config)
         entry = log.latest_entry()
-        assert entry.entry_type == "ingest_sparkasse"
+        assert entry is not None
+        assert entry.path.name.startswith("000001-")
 
 
 class TestVaultReplay:

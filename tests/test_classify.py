@@ -3,9 +3,12 @@ import asyncio
 import pytest
 from click.testing import CliRunner
 
-from penny.api.rules import get_rules_path, run_rules
+from penny.api.rules import RulesUpdate, get_rules_path, run_rules, save_rules
 from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
 from penny.cli import main
+from penny.db import init_db
+from penny.vault import MutationLog, VaultConfig
+from penny.vault import replay_vault
 from penny.transactions import apply_classifications, list_transactions
 
 
@@ -85,9 +88,10 @@ def test_api_run_rules_applies_default_category_to_unmatched(fixture_dir):
     runner = CliRunner()
     _import_fixture(runner, fixture_dir)
 
-    rules_path = get_rules_path()
-    rules_path.parent.mkdir(parents=True, exist_ok=True)
-    rules_path.write_text(
+    result_save = asyncio.run(
+        save_rules(
+            RulesUpdate(
+                content=
         """
 from penny.classify import contains, rule
 
@@ -97,12 +101,15 @@ DEFAULT_CATEGORY = "NeedsReview"
 def salary(transaction):
     return contains(transaction.payee, "Employer")
 """.strip()
-        + "\n",
-        encoding="utf-8",
+                + "\n"
+            )
+        )
     )
+    rules_path = get_rules_path()
 
     result = asyncio.run(run_rules())
 
+    assert result_save["status"] == "saved"
     assert result["status"] == "success"
     assert result["stats"]["matched_count"] == 1
     assert result["stats"]["unmatched_count"] == 2
@@ -118,6 +125,15 @@ def salary(transaction):
     assert categories["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
     assert categories["AMAZON PAYMENTS EUROPE S.C.A."] == "NeedsReview"
     assert all(transaction.category for transaction in transactions)
+
+    rows = MutationLog(VaultConfig()).list_rows()
+    assert rows[-1].type == "rules_updated"
+
+    init_db(None)
+    replay_vault(VaultConfig())
+    replayed = {transaction.payee: transaction.category for transaction in list_transactions(limit=None, neutralize=False)}
+    assert replayed["Example Employer"] == "Income:Salary"
+    assert replayed["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
 
 
 @pytest.mark.integration

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from penny import __version__
 from penny.vault.config import VaultConfig
-from penny.vault.log import LogManager
-from penny.vault.manifests import InitManifest
 from penny.vault.replay import ReplayResult, replay_vault
 
 
@@ -20,21 +17,14 @@ class StartupResult:
 
 
 def ensure_vault_initialized(config: VaultConfig | None = None) -> bool:
-    """Ensure the vault exists and has an initial log entry.
-
-    Returns True if an init entry was created during this call.
-    """
+    """Ensure the portable storage structure exists."""
     if config is None:
         config = VaultConfig()
 
-    log = LogManager(config)
-    if log.count() > 0:
+    if config.is_initialized():
         return False
 
-    log.append(
-        "init",
-        InitManifest(app_version=__version__),
-    )
+    config.initialize()
     return True
 
 

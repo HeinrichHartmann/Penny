@@ -6,13 +6,10 @@ from typing import Optional
 
 from penny.config import default_db_path
 
-# Database path - use same path as CLI (supports PENNY_DATA_DIR env var)
-DB_PATH = default_db_path()
-
 
 def get_db() -> sqlite3.Connection:
     """Get database connection."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(default_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import click
 
-from penny import __version__
 from penny.accounts import (
     DuplicateAccountError,
     add_account,
@@ -18,7 +17,6 @@ from penny.accounts import (
 )
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import RuleCollector, _ACTIVE_COLLECTOR, _load_module
-from penny.config import default_db_path
 from penny.db import init_default_db
 from penny.ingest import (
     DetectionError,
@@ -35,9 +33,11 @@ from penny.transfers import link_transfers
 from penny.vault import (
     IngestRequest,
     LogManager,
+    MutationLog,
     VaultConfig,
     ensure_vault_initialized,
     ingest_csv as ingest_vault_csv,
+    latest_rules_path,
     replay_vault,
 )
 
@@ -121,57 +121,59 @@ def vault():
 
 @vault.command("init")
 def vault_init():
-    """Initialize the vault and create the first log entry if needed."""
+    """Initialize the portable Penny directory."""
     config = VaultConfig()
     created = ensure_vault_initialized(config)
-    log = LogManager(config)
+    imports = LogManager(config)
 
     click.echo(f"Vault: {config.path}")
     if created:
         click.echo("Status: initialized")
-        click.echo(f"Entries: {log.count()}")
+        click.echo("Imports: 0")
+        click.echo("Rules snapshots: 0")
+        click.echo("Mutations: 0")
     else:
         click.echo("Status: already initialized")
-        click.echo(f"Entries: {log.count()}")
+        click.echo(f"Imports: {imports.count()}")
 
 
 @vault.command("status")
 def vault_status():
     """Show vault and projection status."""
     config = VaultConfig()
-    log = LogManager(config)
+    imports = LogManager(config)
+    mutations = MutationLog(config)
+    latest_rules = latest_rules_path(config)
 
     click.echo(f"Vault: {config.path}")
-    click.echo(f"Projection DB: {default_db_path()}")
+    click.echo(f"Projection DB: {config.db_path}")
     click.echo(f"Initialized: {'yes' if config.is_initialized() else 'no'}")
 
     if not config.is_initialized():
-        click.echo("Entries: 0")
+        click.echo("Imports: 0")
+        click.echo("Rules snapshots: 0")
+        click.echo("Mutations: 0")
         return
 
-    entries = log.list_entries()
-    click.echo(f"Entries: {len(entries)}")
-    latest = log.latest_entry()
-    if latest is not None:
-        click.echo(f"Latest: {latest.sequence:06d}_{latest.entry_type}")
-
-    counts: Counter[str] = Counter(entry.read_manifest().type for entry in entries)
-    for entry_type, count in sorted(counts.items()):
-        click.echo(f"  {entry_type}: {count}")
+    click.echo(f"Imports: {imports.count()}")
+    click.echo(f"Rules snapshots: {len(list(config.rules_dir.glob('*_rules.py')))}")
+    click.echo(f"Mutations: {len(mutations.list_rows())}")
+    if latest_rules is not None:
+        click.echo(f"Latest rules: {latest_rules.name}")
 
 
 @vault.command("replay")
 def vault_replay():
-    """Rebuild the SQLite projection from the vault log."""
+    """Rebuild the SQLite projection from archived imports."""
     config = VaultConfig()
     created = ensure_vault_initialized(config)
     result = replay_vault(config)
 
     click.echo(f"Vault: {config.path}")
-    click.echo(f"Projection DB: {default_db_path()}")
+    click.echo(f"Projection DB: {config.db_path}")
     if created:
-        click.echo(f"Initialized with 000001_init (app {__version__})")
-    click.echo(f"Entries processed: {result.entries_processed}")
+        click.echo("Initialized portable storage structure")
+    click.echo(f"Imports processed: {result.entries_processed}")
     for entry_type, count in sorted(result.entries_by_type.items()):
         click.echo(f"  {entry_type}: {count}")
 
