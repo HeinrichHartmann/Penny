@@ -101,6 +101,7 @@ export const SelectorHeader = {
                 </select>
               </span>
             </div>
+          </div>
         </section>
       </div>
     </div>

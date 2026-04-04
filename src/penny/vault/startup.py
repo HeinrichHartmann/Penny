@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from penny.vault.config import VaultConfig
 from penny.vault.replay import ReplayResult, replay_vault
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -65,15 +68,21 @@ def bootstrap_application_state(config: VaultConfig | None = None) -> StartupRes
     if config is None:
         config = VaultConfig()
 
+    logger.info("bootstrap_application_state: vault_path=%s", config.path)
+
     init_entry_created = ensure_vault_initialized(config)
+    logger.info("bootstrap_application_state: init_entry_created=%s", init_entry_created)
 
     # Load demo data on first initialization
     demo_data_loaded = bootstrap_demo_data(config)
+    logger.info("bootstrap_application_state: demo_data_loaded=%s", demo_data_loaded)
 
     replay_result = replay_vault(config)
+    logger.info("bootstrap_application_state: replay_result=%s", replay_result)
 
     # Run classification after replay
     _run_classification()
+    logger.info("bootstrap_application_state: classification complete")
 
     return StartupResult(
         init_entry_created=init_entry_created,
