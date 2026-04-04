@@ -463,55 +463,75 @@ async def transactions(
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
-    """Return filtered transaction list."""
-    conn = get_db()
-    cursor = conn.cursor()
+    """Return filtered transaction list.
 
-    params = []
-    # Join with accounts and account_identifiers to get resolved names
-    query = """
-        SELECT t.fingerprint, t.date, t.account_id, t.payee, t.memo, t.category,
-               t.amount_cents, t.raw_buchungstext, t.subaccount_type,
-               COALESCE(a.display_name, a.bank || ' #' || a.id) as account_name,
-               ai.identifier_value as account_number
-        FROM transactions t
-        LEFT JOIN accounts a ON t.account_id = a.id
-        LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
-            AND ai.identifier_type = 'bank_account_number'
+    Uses storage layer for proper GROUP BY when neutralize=True.
+    Filtering is done in Python for simplicity.
     """
-    query = apply_filters(
-        query, params, from_date, to_date, accounts, neutralize, category, q, table_prefix="t."
-    )
+    from penny.transactions import TransactionStorage
 
-    # Filter by tab (expense/income)
-    if tab == "expense":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "t.amount_cents < 0"
-    elif tab == "income":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "t.amount_cents > 0"
+    storage = TransactionStorage()
+    all_txns = storage.list_transactions(limit=None, neutralize=neutralize)
 
-    query += " ORDER BY t.date DESC"
+    # Parse account IDs filter
+    account_ids = None
+    if accounts:
+        account_ids = {int(a) for a in accounts.split(",") if a}
 
-    rows = cursor.execute(query, params).fetchall()
-    conn.close()
+    # Filter transactions
+    filtered = []
+    for tx in all_txns:
+        # Date filter
+        date_str = tx.date.isoformat()
+        if from_date and date_str < from_date:
+            continue
+        if to_date and date_str > to_date:
+            continue
 
-    # Map to frontend-compatible format (no account_id exposed)
+        # Account filter
+        if account_ids is not None and tx.account_id not in account_ids:
+            continue
+
+        # Category filter (prefix match)
+        if category:
+            if not tx.category or not tx.category.startswith(category):
+                continue
+
+        # Search filter
+        if q:
+            search_text = (tx.raw_buchungstext or tx.payee or "").lower()
+            if q.lower() not in search_text:
+                continue
+
+        # Tab filter (expense/income) - applied to net amount for groups
+        if tab == "expense" and tx.amount_cents >= 0:
+            continue
+        if tab == "income" and tx.amount_cents <= 0:
+            continue
+
+        filtered.append(tx)
+
+    # Sort by date descending, then fingerprint for stability
+    filtered.sort(key=lambda tx: (tx.date, tx.fingerprint), reverse=True)
+
+    # Map to frontend format
     txns = [
         {
-            "fp": row[0],  # fingerprint
-            "booking_date": row[1],  # date
-            "account_id": row[2],
-            "account": row[9] or f"Account #{row[2]}",  # account_name
-            "account_number": row[10] or "",  # bank account number
-            "subaccount": row[8] or "",  # subaccount_type
-            "description": row[3],  # payee
-            "merchant": row[3] or "",  # payee (for compatibility)
-            "category": row[5] or "uncategorized",
-            "amount_cents": row[6],
-            "raw_description": row[7] or "",  # raw_buchungstext
+            "fp": tx.fingerprint,
+            "booking_date": tx.date.isoformat(),
+            "account_id": tx.account_id,
+            "account": tx.account_name or f"Account #{tx.account_id}",
+            "account_number": tx.account_number or "",
+            "subaccount": tx.subaccount_type or "",
+            "description": tx.payee,
+            "merchant": tx.payee or "",
+            "category": tx.category or "uncategorized",
+            "amount_cents": tx.amount_cents,
+            "raw_description": tx.raw_buchungstext or "",
+            "entry_count": tx.entry_count,  # For UI badge on grouped entries
+            "group_id": tx.group_id,  # For expandable detail view
         }
-        for row in rows
+        for tx in filtered
     ]
 
     total_cents = sum(t["amount_cents"] for t in txns)
