@@ -6,6 +6,9 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from penny.ingest import DetectionError
 from penny.vault import IngestRequest, ingest_csv
+from penny.vault.config import VaultConfig
+from penny.vault.log import LogManager
+from penny.vault.manifests import IngestManifest
 
 router = APIRouter(prefix="/api", tags=["import"])
 
@@ -96,3 +99,75 @@ async def import_csv(file: Annotated[UploadFile, File()]):
             "total_parsed": result.transactions_total,
         },
     }
+
+
+@router.get("/imports")
+async def list_imports():
+    """List all past imports with metadata from vault manifests.
+
+    Returns:
+        List of import records with timestamp, filename, parser, and transaction counts.
+    """
+    from penny.accounts import get_account
+
+    config = VaultConfig()
+    log = LogManager(config)
+
+    imports = []
+    for entry in log.iter_entries():
+        try:
+            manifest = entry.read_manifest()
+        except Exception:
+            # Skip entries with invalid manifests
+            continue
+
+        # Only include ingest entries
+        if not isinstance(manifest, IngestManifest):
+            continue
+
+        # Get account info if available
+        # We need to look up the account from the transactions table
+        # since the manifest doesn't store account_id
+        account_label = None
+        account_id = None
+
+        # Try to get account info from the database based on the parser/bank
+        # This is a heuristic - the actual account is determined during apply
+        try:
+            from penny.api.helpers import get_db
+
+            conn = get_db()
+            cursor = conn.cursor()
+            # Find the most likely account based on the bank name from parser
+            row = cursor.execute(
+                """
+                SELECT a.id, a.display_name, a.bank
+                FROM accounts a
+                WHERE a.bank = ?
+                ORDER BY a.id DESC
+                LIMIT 1
+                """,
+                (manifest.parser,),
+            ).fetchone()
+            conn.close()
+
+            if row:
+                account_id = row[0]
+                account_label = row[1] or f"{row[2]} #{row[0]}"
+        except Exception:
+            pass
+
+        imports.append(
+            {
+                "sequence": entry.sequence,
+                "timestamp": manifest.timestamp,
+                "filenames": manifest.csv_files,
+                "parser": manifest.parser,
+                "status": manifest.status,
+                "account_id": account_id,
+                "account_label": account_label,
+            }
+        )
+
+    # Return in reverse chronological order (most recent first)
+    return {"imports": list(reversed(imports))}

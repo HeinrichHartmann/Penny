@@ -159,6 +159,15 @@ export const runRules = async () => {
 };
 
 /**
+ * Fetch import history.
+ * @returns {Promise<{ imports: object[] }>}
+ */
+export const fetchImportHistory = async () => {
+  const resp = await fetch('/api/imports');
+  return resp.json();
+};
+
+/**
  * Upload a CSV file for import.
  * @param {File} file
  * @returns {Promise<object>}
