@@ -31,8 +31,8 @@ This file is designed for iterative development with Claude Code or similar LLMs
 
 Workflow:
   1. Import your bank CSV:          penny import <file.csv>
-  2. Run classification:            penny classify (or use the web UI)
-  3. Review unmatched transactions  (shown in classification log)
+  2. Run classification:            penny apply rules.py -v
+  3. Review unmatched transactions  (shown in output)
   4. Ask your LLM to add rules:     "Add rules for these unmatched transactions: ..."
   5. Save and re-run classification
   6. Repeat until match rate is satisfactory
@@ -43,24 +43,22 @@ Tips for prompting:
   - Use hierarchical categories: "food/groceries", "transport/fuel", etc.
   - Group similar merchants in one rule for maintainability
 
-Example prompt:
-  "Add classification rules for these unmatched transactions:
-   -250.00 EUR | 2024-03-15 | REWE SAGT DANKE 12345
-   -45.50 EUR | 2024-03-14 | ARAL TANKSTELLE
-   These are groceries and fuel respectively."
-
 ================================================================================
 """
 
-from penny.classify import contains, is_
+from penny.classify import contains, is_, rule
 
 # =============================================================================
 # DEFAULT CATEGORY
 # =============================================================================
 # Applied to transactions that don't match any rule.
-# Ensures all transactions have a non-null category for consistent UI filtering.
 
 DEFAULT_CATEGORY = "uncategorized"
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
 
 
 def payee_is(tx, *values):
@@ -88,71 +86,189 @@ def text_contains(tx, *needles):
     return payee_contains(tx, *needles) or memo_contains(tx, *needles) or raw_contains(tx, *needles)
 
 
-# ==============================================================================
-# CLASSIFICATION RULES
-# ==============================================================================
-# Add your rules below. Each @rule decorator specifies the category.
-# Rules are evaluated in order; first match wins.
-
-# @rule("groceries")
-# def grocery_stores(tx):
-#     return payee_contains(tx, "REWE", "EDEKA", "ALDI", "LIDL")
-
-# @rule("transport/fuel")
-# def gas_stations(tx):
-#     return payee_contains(tx, "ARAL", "SHELL", "ESSO")
-
-# @rule("subscriptions/streaming")
-# def streaming_services(tx):
-#     return payee_contains(tx, "NETFLIX", "SPOTIFY", "DISNEY")
+# =============================================================================
+# INCOME
+# =============================================================================
 
 
-# ==============================================================================
+@rule("income/salary")
+def salary(tx):
+    """Monthly salary deposits."""
+    if tx.amount_cents <= 0:
+        return False
+    return payee_contains(tx, "Employer", "GmbH") and memo_contains(tx, "Gehalt", "Lohn")
+
+
+# =============================================================================
+# HOUSING & UTILITIES
+# =============================================================================
+
+
+@rule("housing/rent")
+def rent(tx):
+    """Monthly rent payments."""
+    return payee_contains(tx, "Hausverwaltung") or memo_contains(tx, "Miete")
+
+
+@rule("utilities/electricity")
+def electricity(tx):
+    """Electricity bills."""
+    return payee_contains(tx, "Stadtwerke") or memo_contains(tx, "Strom")
+
+
+@rule("utilities/internet")
+def internet(tx):
+    """Internet and phone bills."""
+    return payee_contains(tx, "Telekom", "Vodafone", "O2") or memo_contains(tx, "DSL", "Telefon")
+
+
+@rule("utilities/insurance")
+def insurance(tx):
+    """Insurance premiums."""
+    return payee_contains(tx, "Versicherung") or memo_contains(tx, "Versicherung")
+
+
+# =============================================================================
+# FOOD & DINING
+# =============================================================================
+
+
+@rule("food/groceries")
+def groceries(tx):
+    """Supermarket and grocery stores."""
+    return payee_contains(tx, "REWE", "EDEKA", "ALDI", "LIDL", "Kaufland", "Netto", "Penny")
+
+
+@rule("food/drugstore")
+def drugstore(tx):
+    """Drugstores and personal care."""
+    return payee_contains(tx, "DM-Drogerie", "DM ", "ROSSMANN", "Mueller")
+
+
+@rule("food/restaurant")
+def restaurants(tx):
+    """Restaurants and dining out."""
+    return payee_contains(
+        tx,
+        "Restaurant",
+        "Cafe",
+        "Café",
+        "Pizzeria",
+        "Burger King",
+        "McDonald",
+        "Asia Wok",
+        "Bistro",
+        "Kebab",
+        "Sushi",
+    )
+
+
+@rule("food/bakery")
+def bakery(tx):
+    """Bakeries and coffee shops."""
+    return payee_contains(tx, "Bäckerei", "Baeckerei", "Backerei", "Starbucks")
+
+
+# =============================================================================
+# TRANSPORT
+# =============================================================================
+
+
+@rule("transport/fuel")
+def fuel(tx):
+    """Gas stations."""
+    return payee_contains(tx, "Tankstelle", "ARAL", "SHELL", "ESSO", "JET ", "Total")
+
+
+@rule("transport/public")
+def public_transport(tx):
+    """Public transportation."""
+    return payee_contains(tx, "Deutsche Bahn", "DB ", "BVG", "MVG", "VBB")
+
+
+# =============================================================================
+# SHOPPING
+# =============================================================================
+
+
+@rule("shopping/amazon")
+def amazon(tx):
+    """Amazon purchases."""
+    return payee_contains(tx, "AMAZON", "AMZN")
+
+
+@rule("shopping/online")
+def online_shopping(tx):
+    """General online shopping."""
+    return payee_contains(tx, "PAYPAL", "KLARNA", "Zalando", "Otto", "MediaMarkt")
+
+
+# =============================================================================
+# SUBSCRIPTIONS
+# =============================================================================
+
+
+@rule("subscriptions/streaming")
+def streaming(tx):
+    """Streaming services."""
+    return payee_contains(tx, "NETFLIX", "SPOTIFY", "DISNEY", "Prime Video", "YouTube")
+
+
+@rule("subscriptions/software")
+def software(tx):
+    """Software subscriptions."""
+    return payee_contains(tx, "APPLE.COM", "GITHUB", "Microsoft", "Adobe", "Google")
+
+
+# =============================================================================
+# CASH & BANKING
+# =============================================================================
+
+
+@rule("cash/atm")
+def atm_withdrawal(tx):
+    """ATM cash withdrawals."""
+    return memo_contains(tx, "Bargeldauszahlung", "Geldautomat", "ATM")
+
+
+@rule("banking/fees")
+def bank_fees(tx):
+    """Bank fees and charges."""
+    return memo_contains(tx, "Entgelt", "Gebühr", "Kontoführung")
+
+
+# =============================================================================
+# TRANSFERS (for grouping)
+# =============================================================================
+
+
+@rule("transfer/internal")
+def internal_transfer(tx):
+    """Transfers between own accounts."""
+    return memo_contains(tx, "Umbuchung", "Übertrag")
+
+
+# =============================================================================
 # TRANSFER GROUPING
-# ==============================================================================
+# =============================================================================
 # Link related transfer entries (e.g., money moved between your own accounts).
-# Grouped entries share a group_id and can be aggregated to show net effect.
-#
-# Usage:
-#   1. Classify transfer transactions with category prefix "transfer/"
-#   2. Define in_same_transfer_group(a, b) predicate below
-#   3. Run: penny link-transfers rules.py
-#
-# The system handles:
-#   - Pre-filtering by TRANSFER_PREFIX
-#   - Date-based windowing (only compares entries within TRANSFER_WINDOW_DAYS)
-#   - Transitive closure (if A-B and B-C match, all three are grouped)
-#
-# You define the matching logic in in_same_transfer_group(a, b).
 
 TRANSFER_PREFIX = "transfer/"
 TRANSFER_WINDOW_DAYS = 10
 
 
-def in_same_transfer_group(a, b):  # noqa: ARG001
-    """Return True if entries a and b belong to the same transfer.
+def in_same_transfer_group(a, b):
+    """Group matching transfers between accounts.
 
-    This function is called for pairs of entries that:
-    - Both have category starting with TRANSFER_PREFIX
-    - Are within TRANSFER_WINDOW_DAYS of each other
-
-    Available fields on Transaction:
-        fingerprint, account_id, subaccount_type, date, payee, memo,
-        amount_cents, category, account_name, account_number
-
-    Args:
-        a: First Transaction
-        b: Second Transaction
-
-    Returns:
-        True if a and b are part of the same logical transfer
-
-    Example implementation:
-        days_apart = abs((a.date - b.date).days)
-        # Match opposite amounts between accounts within 1 day
-        if a.account_id != b.account_id:
-            if a.amount_cents == -b.amount_cents and days_apart <= 1:
-                return True
-        return False
+    Called for pairs of entries that both have category starting with
+    TRANSFER_PREFIX and are within TRANSFER_WINDOW_DAYS of each other.
     """
-    return False  # No grouping by default
+    # Different accounts
+    if a.account_id == b.account_id:
+        return False
+    # Opposite amounts
+    if a.amount_cents != -b.amount_cents:
+        return False
+    # Within a few days
+    days_apart = abs((a.date - b.date).days)
+    return days_apart <= 3
