@@ -1,4 +1,4 @@
-.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test frontend-install frontend-build frontend-dev
+.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test lint lint-fix format frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
 dev: sync frontend-build
@@ -98,6 +98,20 @@ clean:
 # Run tests
 test: dev-install
 	uv run python -m pytest tests/ -v
+
+# Lint code (check only)
+lint: dev-install
+	uv run ruff check src/penny tests
+	uv run ruff format --check src/penny tests
+
+# Lint and fix auto-fixable issues
+lint-fix: dev-install
+	uv run ruff check --fix src/penny tests
+	uv run ruff format src/penny tests
+
+# Format code
+format: dev-install
+	uv run ruff format src/penny tests
 
 # Show help
 help:
