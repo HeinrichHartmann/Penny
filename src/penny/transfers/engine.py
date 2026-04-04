@@ -128,7 +128,7 @@ def link_transfers(
 
     # Generate deterministic group_id for each group
     assignments: dict[str, str] = {}
-    for root, members in raw_groups.items():
+    for _root, members in raw_groups.items():
         if len(members) <= 1:
             continue
         group_id = generate_group_id(members)

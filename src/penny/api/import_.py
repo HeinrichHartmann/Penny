@@ -1,5 +1,7 @@
 """Import API router."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from penny.ingest import DetectionError
@@ -43,7 +45,7 @@ def _auto_run_classification() -> None:
 
 
 @router.post("/import")
-async def import_csv(file: UploadFile = File(...)):
+async def import_csv(file: Annotated[UploadFile, File()]):
     """Import transactions from a CSV file.
 
     Flow (via vault):
@@ -65,12 +67,12 @@ async def import_csv(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=400,
             detail=f"Could not detect CSV format: {e}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=400,
             detail=f"Import failed: {e}",
-        )
+        ) from e
 
     # Auto-run classification rules after import (Issue #8)
     _auto_run_classification()
