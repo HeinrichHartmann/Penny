@@ -18,31 +18,52 @@ Migrate from SQLite-as-source-of-truth to vault-with-replay architecture.
 
 **Tasks:**
 - [ ] Create `vault/` module
-- [ ] Implement `VaultConfig` - resolve vault path from env/config
+- [ ] Implement `VaultConfig` - resolve vault path (default: `~/Documents/Penny`)
 - [ ] Implement `LogManager` - list entries, get next sequence number, write entry
-- [ ] Entry naming: `{seq:06d}_{type}.json` or `{seq:06d}_{type}/`
+- [ ] Entry naming: `{seq:06d}_{type}/` (all entries are directories)
 
 **Tests:**
 - [ ] Test vault path resolution (env var, default)
 - [ ] Test sequence number generation (empty vault, existing entries)
 - [ ] Test entry ordering (lexicographic sort)
 
-### 1.2 Event Schema
+### 1.2 Entry Structure
 
-Define JSON schemas for each mutation type:
+All log entries are directories with `manifest.json` + optional content files:
+
+```text
+000001_init/
+  manifest.json
+
+000002_account_created/
+  manifest.json
+
+000003_ingest_comdirect/
+  manifest.json
+  umsaetze_9788862492_20260331-1354.csv
+
+000004_balance_snapshot/
+  manifest.json
+
+000005_rules/
+  manifest.json
+  rules.py
+```
+
+### 1.3 Manifest Schema
 
 ```python
-# penny/vault/events.py
+# penny/vault/manifests.py
 
 @dataclass
-class InitEvent:
+class InitManifest:
     schema_version: int = 1
     type: Literal["init"] = "init"
     timestamp: str
     app_version: str
 
 @dataclass
-class AccountCreatedEvent:
+class AccountCreatedManifest:
     schema_version: int = 1
     type: Literal["account_created"] = "account_created"
     timestamp: str
@@ -52,7 +73,7 @@ class AccountCreatedEvent:
     iban: str | None
 
 @dataclass
-class AccountUpdatedEvent:
+class AccountUpdatedManifest:
     schema_version: int = 1
     type: Literal["account_updated"] = "account_updated"
     timestamp: str
@@ -60,34 +81,42 @@ class AccountUpdatedEvent:
     fields: dict  # only changed fields
 
 @dataclass
-class AccountHiddenEvent:
-    ...
-
-@dataclass
-class BalanceSnapshotAddedEvent:
-    ...
+class BalanceSnapshotManifest:
+    schema_version: int = 1
+    type: Literal["balance_snapshot"] = "balance_snapshot"
+    timestamp: str
+    account_id: int
+    subaccount_type: str
+    snapshot_date: str
+    balance_cents: int
 
 @dataclass
 class IngestManifest:
     schema_version: int = 1
     type: Literal["ingest"] = "ingest"
     timestamp: str
-    csv_file_count: int
+    csv_files: list[str]  # original filenames
     parser: str
     parser_version: str
     app_version: str
-    account_id: int  # resolved during ingest
     status: Literal["applied", "failed"]
+
+@dataclass
+class RulesManifest:
+    schema_version: int = 1
+    type: Literal["rules"] = "rules"
+    timestamp: str
+    app_version: str
 ```
 
 **Tasks:**
-- [ ] Define all event dataclasses
+- [ ] Define all manifest dataclasses
 - [ ] Implement JSON serialization/deserialization
-- [ ] Add `parser_version` property to each `BankModule`
+- [ ] Add `version` property to each `BankModule`
 
 **Tests:**
-- [ ] Round-trip serialization for each event type
-- [ ] Schema version is present in all events
+- [ ] Round-trip serialization for each manifest type
+- [ ] Schema version is present in all manifests
 
 ---
 
@@ -301,76 +330,25 @@ class SQLiteProjection:
 
 ---
 
-## Phase 5: Migration
+## Phase 5: Polish
 
-### 5.1 Migrate Existing Data
-
-For users with existing SQLite data but no vault:
-
-```python
-def migrate_to_vault(db_path: Path, vault_path: Path):
-    """One-time migration: SQLite -> vault log."""
-    vault_path.mkdir()
-    (vault_path / "log").mkdir()
-
-    log = LogManager(vault_path)
-
-    # 1. Write init
-    log.write(InitEvent(...))
-
-    # 2. Export accounts as account_created events
-    for account in read_accounts_from_sqlite(db_path):
-        log.write(AccountCreatedEvent(...))
-
-    # 3. Cannot recover original CSVs - transactions stay in SQLite only
-    #    OR: prompt user to re-import from original files
-
-    # 4. Export balance snapshots
-    for snapshot in read_snapshots_from_sqlite(db_path):
-        log.write(BalanceSnapshotAddedEvent(...))
-```
-
-**Decision needed:** How to handle existing transactions without source CSVs?
-
-Options:
-1. **Drop them** - user must re-import (cleanest, but disruptive)
-2. **Synthetic ingest event** - create `000003_ingest_legacy/` with a `transactions.json` (breaks "raw input only" rule)
-3. **Grandfather clause** - keep old SQLite data, only new ingests go to vault
-
-**Recommendation:** Option 3 for v1. Document that vault is for new data; legacy SQLite data remains but is read-only.
-
-**Tasks:**
-- [ ] Implement migration script
-- [ ] Handle "no original CSVs" case gracefully
-- [ ] Add startup check: detect SQLite-only state, prompt for migration
-
-**Tests:**
-- [ ] Migration creates valid vault structure
-- [ ] Accounts exported correctly
-- [ ] Balance snapshots exported correctly
-
----
-
-## Phase 6: Polish
-
-### 6.1 CLI Integration
+### 5.1 CLI Integration
 
 - [ ] `penny vault init` - initialize vault
 - [ ] `penny vault status` - show vault path, entry count, last entry
 - [ ] `penny vault replay` - force full replay and rebuild projection
 - [ ] `penny vault check` - validate log integrity
 
-### 6.2 Error Handling
+### 5.2 Error Handling
 
 - [ ] Replay failure on startup: clear error message, don't corrupt vault
 - [ ] Ingest failure: don't create partial directory
-- [ ] Invalid event schema: fail fast with entry path
+- [ ] Invalid manifest schema: fail fast with entry path
 
-### 6.3 Documentation
+### 5.3 Documentation
 
 - [ ] Update README with vault concept
 - [ ] Document backup procedure (just copy the vault)
-- [ ] Document migration from legacy SQLite
 
 ---
 
@@ -400,26 +378,23 @@ Options:
 ## Sequence
 
 ```
-Phase 1 (Foundation)     [~2 days]
+Phase 1 (Foundation)
     ↓
-Phase 2 (Replay)         [~2 days]
+Phase 2 (Replay)
     ↓
-Phase 3 (Write Path)     [~3 days]
+Phase 3 (Write Path)
     ↓
-Phase 4 (Startup)        [~1 day]
+Phase 4 (Startup)
     ↓
-Phase 5 (Migration)      [~1 day]
-    ↓
-Phase 6 (Polish)         [~1 day]
+Phase 5 (Polish)
 ```
 
-Start with Phase 1+2 (read path), then Phase 3+4 (write path), then migration.
+Start with Phase 1+2 (read path), then Phase 3+4 (write path), then polish.
 
 ---
 
-## Open Questions
+## Decisions
 
-1. **Vault location default** - `~/.penny/vault/` or `~/Documents/penny-vault/`?
-2. **Multi-vault support** - needed for v1?
-3. **Parser versioning scheme** - `comdirect@1` or semver?
-4. **Rules file naming** - `000023_rules.py` or `000023_rules/rules.py`?
+1. **Vault location default** - `~/Documents/Penny` (human-readable, easy to backup/archive)
+2. **Migration** - Not supported. Pre-alpha users must re-import. No legacy SQLite support.
+3. **Log entry format** - All entries are directories with `manifest.json` + content files. No bare JSON files.
