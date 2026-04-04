@@ -24,4 +24,7 @@ def fixture_dir() -> Path:
 
 @pytest.fixture
 def transaction_storage(tmp_db: Path) -> TransactionStorage:
+    # AccountStorage must be initialized first to create the accounts table
+    # (transactions has a foreign key reference to accounts)
+    AccountStorage(tmp_db)
     return TransactionStorage(tmp_db)

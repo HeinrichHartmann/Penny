@@ -205,7 +205,7 @@ class TransactionStorage:
             NULL as raw_row,
             MAX(t.category) as category,
             MAX(t.classification_rule) as classification_rule,
-            {consolidation_col} as group_id,
+            MAX(t.group_id) as group_id,
             COALESCE(MAX(a.display_name), MAX(a.bank) || ' #' || MIN(a.id)) as account_name,
             MAX(ai.identifier_value) as account_number,
             COUNT(*) as entry_count
