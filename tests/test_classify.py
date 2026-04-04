@@ -38,7 +38,7 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     _import_fixture(runner, fixture_dir, tmp_path)
 
     rules_path = fixture_dir / "rules_primary.py"
-    result = runner.invoke(main, ["classify", str(rules_path)])
+    result = runner.invoke(main, ["apply", str(rules_path)])
 
     assert result.exit_code == 0
     assert "Rules: 3" in result.output
@@ -66,10 +66,10 @@ def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, 
     first_rules = fixture_dir / "rules_primary.py"
     second_rules = fixture_dir / "rules_reordered.py"
 
-    first = runner.invoke(main, ["classify", str(first_rules)])
+    first = runner.invoke(main, ["apply", str(first_rules)])
     assert first.exit_code == 0
 
-    second = runner.invoke(main, ["classify", str(second_rules)])
+    second = runner.invoke(main, ["apply", str(second_rules)])
     assert second.exit_code == 0
     assert "Shopping:SpecificAmazon: 1" in second.output
 

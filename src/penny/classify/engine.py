@@ -59,6 +59,16 @@ class ClassificationDecision:
 
 
 @dataclass(frozen=True)
+class RuleEvaluation:
+    """Outcome of evaluating a single rule against a transaction."""
+
+    rule_name: str
+    category: str
+    matched: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class LoadedRuleset:
     """An ordered set of classification rules."""
 
@@ -68,14 +78,44 @@ class LoadedRuleset:
     def classify(self, transaction: Transaction) -> ClassificationDecision | None:
         """Return the first matching decision, if any."""
 
+        decision, _ = self.classify_with_trace(transaction)
+        return decision
+
+    def classify_with_trace(
+        self,
+        transaction: Transaction,
+    ) -> tuple[ClassificationDecision | None, list[RuleEvaluation]]:
+        """Return the first matching decision plus rule-by-rule evaluation trace."""
+
+        evaluations: list[RuleEvaluation] = []
         for rule in self.rules:
-            if rule.predicate(transaction):
+            try:
+                matched = bool(rule.predicate(transaction))
+            except Exception as exc:
+                evaluations.append(
+                    RuleEvaluation(
+                        rule_name=rule.name,
+                        category=rule.category,
+                        matched=False,
+                        error=str(exc),
+                    )
+                )
+                raise
+
+            evaluations.append(
+                RuleEvaluation(
+                    rule_name=rule.name,
+                    category=rule.category,
+                    matched=matched,
+                )
+            )
+            if matched:
                 return ClassificationDecision(
                     fingerprint=transaction.fingerprint,
                     category=rule.category,
                     rule_name=rule.name,
-                )
-        return None
+                ), evaluations
+        return None, evaluations
 
 
 @dataclass(frozen=True)
@@ -105,6 +145,7 @@ class ClassificationPassResult:
     category_counts: Counter[str]
     defaulted_transactions: list[Transaction]
     errors: list[ClassificationError]
+    traces: dict[str, list[RuleEvaluation]]
 
 
 class RuleCollector:
@@ -183,6 +224,8 @@ def classify_transaction(transaction: Transaction, ruleset: LoadedRuleset) -> Cl
 def run_classification_pass(
     transactions: list[Transaction],
     config: LoadedRulesConfig,
+    *,
+    collect_rule_trace: bool = False,
 ) -> ClassificationPassResult:
     """Classify a full transaction set using the module's default category."""
 
@@ -190,12 +233,17 @@ def run_classification_pass(
     category_counts: Counter[str] = Counter()
     defaulted_transactions: list[Transaction] = []
     errors: list[ClassificationError] = []
+    traces: dict[str, list[RuleEvaluation]] = {}
     matched_count = 0
     default_count = 0
 
     for transaction in transactions:
         try:
-            decision = config.ruleset.classify(transaction)
+            if collect_rule_trace:
+                decision, evaluations = config.ruleset.classify_with_trace(transaction)
+                traces[transaction.fingerprint] = evaluations
+            else:
+                decision = config.ruleset.classify(transaction)
             if decision is None:
                 decision = ClassificationDecision(
                     fingerprint=transaction.fingerprint,
@@ -224,4 +272,5 @@ def run_classification_pass(
         category_counts=category_counts,
         defaulted_transactions=defaulted_transactions,
         errors=errors,
+        traces=traces,
     )
