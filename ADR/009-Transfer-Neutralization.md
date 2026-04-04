@@ -5,42 +5,117 @@ Draft
 
 ## Context
 
-Bank transactions are single-entry records: each account shows its own view of a transfer. When viewing multiple accounts together, internal transfers appear twice:
+Bank exports contain single-entry records: each account shows its own view of a transfer. When viewing multiple accounts together, internal transfers appear twice:
 
 ```
 Account A: -500 €  (outgoing)
 Account B: +500 €  (incoming)
 ```
 
-This double-counts in totals and clutters the transaction list. The problem extends beyond simple transfers to complex operations like portfolio consolidations:
+This double-counts in totals and clutters the view. The problem extends beyond simple transfers to complex operations like portfolio consolidations:
 
 ```
-Portfolio rebalance (7 entries):
+Portfolio rebalance (124 entries):
   -1000 € (sell A)
   -500 €  (sell B)
   +800 €  (buy C)
   +600 €  (buy D)
-  +50 €   (dividend)
-  -20 €   (fee)
-  +100 €  (settlement)
+  ... 120 more entries ...
   ─────────────────
-  Net: +30 €
+  Net: -10,023,231 €
 ```
 
-These entries represent ONE logical transaction with multiple legs.
+These entries represent ONE logical transaction with multiple legs. Note: the amounts do NOT balance to zero, and there is no amount-based correlation between entries.
+
+### Terminology
+
+- **Entry**: A single row in the bank export (what we store in `transactions` table)
+- **Transfer group**: Multiple entries that belong to the same logical transaction
+- **Neutralization**: Aggregating a transfer group to its net sum
 
 ## Decision
 
-### Core Model: Transaction Groups
+### User-Defined Grouping via `rules.py`
 
-Introduce `transaction_id` to group entries that belong to the same logical transaction.
+Transfer grouping is defined by the user in `rules.py`, similar to classification. The user provides:
+
+```python
+# rules.py
+
+# Config: which entries to consider
+TRANSFER_PREFIX = "transfer/"
+TRANSFER_WINDOW_DAYS = 10
+
+# Predicate: are these two entries part of the same transfer?
+def in_same_transfer_group(a: Entry, b: Entry) -> bool:
+    """Pure symmetric predicate. Return True if a and b belong together."""
+
+    # Investment entries within same week cluster together
+    if "investment" in a.category and "investment" in b.category:
+        return True
+
+    # Card settlement
+    if "VISA" in a.raw_buchungstext and "VISA" in b.raw_buchungstext:
+        return True
+
+    # Simple internal transfer (opposite amounts, different accounts)
+    if a.amount_cents == -b.amount_cents and a.account_id != b.account_id:
+        return True
+
+    return False
+```
+
+### System-Provided Optimization
+
+The system handles performance optimization internally:
+
+1. **Pre-filter** by `TRANSFER_PREFIX` (only `transfer/*` entries considered)
+2. **Sort** by date
+3. **Sliding window** of `TRANSFER_WINDOW_DAYS` (only compare nearby entries)
+4. **Union-Find** for transitive closure
+
+This reduces complexity from O(n²) to O(n × w) where w = window size.
+
+```
+100,000 total entries
+  → 10,000 transfer/* entries (after prefix filter)
+  → 10,000 × 100 = 1M comparisons (with 10-day window)
+  → ~1 second runtime ✓
+```
+
+### Algorithm
+
+```python
+def link_transfers(entries, predicate, prefix, window_days):
+    # 1. Pre-filter by category prefix
+    transfers = [e for e in entries if e.category.startswith(prefix)]
+
+    # 2. Sort by date
+    transfers.sort(key=lambda e: e.date)
+
+    # 3. Sliding window comparison
+    groups = UnionFind()
+    for i, a in enumerate(transfers):
+        for j in range(i + 1, len(transfers)):
+            b = transfers[j]
+            if (b.date - a.date).days > window_days:
+                break  # Sorted, no more candidates
+            if predicate(a, b):
+                groups.union(a.fingerprint, b.fingerprint)
+
+    # 4. Assign transaction_id from groups
+    return groups.to_transaction_ids()
+```
+
+### Schema
 
 ```sql
 ALTER TABLE transactions ADD COLUMN transaction_id TEXT;
 CREATE INDEX idx_transactions_txid ON transactions(transaction_id);
 ```
 
-Entries sharing the same `transaction_id` are legs of one transaction.
+- `NULL` = ungrouped entry
+- Shared value = entries belong to same transfer group
 
 ### Neutralization = Aggregation
 
@@ -49,101 +124,42 @@ Neutralization does NOT mean hiding. It means **consolidating entries to their n
 | View | Behavior |
 |------|----------|
 | Single account | Show raw entries (atomic view for that account) |
-| Multiple accounts | Show consolidated `transaction_id` groups with net sum |
+| Multiple accounts | Show consolidated groups with net sum |
 
-A "neutralized" transaction is the **sum of its entries**:
+A "neutralized" transfer group is the **sum of its entries**:
 - Simple transfer: net €0 (may be hidden or shown dimmed)
-- Portfolio rebalance: net +€30 (shown as single line)
+- Portfolio rebalance: net -€10M (shown as single line)
 - Transfer with fee: net -€2 (the fee is visible)
-
-### Inference Logic
-
-Transaction groups are inferred through multiple strategies, in order of confidence:
-
-#### 1. Reference Match (High Confidence)
-```
-Same `reference` field across entries
-+ opposite signs
-+ different accounts
-→ Link automatically
-```
-
-Banks often use the same reference number on both sides of a transfer.
-
-#### 2. Amount + Date Match (Medium Confidence)
-```
-abs(amount_a) == abs(amount_b)
-+ sign(amount_a) != sign(amount_b)
-+ account_a != account_b
-+ abs(date_a - date_b) <= 2 days
-→ Surface as candidate for confirmation
-```
-
-#### 3. Classification Hint (Medium Confidence)
-```
-Both entries classified as transfer/*
-+ amount/date match criteria
-→ Surface as candidate for confirmation
-```
-
-#### 4. Manual Link (Explicit)
-User explicitly groups entries via UI.
-
-### Transaction ID Generation
-
-For automatic matches:
-```python
-transaction_id = sha256(
-    sorted([entry_a.fingerprint, entry_b.fingerprint])
-).hexdigest()[:16]
-```
-
-For manual links, generate a new UUID-based ID.
-
-### Workflow
-
-1. **Auto-link** high-confidence matches (reference-based)
-2. **Surface candidates** for user review (amount+date matches)
-3. **Allow manual linking** in transaction detail view
-4. **Store confirmed links** as `transaction_id`
-
-This runs as a batch operation, similar to classification:
-```bash
-penny link-transfers
-```
-
-Or via the web UI "Detect Transfers" button.
 
 ### Query Logic
 
 ```python
-def get_transactions(selected_account_ids, consolidate=True):
-    all_txns = fetch_transactions(selected_account_ids)
+def get_entries(selected_account_ids, consolidate=True):
+    all_entries = fetch_entries(selected_account_ids)
 
     if not consolidate or len(selected_account_ids) == 1:
-        return all_txns  # Raw entries
+        return all_entries  # Raw entries
 
     # Group by transaction_id
     groups = defaultdict(list)
     ungrouped = []
-    for tx in all_txns:
-        if tx.transaction_id:
-            groups[tx.transaction_id].append(tx)
+    for e in all_entries:
+        if e.transaction_id:
+            groups[e.transaction_id].append(e)
         else:
-            ungrouped.append(tx)
+            ungrouped.append(e)
 
     result = ungrouped[:]
     for txid, entries in groups.items():
-        # Check if all legs are within selection
         in_selection = [e for e in entries if e.account_id in selected_account_ids]
 
         if len(in_selection) > 1:
             # Multiple legs in view → consolidate to net
-            result.append(ConsolidatedTransaction(
+            result.append(ConsolidatedEntry(
                 transaction_id=txid,
                 amount_cents=sum(e.amount_cents for e in in_selection),
                 entries=in_selection,
-                # Use earliest date, combine descriptions, etc.
+                date=min(e.date for e in in_selection),
             ))
         else:
             # Only one leg in view → show as-is
@@ -152,67 +168,56 @@ def get_transactions(selected_account_ids, consolidate=True):
     return result
 ```
 
-### UI Exposure
+### Workflow
 
-#### Transactions View
-- Toggle: "Consolidate transfers" (default ON for multi-account view)
-- Consolidated rows show:
-  - Net amount
-  - Entry count badge: "(3 entries)"
-  - Expandable to show individual legs
+1. User classifies entries (some get `transfer/*` category)
+2. User defines `in_same_transfer_group()` in `rules.py`
+3. Run linking: `penny link-transfers` or UI button
+4. System assigns `transaction_id` to grouped entries
+5. Views show consolidated groups
 
-#### Transaction Detail
-- Shows all linked entries
-- "Link with..." action to manually group
-- "Unlink" action to break a group
+### CLI
 
-#### Classification Log
-- Reports: "X transfer groups detected (Y auto-linked, Z candidates)"
-
-### Persistence
-
-```sql
--- transactions table
-transaction_id TEXT,  -- NULL = ungrouped, shared value = grouped
-
--- Optional: explicit link table for complex cases
-CREATE TABLE transaction_links (
-    id INTEGER PRIMARY KEY,
-    transaction_id TEXT NOT NULL,
-    fingerprint TEXT NOT NULL REFERENCES transactions(fingerprint),
-    linked_at TEXT NOT NULL,
-    linked_by TEXT  -- 'auto:reference', 'auto:amount_date', 'manual'
-);
+```bash
+penny link-transfers [--dry-run]
 ```
 
-For v1, the column-based approach is sufficient. The link table can be added later for audit trails.
+Output:
+```
+Loaded rules: ~/.local/share/penny/rules.py
+  TRANSFER_PREFIX = "transfer/"
+  TRANSFER_WINDOW_DAYS = 10
+
+Entries: 4,040 total, 892 transfers
+Groups found: 234
+  - 180 pairs (2 entries each)
+  - 42 triplets
+  - 12 larger groups (max 124 entries)
+
+Linked: 534 entries into 234 groups
+```
+
+### UI
+
+- **Transactions view**: Toggle "Consolidate transfers" (default ON for multi-account)
+- **Consolidated row**: Shows net amount, "(N entries)" badge, expandable
+- **Detail view**: Shows all linked entries
 
 ## Consequences
 
-- Internal transfers no longer double-count in totals
-- Portfolio consolidations appear as single net transactions
-- Fees and partial transfers are correctly accounted (non-zero net)
-- Single-account view remains unchanged (raw entries)
-- Users can review and correct inferred links
-
-## Edge Cases
-
-| Case | Handling |
-|------|----------|
-| Partial transfer (€1000 → €500 + €500) | Multiple transaction_ids, or N:M matching in v2 |
-| Same-day coincidence (rent out, salary in) | Amount+date match surfaces as candidate, not auto-linked |
-| Cross-currency transfer | Match on reference + date, not amount |
-| N-way splits | One transaction_id can have >2 entries |
-| Fee as separate entry | Include in group if same reference/date |
+- User has full control over grouping logic
+- No magic amount-matching heuristics
+- Portfolio consolidations (N entries, arbitrary amounts) work correctly
+- System handles performance optimization transparently
+- Classification must happen before linking
 
 ## Out of Scope (v1)
 
-- Automatic fee detection and grouping
-- Cross-currency amount matching
-- Predictive linking ("this looks like your usual savings transfer")
-- Undo/redo for manual links
+- Manual link/unlink in UI (user edits `rules.py` instead)
+- Undo/redo for linking
+- Cross-currency matching
 
 ## References
 
 - ADR-008: Transaction Classification
-- Prior art: FinanceAnalysis `neutralize.py` (same-as rules approach)
+- Prior art: FinanceAnalysis `neutralize.py`
