@@ -68,7 +68,6 @@ async def categories(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     q: Optional[str] = Query(None),
 ):
     """Return distinct category paths for the current raw filter selection."""
@@ -91,7 +90,6 @@ async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -130,7 +128,6 @@ async def tree(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -185,7 +182,6 @@ async def pivot(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -245,7 +241,6 @@ async def cashflow(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -307,7 +302,6 @@ async def breakout(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -372,7 +366,6 @@ async def report(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
