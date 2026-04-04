@@ -1,22 +1,47 @@
 # Penny
 
-Personal finance tracking and analysis app for non-technical users.
+Penny is a local-first personal finance tool with a desktop UI for humans and a CLI for LLM-assisted collaboration.
+
+It is built for collaborative iteration: import transactions, classify them with rules, link transfers, and inspect the result in a local dashboard.
+
+## Current Status
+
+Penny is pre-alpha.
+
+Current focus:
+- local desktop usage
+- reproducible imports
+- rule-based categorization
+- transfer grouping
+- iterative workflows on your own data
 
 ## Features
 
-- Import CSV files from various bank sources
-- Rule-based expense classification
-- Rich reporting dashboard
-- (v2) Budget tracking
+- Import CSV exports from supported banks
+- Reconcile imports against existing accounts
+- Categorize transactions with ordered Python rules
+- Apply a default category to unmatched transactions
+- Link transfer entries into transfer groups
+- Inspect transactions, categories, and reports in the desktop UI
+- Use the CLI for LLM-assisted co-creation and debugging of rules and grouping logic
 
-## Development
+## Install
 
-### Prerequisites
+### macOS Desktop App
 
-- [Nix](https://nixos.org/download.html) with flakes enabled
-- [direnv](https://direnv.net/) (optional but recommended)
+For normal human use, install Penny from the latest DMG on GitHub Releases.
 
-## Install the CLI
+Current caveat:
+- release builds are not notarized yet
+- the DMG is still ad-hoc signed
+- treat the desktop build as experimental for now
+
+### CLI for LLM Collaboration
+
+A CLI is also available for LLM-assisted workflows such as co-creating and debugging:
+- classification rules
+- import behavior
+- transfer grouping
 
 ```bash
 # Install the latest CLI directly from GitHub
@@ -27,6 +52,13 @@ uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.1.0
 ```
 
 This installs the `penny` command as a standalone CLI tool.
+
+## Development
+
+### Prerequisites
+
+- [Nix](https://nixos.org/download.html) with flakes enabled
+- [direnv](https://direnv.net/) (optional but recommended)
 
 ### Setup
 
@@ -80,31 +112,3 @@ make release-dry-run
 `make release` publishes the `dist/Penny-<version>.dmg` artifact and a matching `.sha256`
 checksum to the GitHub Release for tag `v<version>`. The current `HEAD` must already be
 pushed to the branch upstream.
-
-## Architecture
-
-```
-penny/
-├── src/penny/
-│   ├── launcher.py   # Native Toga window
-│   ├── server.py     # FastAPI web server
-│   └── __main__.py   # Entry point
-├── flake.nix         # Nix development environment
-├── pyproject.toml    # Python project config + Briefcase
-└── Makefile          # Build commands
-```
-
-## How it Works
-
-1. User launches Penny app
-2. Native Toga window appears
-3. FastAPI server starts on localhost:8000
-4. Browser auto-opens to dashboard
-5. "Open Dashboard" button available for re-opening
-
-## Naming
-
-Named after Penny from The Big Bang Theory. Future views/components may follow the theme:
-- **Sheldon** - Classification engine (rigid, rule-based)
-- **Howard** - Import system (engineering)
-- **Leonard** - Reports (sensible overview)
