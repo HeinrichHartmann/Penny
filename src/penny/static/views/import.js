@@ -1,6 +1,6 @@
 import { reactive } from 'vue/dist/vue.esm-bundler.js';
 
-export const createImportViewState = ({ uploadCsv, loadAccounts, refreshMeta }) => {
+export const createImportViewState = ({ uploadCsv, afterUpload }) => {
   const importState = reactive({
     isDragging: false,
     isUploading: false,
@@ -21,7 +21,9 @@ export const createImportViewState = ({ uploadCsv, loadAccounts, refreshMeta }) 
       }
 
       importState.lastResult = results.length === 1 ? results[0] : results;
-      await Promise.all([loadAccounts(), refreshMeta()]);
+      if (afterUpload) {
+        await afterUpload();
+      }
     } catch (error) {
       importState.error = error.message;
     } finally {

@@ -24,6 +24,7 @@ import { createChartManager } from './charts.js';
 import { SelectorHeader } from './components/SelectorHeader.js';
 import { createAccountsViewState } from './views/accounts.js';
 import { createImportViewState } from './views/import.js';
+import { ImportView } from './views/ImportView.js';
 import { createReportViewState } from './views/report.js';
 import { RulesView } from './views/RulesView.js';
 import { createSelectorState } from './views/selector.js';
@@ -31,6 +32,7 @@ import { createTransactionsViewState } from './views/transactions.js';
 
 createApp({
   components: {
+    ImportView,
     SelectorHeader,
     RulesView,
   },
@@ -234,20 +236,10 @@ createApp({
       saveAccountName,
     } = accountsView;
 
-    const importView = createImportViewState({
-      uploadCsv,
-      loadAccounts,
-      refreshMeta,
-    });
-
-    const {
-      importState,
-      handleDragOver,
-      handleDragLeave,
-      handleDrop,
-      handleFileSelect,
-      resetImportState,
-    } = importView;
+    const handleImportComplete = async () => {
+      await Promise.all([loadAccounts(), refreshMeta()]);
+      await loadCategoryOptions();
+    };
 
     // ── Account Toggle ───────────────────────────────────────────────────────
     const toggleAccount = (accountId) => {
@@ -327,8 +319,6 @@ createApp({
     watch(view, async () => {
       if (view.value === 'accounts') {
         await loadAccounts();
-      } else if (view.value === 'import') {
-        resetImportState();
       } else {
         loadCurrentViewData();
       }
@@ -514,13 +504,7 @@ createApp({
       copyReport,
       copyPivotTable,
       copyTransactionsTable,
-
-      // Import
-      importState,
-      handleDragOver,
-      handleDragLeave,
-      handleDrop,
-      handleFileSelect,
+      handleImportComplete,
 
       // Accounts
       accountsList,
