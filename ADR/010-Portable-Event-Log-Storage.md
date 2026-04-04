@@ -1,27 +1,33 @@
-# ADR-010: Portable Event-Log Storage
+# ADR-010: Portable Financial State Storage
 
 ## Status
 Draft
 
 ## Context
 
-Penny currently persists application state in local app storage under XDG-style directories and SQLite tables.
+Penny needs a storage model that is:
 
-That is convenient for implementation, but it is a poor fit for the product requirements:
+- portable between machines
+- easy to back up
+- explicit and user-owned
+- inspectable outside the app
+- stable enough to rebuild financial state after local breakage
 
-- users should be able to move Penny to a new machine without uncertainty
-- backups should be simple and explicit
-- the full state should be inspectable and user-owned
-- rebuilding state should not depend on hidden internal app directories
-- parser or classifier changes must not silently rewrite past imports
+The previous direction of storing every mutation as a filesystem event-log entry was too heavy for the actual product needs.
 
-For a finance tool, "the database in app state" is too opaque. Penny needs a portable source of truth.
+The important user-owned artifacts are:
+
+- raw import files
+- financial/user-decision mutations
+- rules history
+
+The user does not need to inspect or edit every internal application mutation as a directory tree.
 
 ## Decision
 
-### User-Owned Vault Directory
+### User-Owned Penny Directory
 
-Penny's source of truth is a user-owned vault directory.
+Penny stores its portable state under a user-owned directory.
 
 Default location: `~/Documents/Penny`
 
@@ -29,240 +35,211 @@ Example:
 
 ```text
 ~/Documents/Penny/
-  log/
-    000001_init/
-      manifest.json
-    000002_account_created/
-      manifest.json
-    000003_ingest_comdirect/
+  penny.sqlite
+  mutations.tsv
+  imports/
+    000001-2026-04-04T11:19:00Z/
       manifest.json
       umsaetze_9788862492_20260331-1354.csv
-    000004_account_updated/
+    000002-2026-04-05T09:10:00Z/
       manifest.json
-    000005_balance_snapshot/
-      manifest.json
-    000006_rules/
-      manifest.json
-      rules.py
+      20260401-12345678-umsatz-camt52v8.CSV
+  rules/
+    2026-04-04T11:22:00Z_rules.py
+    2026-04-05T09:10:00Z_rules.py
 ```
 
-All log entries are directories containing `manifest.json` and optional content files.
+This directory is the unit of backup and migration.
 
-The vault is:
+### Current-State SQLite Database
 
-- portable
-- backupable
-- inspectable
-- intended to be copied between machines
+`penny.sqlite` is the current materialized application state only.
 
-### Append-Only Mutation Log
+It is not the archival format and not the primary portability boundary.
 
-Every user-visible mutation becomes a new log entry.
+It should be largely rebuildable from:
 
-Examples:
+- `imports/`
+- `mutations.tsv`
+- `rules/`
 
-- account created
-- account metadata updated
-- account hidden
-- balance snapshot added
-- balance snapshot edited
-- transaction override added
-- transfer group edited
-- CSV ingested
-- rules updated
+The rebuildability contract is about the financial numbers and user financial decisions, not every incidental application setting.
 
-The log is append-only:
+### Rebuildability Contract
 
-- existing entries are immutable
-- ordering is defined by the numeric prefix
-- replaying entries in order reconstructs the full state
+Penny must be able to rebuild the financial state that affects reports and balances, including:
 
-### Replay Model
+- imported transactions
+- account identities relevant to reconciliation
+- account naming and metadata that affect interpretation/display
+- account balance snapshots
+- manual transaction groupings
+- manual classification actions
+- active and historical rule sets
 
-Penny rebuilds application state by replaying the mutation log in order.
+Penny does not need to guarantee replay of purely incidental UI/application state, such as:
 
-The replay result is the canonical current state.
+- active filters
+- selected tabs
+- window layout
+- temporary caches
+- other cosmetic or convenience preferences
 
-In v1, Penny should assume full replay from the vault on startup.
+In short:
 
-If replay breaks, that should surface immediately at startup, because it means the persisted mutation log is no longer readable with the current application version.
+- the numbers must be rebuildable
+- the app chrome does not have to be
 
-Derived local caches or projections may be added later, but they are not the source of truth.
+### Raw Imports as Directories
 
-### Log Entry Format
+Accepted CSV drops are archived under `imports/` as append-only directories.
 
-All log entries are directories containing `manifest.json` and optional content files.
+Each ingest gets:
 
-The manifest contains metadata about the mutation. Content files hold raw user input (CSVs, rules code).
-
-#### Simple Mutations
-
-Account and balance mutations have only a manifest:
-
-```text
-000005_balance_snapshot/
-  manifest.json
-```
-
-```json
-{
-  "schema_version": 1,
-  "type": "balance_snapshot",
-  "timestamp": "2026-04-04T14:22:11Z",
-  "account_id": 3,
-  "subaccount_type": "giro",
-  "snapshot_date": "2026-04-04",
-  "balance_cents": 182340
-}
-```
-
-#### Ingest Mutations
-
-Ingest entries include the original CSV files:
-
-```text
-000003_ingest_comdirect/
-  manifest.json
-  umsaetze_9788862492_20260331-1354.csv
-```
-
-CSV files keep their original filenames.
-
-The manifest is the first-class ingest record for that folder.
+- a monotonic numeric prefix
+- an ingest timestamp in the folder name
+- a `manifest.json`
+- the original uploaded CSV file(s)
 
 Example:
 
-```json
-{
-  "schema_version": 1,
-  "type": "ingest",
-  "timestamp": "2026-04-04T14:22:11Z",
-  "csv_file_count": 1,
-  "parser": "comdirect",
-  "parser_version": "comdirect@1",
-  "app_version": "0.1.0",
-  "status": "applied"
-}
+```text
+imports/
+  000001-2026-04-04T11:19:00Z/
+    manifest.json
+    umsaetze_9788862492_20260331-1354.csv
+```
+
+The manifest records metadata such as:
+
+- ingest timestamp
+- parser
+- parser version
+- application version
+- ingest status
+- CSV file list
+- file hashes
+
+If a dropped file cannot be parsed, Penny rejects it and does not create an import directory.
+
+### Mutation Log as TSV
+
+Non-import financial/user-decision mutations are stored in a single append-only TSV file:
+
+```text
+~/Documents/Penny/mutations.tsv
+```
+
+The format is chosen because it is:
+
+- inspectable
+- diffable
+- append-only
+- easy to open in spreadsheet software
+
+The TSV has a fixed envelope with a JSON payload column.
+
+Suggested columns:
+
+```text
+seq	timestamp	type	entity_type	entity_id	payload_json
+```
+
+The first columns remain easy to inspect in spreadsheet tools; the payload stays flexible enough for future schema evolution.
+
+Examples of mutations captured there:
+
+1. account balance setting
+2. account naming / account metadata updates
+3. manual transaction groupings
+4. manual classification actions
+
+Additional financial mutations may be added later using new `type` values.
+
+### Rules History as Versioned Python Files
+
+Rules are persisted as versioned Python files under `rules/`.
+
+Example:
+
+```text
+rules/
+  2026-04-04T11:22:00Z_rules.py
+  2026-04-05T09:10:00Z_rules.py
 ```
 
 This preserves:
 
-- the original raw CSV files
-- the ingest metadata
+- exact classifier code history
+- easy manual inspection
+- compatibility with the existing Python rules model
 
-Only raw user input is stored. Parsed transactions are recomputed during replay by running the parser on the source files.
+Rules updates should also append a corresponding row to `mutations.tsv`, so the mutation log references which rule snapshot became active.
 
-The ingest manifest should at minimum capture:
+### Replay Model
 
-- ingest timestamp
-- number of CSV files included in the ingest
-- parser identifier
-- parser version
-- application version
-- ingest status
+When Penny needs to rebuild financial state, it should do so from:
 
-If a dropped file cannot be parsed, Penny rejects the drop and does not create a new ingest directory.
+1. `imports/`
+2. `mutations.tsv`
+3. `rules/`
 
-#### Rules Mutations
+`penny.sqlite` may be recreated from those sources.
 
-Rules changes are also mutations.
+The replay model is therefore selective:
 
-When the user uploads or saves a new rules version, Penny creates a rules entry:
+- import artifacts and financial mutations are durable source material
+- SQLite is a working projection
 
-```text
-000023_rules/
-  manifest.json
-  rules.py
-```
-
-```json
-{
-  "schema_version": 1,
-  "type": "rules",
-  "timestamp": "2026-04-04T15:30:00Z",
-  "app_version": "0.1.0"
-}
-```
-
-Replay semantics:
-
-- the latest `*_rules/` entry in log order becomes the active rules source
-- old rule versions remain available for audit and history
-
-This keeps rules human-readable and preserves the exact classifier code that was active at a given point in the mutation history.
+This keeps the portability boundary small and explicit without forcing every internal mutation into a bespoke directory log.
 
 ### UI Implication
 
-The current "Import" concept should be treated as an **Ingest log**.
+The current import surface should evolve into an import history view.
 
-That view should eventually show:
+That view should show:
 
-- every accepted ingest in log order
-- ingest date
-- number of CSV files in that ingest
+- every accepted import
+- import date
+- number of CSV files
 - parser used
 - parser version used at the time
-- replay or processing failures, if any
+- status/failures recorded in the import manifest
 
-This makes the ingest surface meaningful as an auditable history instead of a transient upload panel.
+This makes the import tab meaningful as an auditable history of raw financial inputs.
 
 ### Compatibility Contract
 
-The compatibility boundary is the mutation log format.
+The compatibility boundary is:
 
-Penny must remain backwards-compatible at the replay layer:
+- import directory format
+- `mutations.tsv` row format
+- rules snapshot layout
 
-- old log entries must continue to replay correctly
-- entries declare a `schema_version`
-- new features should add new record types or new schema versions
-- Penny must not silently reinterpret old records in incompatible ways
-
-### Internal Database Role
-
-SQLite is not the source of truth.
-
-If SQLite is used internally, it is a derived projection built from replay.
+Penny should remain backwards-compatible at that storage boundary.
 
 That means:
 
-- deleting the internal database must not lose user state
-- the database can always be recreated from the vault
-- copying the vault is sufficient for backup and migration
-
-### Naming Convention
-
-Log entries use:
-
-- a monotonic numeric prefix for ordering
-- a descriptive suffix for readability
-- all entries are directories
-
-Examples:
-
-```text
-000001_init/
-000002_account_created/
-000003_ingest_comdirect/
-000004_balance_snapshot/
-000005_rules/
-```
-
-The numeric prefix is the ordering mechanism; the suffix is descriptive only.
+- older import manifests must remain readable
+- older mutation rows must remain replayable
+- new mutation kinds should be additive
+- old records must not be silently reinterpreted incompatibly
 
 ## Consequences
 
-- Penny becomes portable by copying one user-owned directory
-- backups are straightforward
-- rules, ingests, and manual edits become auditable history
-- rebuilding state on a new laptop becomes deterministic
-- internal SQLite state is no longer opaque or critical
+- Penny remains portable by copying one user-owned directory
+- raw CSV provenance stays explicit and inspectable
+- the mutation log is easier to inspect than JSON-per-directory entries
+- rules history remains human-readable Python
+- SQLite becomes a disposable current-state projection
+- the product avoids over-engineering a filesystem WAL for mutations the user never interacts with directly
 
 ## Out of Scope
 
-- compression or archival policies for old imports
+- exact TSV schema details for every mutation kind
+- compression/retention policies for old imports
 - cross-machine sync protocol
-- projection caching strategy beyond the replay model
-- cryptographic signing of log entries
+- non-financial UI preference persistence
 
 ## References
 
