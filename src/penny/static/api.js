@@ -40,10 +40,12 @@ export const fetchMeta = async () => {
 
 /**
  * Fetch all accounts.
+ * @param {boolean} includeHidden - Include hidden accounts
  * @returns {Promise<{ accounts: object[] }>}
  */
-export const fetchAccounts = async () => {
-  const resp = await fetch('/api/accounts');
+export const fetchAccounts = async (includeHidden = false) => {
+  const params = includeHidden ? '?include_hidden=true' : '';
+  const resp = await fetch(`/api/accounts${params}`);
   return resp.json();
 };
 
@@ -98,6 +100,22 @@ export const recordBalanceSnapshot = async (accountId, snapshot) => {
   if (!resp.ok) {
     const error = await resp.json();
     throw new Error(error.detail || 'Failed to record balance');
+  }
+  return resp.json();
+};
+
+/**
+ * Delete (hide) an account.
+ * @param {number} accountId
+ * @returns {Promise<object>}
+ */
+export const deleteAccount = async (accountId) => {
+  const resp = await fetch(`/api/accounts/${accountId}`, {
+    method: 'DELETE',
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Failed to delete account');
   }
   return resp.json();
 };

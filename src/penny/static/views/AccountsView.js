@@ -1,6 +1,6 @@
 import { onMounted } from 'vue/dist/vue.esm-bundler.js';
 
-import { fetchAccounts, updateAccount, recordBalanceSnapshot } from '../api.js';
+import { fetchAccounts, updateAccount, recordBalanceSnapshot, deleteAccount } from '../api.js';
 import { createAccountsViewState } from './accounts.js';
 
 export const AccountsView = {
@@ -14,6 +14,7 @@ export const AccountsView = {
     const {
       accountsList,
       accountsLoading,
+      includeHidden,
       editingAccountId,
       editingAccountData,
       recordingBalanceForId,
@@ -25,10 +26,13 @@ export const AccountsView = {
       startRecordingBalance,
       cancelRecordingBalance,
       saveBalanceSnapshot,
+      hideAccount,
+      toggleIncludeHidden,
     } = createAccountsViewState({
       fetchAccounts,
       updateAccount,
       recordBalanceSnapshot,
+      deleteAccount,
       refreshMeta: props.refreshMeta,
     });
 
@@ -44,6 +48,7 @@ export const AccountsView = {
     return {
       accountsList,
       accountsLoading,
+      includeHidden,
       editingAccountId,
       editingAccountData,
       recordingBalanceForId,
@@ -55,12 +60,25 @@ export const AccountsView = {
       startRecordingBalance,
       cancelRecordingBalance,
       saveBalanceSnapshot,
+      hideAccount,
+      toggleIncludeHidden,
       formatCurrency,
     };
   },
   template: `
     <div>
-      <h2 style="font-size: 1.4rem; margin-bottom: 20px;">Accounts</h2>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+        <h2 style="font-size: 1.4rem; margin: 0;">Accounts</h2>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+          <input
+            type="checkbox"
+            :checked="includeHidden"
+            @change="toggleIncludeHidden"
+            style="cursor: pointer;"
+          >
+          <span>Show Archived</span>
+        </label>
+      </div>
 
       <div v-if="accountsLoading" class="panel" style="padding: 40px; text-align: center;">
         <p style="color: var(--muted);">Loading accounts...</p>
@@ -73,7 +91,12 @@ export const AccountsView = {
       <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px;">
         <div v-for="acc in accountsList" :key="acc.id"
           :class="['panel', 'account-card', filters.accounts.includes(acc.id) ? 'active' : 'inactive']"
-          style="padding: 24px; transition: all 0.2s;">
+          :style="{
+            padding: '24px',
+            transition: 'all 0.2s',
+            opacity: acc.hidden ? 0.6 : 1,
+            border: acc.hidden ? '2px dashed var(--muted)' : ''
+          }">
 
           <!-- Editing Mode -->
           <div v-if="editingAccountId === acc.id" style="margin-bottom: 16px;">
@@ -208,8 +231,9 @@ export const AccountsView = {
                 {{ filters.accounts.includes(acc.id) ? '💳' : '🔒' }}
               </div>
               <div style="flex: 1; min-width: 0;">
-                <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px;">
-                  {{ acc.display_name || acc.bank + ' #' + acc.id }}
+                <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                  <span>{{ acc.display_name || acc.bank + ' #' + acc.id }}</span>
+                  <span v-if="acc.hidden" style="font-size: 0.7rem; padding: 2px 8px; background: var(--muted); color: white; border-radius: 4px;">ARCHIVED</span>
                 </div>
                 <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 4px;">
                   {{ acc.bank }}
@@ -247,6 +271,13 @@ export const AccountsView = {
                 @click="startRecordingBalance(acc)"
                 style="flex: 1; padding: 6px 12px; background: #e8dcc8; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
                 💰 Record Balance
+              </button>
+            </div>
+            <div v-if="!acc.hidden" style="display: flex; gap: 8px; margin-top: 8px;">
+              <button
+                @click="hideAccount(acc.id)"
+                style="width: 100%; padding: 6px 12px; background: #d4c4b0; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; color: #6b4a29;">
+                🗄️ Archive Account
               </button>
             </div>
           </div>
