@@ -7,7 +7,6 @@ from fastapi import APIRouter, Query
 from fastapi.responses import PlainTextResponse
 
 from penny.api.helpers import (
-    apply_filters,
     category_bucket,
     format_currency,
     get_db,
@@ -15,6 +14,15 @@ from penny.api.helpers import (
     period_label,
     roll_up_top_buckets,
     sort_period_keys,
+)
+from penny.sql import (
+    breakout_query,
+    cashflow_query,
+    categories_query,
+    pivot_query,
+    report_query,
+    summary_query,
+    tree_query,
 )
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -60,21 +68,16 @@ async def categories(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     q: Optional[str] = Query(None),
 ):
     """Return distinct category paths for the current raw filter selection."""
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT DISTINCT category FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, q=q)
-    query += " AND " if " WHERE " in query else " WHERE "
-    query += "category IS NOT NULL AND category != ''"
-    query += " ORDER BY category"
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = categories_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     return {
@@ -87,7 +90,6 @@ async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -95,11 +97,10 @@ async def summary(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    transactions = cursor.execute(query, params).fetchall()
+    sql, params = summary_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    transactions = cursor.execute(sql, params).fetchall()
     conn.close()
 
     expenses = [t[0] for t in transactions if t[0] < 0]
@@ -127,7 +128,6 @@ async def tree(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -135,19 +135,10 @@ async def tree(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT category, payee, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    # Filter by tab
-    if tab == "expense":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents < 0"
-    elif tab == "income":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents > 0"
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = tree_query(
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     # Build tree from categories
@@ -191,7 +182,6 @@ async def pivot(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -199,19 +189,10 @@ async def pivot(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    # Filter by tab
-    if tab == "expense":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents < 0"
-    elif tab == "income":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "amount_cents > 0"
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = pivot_query(
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     # Group by category at specified depth
@@ -260,7 +241,6 @@ async def cashflow(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -268,11 +248,10 @@ async def cashflow(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = cashflow_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     income_buckets = defaultdict(int)
@@ -323,7 +302,6 @@ async def breakout(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -331,11 +309,10 @@ async def breakout(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT date, category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = breakout_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     period_totals = defaultdict(lambda: defaultdict(int))
@@ -389,7 +366,6 @@ async def report(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
-    neutralize: bool = Query(True),
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
@@ -397,10 +373,10 @@ async def report(
     conn = get_db()
     cursor = conn.cursor()
 
-    params = []
-    query = "SELECT date, account_id, category, amount_cents FROM transactions"
-    query = apply_filters(query, params, from_date, to_date, accounts, neutralize, category, q)
-    rows = cursor.execute(query, params).fetchall()
+    sql, params = report_query(
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+    )
+    rows = cursor.execute(sql, params).fetchall()
     conn.close()
 
     expense_total = sum(abs(row[3]) for row in rows if row[3] < 0)
@@ -463,55 +439,75 @@ async def transactions(
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
-    """Return filtered transaction list."""
-    conn = get_db()
-    cursor = conn.cursor()
+    """Return filtered transaction list.
 
-    params = []
-    # Join with accounts and account_identifiers to get resolved names
-    query = """
-        SELECT t.fingerprint, t.date, t.account_id, t.payee, t.memo, t.category,
-               t.amount_cents, t.raw_buchungstext, t.subaccount_type,
-               COALESCE(a.display_name, a.bank || ' #' || a.id) as account_name,
-               ai.identifier_value as account_number
-        FROM transactions t
-        LEFT JOIN accounts a ON t.account_id = a.id
-        LEFT JOIN account_identifiers ai ON t.account_id = ai.account_id
-            AND ai.identifier_type = 'bank_account_number'
+    Uses storage layer for proper GROUP BY when neutralize=True.
+    Filtering is done in Python for simplicity.
     """
-    query = apply_filters(
-        query, params, from_date, to_date, accounts, neutralize, category, q, table_prefix="t."
-    )
+    from penny.transactions import TransactionStorage
 
-    # Filter by tab (expense/income)
-    if tab == "expense":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "t.amount_cents < 0"
-    elif tab == "income":
-        query += " AND " if " WHERE " in query else " WHERE "
-        query += "t.amount_cents > 0"
+    storage = TransactionStorage()
+    all_txns = storage.list_transactions(limit=None, neutralize=neutralize)
 
-    query += " ORDER BY t.date DESC"
+    # Parse account IDs filter
+    account_ids = None
+    if accounts:
+        account_ids = {int(a) for a in accounts.split(",") if a}
 
-    rows = cursor.execute(query, params).fetchall()
-    conn.close()
+    # Filter transactions
+    filtered = []
+    for tx in all_txns:
+        # Date filter
+        date_str = tx.date.isoformat()
+        if from_date and date_str < from_date:
+            continue
+        if to_date and date_str > to_date:
+            continue
 
-    # Map to frontend-compatible format (no account_id exposed)
+        # Account filter
+        if account_ids is not None and tx.account_id not in account_ids:
+            continue
+
+        # Category filter (prefix match)
+        if category:
+            if not tx.category or not tx.category.startswith(category):
+                continue
+
+        # Search filter
+        if q:
+            search_text = (tx.raw_buchungstext or tx.payee or "").lower()
+            if q.lower() not in search_text:
+                continue
+
+        # Tab filter (expense/income) - applied to net amount for groups
+        if tab == "expense" and tx.amount_cents >= 0:
+            continue
+        if tab == "income" and tx.amount_cents <= 0:
+            continue
+
+        filtered.append(tx)
+
+    # Sort by date descending, then fingerprint for stability
+    filtered.sort(key=lambda tx: (tx.date, tx.fingerprint), reverse=True)
+
+    # Map to frontend format
     txns = [
         {
-            "fp": row[0],  # fingerprint
-            "booking_date": row[1],  # date
-            "account_id": row[2],
-            "account": row[9] or f"Account #{row[2]}",  # account_name
-            "account_number": row[10] or "",  # bank account number
-            "subaccount": row[8] or "",  # subaccount_type
-            "description": row[3],  # payee
-            "merchant": row[3] or "",  # payee (for compatibility)
-            "category": row[5] or "uncategorized",
-            "amount_cents": row[6],
-            "raw_description": row[7] or "",  # raw_buchungstext
+            "fp": tx.fingerprint,
+            "booking_date": tx.date.isoformat(),
+            "account_id": tx.account_id,
+            "account": tx.account_name or f"Account #{tx.account_id}",
+            "account_number": tx.account_number or "",
+            "subaccount": tx.subaccount_type or "",
+            "description": tx.payee,
+            "merchant": tx.payee or "",
+            "category": tx.category or "uncategorized",
+            "amount_cents": tx.amount_cents,
+            "raw_description": tx.raw_buchungstext or "",
+            "entry_count": tx.entry_count,  # For UI badge on grouped entries
+            "group_id": tx.group_id,  # For expandable detail view
         }
-        for row in rows
+        for tx in filtered
     ]
 
     total_cents = sum(t["amount_cents"] for t in txns)

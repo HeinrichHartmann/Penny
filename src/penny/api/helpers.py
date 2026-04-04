@@ -30,15 +30,9 @@ def apply_filters(
 ) -> str:
     """Apply common filters to a query.
 
-    Schema mapping (new schema):
-    - date (was booking_date)
-    - account_id (was account, now integer FK)
-    - payee (was description/merchant)
-    - category (unchanged)
-    - neutralization: skipped for now (show all transactions)
-
-    Args:
-        table_prefix: Prefix for column names in JOINed queries (e.g., "t.")
+    Filters are always applied to raw transaction rows first. Neutralization,
+    when enabled, is handled separately by wrapping the filtered selection in an
+    aggregation query.
     """
     p = table_prefix  # shorthand
     conditions = []
@@ -61,9 +55,6 @@ def apply_filters(
         else:
             conditions.append("1 = 0")
 
-    # Neutralization filter skipped for now (per design decision)
-    # Future: add neutralization support via classification
-
     if category:
         conditions.append(f"{p}category LIKE ?")
         params.append(f"{category}%")
@@ -78,6 +69,81 @@ def apply_filters(
         query += " WHERE " + " AND ".join(conditions)
 
     return query
+
+
+def parse_account_ids(accounts: str | None) -> list[int] | None:
+    """Parse the comma-separated account filter into integer ids."""
+    if accounts is None:
+        return None
+    return [int(account_id) for account_id in accounts.split(",") if account_id]
+
+
+def should_neutralize(accounts: str | None, neutralize: bool) -> bool:
+    """Return True when the filtered view should aggregate transfer groups."""
+    if not neutralize:
+        return False
+
+    account_ids = parse_account_ids(accounts)
+    return account_ids is None or len(account_ids) != 1
+
+
+def transaction_scope_sql(
+    params: list,
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    accounts: str | None = None,
+    neutralize: bool = True,
+    category: str | None = None,
+    q: str | None = None,
+    alias: str = "tx",
+) -> str:
+    """Return a filtered transaction scope, optionally neutralized by group_id.
+
+    The raw filters are applied first. Only then, if neutralization is active
+    for a multi-account view, rows are aggregated by `group_id`.
+    """
+    grouping_col = "t.group_id" if should_neutralize(accounts, neutralize) else "t.fingerprint"
+
+    query = """
+        SELECT
+            MIN(t.fingerprint) AS fingerprint,
+            CASE
+                WHEN COUNT(DISTINCT t.account_id) = 1 THEN MIN(t.account_id)
+                ELSE NULL
+            END AS account_id,
+            MIN(t.subaccount_type) AS subaccount_type,
+            MIN(t.date) AS date,
+            CASE
+                WHEN COUNT(*) = 1 THEN MAX(t.payee)
+                ELSE 'Transfer (' || COUNT(*) || ')'
+            END AS payee,
+            MAX(t.memo) AS memo,
+            SUM(t.amount_cents) AS amount_cents,
+            MIN(t.value_date) AS value_date,
+            MAX(t.transaction_type) AS transaction_type,
+            MAX(t.reference) AS reference,
+            MAX(t.raw_buchungstext) AS raw_buchungstext,
+            MAX(t.category) AS category,
+            MAX(t.classification_rule) AS classification_rule,
+            MAX(t.group_id) AS group_id,
+            COUNT(*) AS entry_count,
+            COUNT(DISTINCT t.account_id) AS account_count
+        FROM transactions t
+    """
+    query = apply_filters(
+        query,
+        params,
+        from_date,
+        to_date,
+        accounts,
+        neutralize,
+        category,
+        q,
+        table_prefix="t.",
+    )
+    query += f"\n GROUP BY {grouping_col}"
+    return f"({query}) {alias}"
 
 
 def format_currency(cents: int) -> str:
