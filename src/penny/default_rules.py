@@ -96,3 +96,54 @@ def text_contains(tx, *needles):
 # @rule("subscriptions/streaming")
 # def streaming_services(tx):
 #     return payee_contains(tx, "NETFLIX", "SPOTIFY", "DISNEY")
+
+
+# ==============================================================================
+# TRANSFER GROUPING
+# ==============================================================================
+# Link related transfer entries (e.g., money moved between your own accounts).
+# Grouped entries share a group_id and can be aggregated to show net effect.
+#
+# Usage:
+#   1. Classify transfer transactions with category prefix "transfer/"
+#   2. Define in_same_transfer_group(a, b) predicate below
+#   3. Run: penny link-transfers rules.py
+#
+# The system handles:
+#   - Pre-filtering by TRANSFER_PREFIX
+#   - Date-based windowing (only compares entries within TRANSFER_WINDOW_DAYS)
+#   - Transitive closure (if A-B and B-C match, all three are grouped)
+#
+# You define the matching logic in in_same_transfer_group(a, b).
+
+TRANSFER_PREFIX = "transfer/"
+TRANSFER_WINDOW_DAYS = 10
+
+
+def in_same_transfer_group(_a, _b):
+    """Return True if entries a and b belong to the same transfer.
+
+    This function is called for pairs of entries that:
+    - Both have category starting with TRANSFER_PREFIX
+    - Are within TRANSFER_WINDOW_DAYS of each other
+
+    Common patterns:
+    - Match by reference number embedded in memo/raw text
+    - Match by account pair (a.account_id, b.account_id)
+    - Match by specific payee patterns
+
+    Example: Match transfers between your own accounts by reference:
+        ref_a = extract_reference(a.raw_buchungstext)
+        ref_b = extract_reference(b.raw_buchungstext)
+        return ref_a and ref_b and ref_a == ref_b
+
+    Args:
+        a: First Transaction
+        b: Second Transaction
+
+    Returns:
+        True if a and b are part of the same logical transfer
+    """
+    # Uncomment and customize:
+    # return False  # No automatic grouping
+    return False

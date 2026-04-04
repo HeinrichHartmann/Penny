@@ -79,6 +79,10 @@ class TransactionStorage:
             self._ensure_column(conn, "transactions", "category", "TEXT")
             self._ensure_column(conn, "transactions", "classification_rule", "TEXT")
             self._ensure_column(conn, "transactions", "classified_at", "TEXT")
+            self._ensure_column(conn, "transactions", "group_id", "TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)"
+            )
             conn.commit()
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -149,6 +153,7 @@ class TransactionStorage:
                 SELECT t.fingerprint, t.account_id, t.subaccount_type, t.date, t.payee, t.memo,
                        t.amount_cents, t.value_date, t.transaction_type, t.reference,
                        t.raw_buchungstext, t.raw_row, t.category, t.classification_rule,
+                       t.group_id,
                        COALESCE(a.display_name, a.bank || ' #' || a.id) as account_name,
                        ai.identifier_value as account_number
                 FROM transactions t
@@ -208,7 +213,49 @@ class TransactionStorage:
             total = int(conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0])
         return len(decision_map), total - len(decision_map)
 
+    def apply_groups(self, groups: dict[str, str]) -> tuple[int, int]:
+        """Assign group_id to transactions.
+
+        Args:
+            groups: Mapping of fingerprint -> group_id
+
+        Returns:
+            Tuple of (grouped_count, standalone_count)
+
+        Every transaction gets a group_id:
+        - If in `groups` mapping: use the provided group_id
+        - Otherwise: use fingerprint as group_id (standalone = own group)
+        """
+        with closing(self._connect()) as conn:
+            # First, set all transactions to their fingerprint (standalone)
+            conn.execute("UPDATE transactions SET group_id = fingerprint")
+
+            # Then, apply the grouped assignments
+            for fingerprint, group_id in groups.items():
+                conn.execute(
+                    "UPDATE transactions SET group_id = ? WHERE fingerprint = ?",
+                    (group_id, fingerprint),
+                )
+            conn.commit()
+
+            # Count results
+            grouped = conn.execute(
+                """
+                SELECT COUNT(*) FROM transactions
+                WHERE group_id != fingerprint
+                """
+            ).fetchone()[0]
+            standalone = conn.execute(
+                """
+                SELECT COUNT(*) FROM transactions
+                WHERE group_id = fingerprint
+                """
+            ).fetchone()[0]
+
+        return int(grouped), int(standalone)
+
     def _hydrate_transaction(self, row: sqlite3.Row) -> Transaction:
+        keys = row.keys()
         return Transaction(
             fingerprint=row["fingerprint"],
             account_id=row["account_id"],
@@ -224,7 +271,8 @@ class TransactionStorage:
             raw_row=json.loads(row["raw_row"]) if row["raw_row"] else {},
             category=row["category"],
             classification_rule=row["classification_rule"],
+            group_id=row["group_id"] if "group_id" in keys else None,
             # Resolved fields from JOIN (may not be present in all queries)
-            account_name=row["account_name"] if "account_name" in row.keys() else None,
-            account_number=row["account_number"] if "account_number" in row.keys() else None,
+            account_name=row["account_name"] if "account_name" in keys else None,
+            account_number=row["account_number"] if "account_number" in keys else None,
         )

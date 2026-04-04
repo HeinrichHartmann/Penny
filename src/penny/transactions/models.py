@@ -24,6 +24,7 @@ class Transaction:
     raw_row: dict
     category: str | None = None
     classification_rule: str | None = None
+    group_id: str | None = None
     # Resolved at load time (not stored in DB)
     account_name: str | None = None
     account_number: str | None = None
