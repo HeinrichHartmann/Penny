@@ -2,85 +2,22 @@
 
 from __future__ import annotations
 
-import os
-import sqlite3
 from contextlib import closing
 from datetime import date, datetime
-from pathlib import Path
 
 from penny.accounts.models import Account, Subaccount
+from penny.config import default_data_dir, default_db_path
+from penny.db import connect
 
-
-def default_data_dir() -> Path:
-    """Return Penny's data directory."""
-
-    override = os.environ.get("PENNY_DATA_DIR")
-    if override:
-        return Path(override).expanduser()
-
-    xdg_data_home = os.environ.get("XDG_DATA_HOME")
-    if xdg_data_home:
-        return Path(xdg_data_home).expanduser() / "penny"
-
-    return Path.home() / ".local" / "share" / "penny"
-
-
-def default_db_path() -> Path:
-    """Return the default SQLite database path."""
-
-    return default_data_dir() / "penny.db"
+# Re-export for backwards compatibility
+__all__ = ["AccountStorage", "default_data_dir", "default_db_path"]
 
 
 class AccountStorage:
-    """Persistence layer for accounts."""
+    """Persistence layer for accounts.
 
-    def __init__(self, db_path: Path | None = None):
-        self.db_path = Path(db_path) if db_path is not None else default_db_path()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
-
-    def _init_db(self) -> None:
-        with closing(self._connect()) as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS accounts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bank TEXT NOT NULL,
-                    display_name TEXT,
-                    iban TEXT,
-                    holder TEXT,
-                    notes TEXT,
-                    balance_cents INTEGER,
-                    balance_date TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    hidden INTEGER DEFAULT 0
-                );
-
-                CREATE TABLE IF NOT EXISTS account_identifiers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    account_id INTEGER NOT NULL REFERENCES accounts(id),
-                    identifier_type TEXT NOT NULL,
-                    identifier_value TEXT NOT NULL,
-                    UNIQUE(account_id, identifier_type, identifier_value)
-                );
-
-                CREATE TABLE IF NOT EXISTS subaccounts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    account_id INTEGER NOT NULL REFERENCES accounts(id),
-                    type TEXT NOT NULL,
-                    display_name TEXT,
-                    UNIQUE(account_id, type)
-                );
-                """
-            )
-            conn.commit()
+    Uses the centralized database connection from db.py.
+    """
 
     def create_account(
         self,
@@ -96,9 +33,8 @@ class AccountStorage:
         subaccounts: dict[str, Subaccount] | None = None,
     ) -> Account:
         """Create and persist an account."""
-
         now = datetime.now()
-        with closing(self._connect()) as conn:
+        with closing(connect()) as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO accounts (
@@ -147,8 +83,7 @@ class AccountStorage:
 
     def list_accounts(self, *, include_hidden: bool = False) -> list[Account]:
         """Return all accounts."""
-
-        with closing(self._connect()) as conn:
+        with closing(connect()) as conn:
             query = "SELECT id FROM accounts"
             params: list[object] = []
             if not include_hidden:
@@ -159,8 +94,7 @@ class AccountStorage:
 
     def get_account(self, account_id: int, *, include_hidden: bool = True) -> Account | None:
         """Return an account by ID."""
-
-        with closing(self._connect()) as conn:
+        with closing(connect()) as conn:
             query = "SELECT * FROM accounts WHERE id = ?"
             params: list[object] = [account_id]
             if not include_hidden:
@@ -172,8 +106,7 @@ class AccountStorage:
 
     def soft_delete_account(self, account_id: int) -> bool:
         """Hide an account without removing it."""
-
-        with closing(self._connect()) as conn:
+        with closing(connect()) as conn:
             cursor = conn.execute(
                 """
                 UPDATE accounts
@@ -193,8 +126,7 @@ class AccountStorage:
         include_hidden: bool = True,
     ) -> Account | None:
         """Find an account by bank and bank account number."""
-
-        with closing(self._connect()) as conn:
+        with closing(connect()) as conn:
             query = """
                 SELECT a.*
                 FROM accounts a
@@ -214,11 +146,10 @@ class AccountStorage:
 
     def upsert_subaccounts(self, account_id: int, subaccount_types: list[str]) -> None:
         """Ensure the given subaccount types exist for an account."""
-
         if not subaccount_types:
             return
 
-        with closing(self._connect()) as conn:
+        with closing(connect()) as conn:
             for subaccount_type in subaccount_types:
                 conn.execute(
                     """
@@ -229,7 +160,7 @@ class AccountStorage:
                 )
             conn.commit()
 
-    def _hydrate_account(self, conn: sqlite3.Connection, row: sqlite3.Row) -> Account:
+    def _hydrate_account(self, conn, row) -> Account:
         identifiers = conn.execute(
             """
             SELECT identifier_value

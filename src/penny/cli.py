@@ -42,6 +42,7 @@ def _format_account_row(account) -> str:
 @click.group()
 def main():
     """Penny - Personal finance manager."""
+    init_default_db()
 
 
 @main.group()
@@ -163,7 +164,6 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             )
         return
 
-    init_default_db()
     new_count, duplicate_count = store_transactions(
         parsed_transactions,
         source_file=csv_file.name,
@@ -183,7 +183,6 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
 def transactions_list(account_id: int | None, limit: int):
     """List recent transactions."""
 
-    init_default_db()
     transaction_list = list_transactions(account_id=account_id, limit=limit, neutralize=True)
     if not transaction_list:
         click.echo("No transactions found.")
@@ -202,7 +201,6 @@ def transactions_list(account_id: int | None, limit: int):
 def classify(rules_file: Path):
     """Classify all imported transactions using a Python rules module."""
 
-    init_default_db()
     transactions = list_transactions(limit=None, neutralize=False)
     if not transactions:
         click.echo("No transactions found.")
@@ -259,7 +257,6 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
     click.echo("")
 
     # Load all transactions (unconsolidated - need raw entries for linking)
-    init_default_db()
     entries = list_transactions(limit=None, neutralize=False)
     if not entries:
         click.echo("No entries found.")

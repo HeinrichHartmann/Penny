@@ -6,7 +6,6 @@ from click.testing import CliRunner
 from penny.api.rules import run_rules
 from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
 from penny.cli import main
-from penny.db import init_db
 from penny.transactions import apply_classifications, list_transactions
 
 
@@ -49,7 +48,6 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     assert "Travel:Hotel: 1" in result.output
     assert "Shopping:GenericAmazon: 1" in result.output
 
-    init_db(tmp_path / "penny.db")
     transactions = list_transactions(limit=None, neutralize=False)
     categories = {transaction.payee: transaction.category for transaction in transactions}
     rules = {transaction.payee: transaction.classification_rule for transaction in transactions}
@@ -75,7 +73,6 @@ def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, 
     assert second.exit_code == 0
     assert "Shopping:SpecificAmazon: 1" in second.output
 
-    init_db(tmp_path / "penny.db")
     transactions = list_transactions(limit=None, neutralize=False)
     amazon = next(transaction for transaction in transactions if "AMAZON" in transaction.payee)
 
@@ -113,7 +110,6 @@ def salary(transaction):
         {"category": "NeedsReview", "count": 2},
     ]
 
-    init_db(tmp_path / "penny.db")
     transactions = list_transactions(limit=None, neutralize=False)
     categories = {transaction.payee: transaction.category for transaction in transactions}
 
@@ -128,7 +124,6 @@ def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, 
     runner = CliRunner()
     _import_fixture(runner, fixture_dir, tmp_path)
 
-    init_db(tmp_path / "penny.db")
     transactions = list_transactions(limit=None, neutralize=False)
 
     with pytest.raises(RuntimeError, match="without a category"):

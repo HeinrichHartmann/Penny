@@ -5,7 +5,6 @@ from datetime import date
 import pytest
 
 from penny.accounts import AccountRegistry, AccountStorage
-from penny.db import init_db
 from penny.transactions import (
     Transaction,
     apply_groups,
@@ -250,18 +249,13 @@ def test_generate_group_id_deterministic():
 
 
 @pytest.fixture
-def storage_with_accounts(tmp_path):
+def storage_with_accounts(db):
     """Set up database with test accounts for foreign key constraints."""
-    db_path = tmp_path / "test.db"
-    account_storage = AccountStorage(db_path)
-    registry = AccountRegistry(account_storage)
+    registry = AccountRegistry(AccountStorage())
 
     # Create test accounts (IDs will be 1 and 2)
     registry.add("testbank")
     registry.add("testbank")
-
-    # Initialize transaction database
-    init_db(db_path)
 
 
 def test_group_id_never_null(storage_with_accounts):
