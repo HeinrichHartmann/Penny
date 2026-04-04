@@ -9,87 +9,133 @@ A desktop personal finance application for CSV-based transaction tracking and an
 | **Language** | Python 3.11+ (backend), Vue.js 3 (frontend) |
 | **Framework** | FastAPI + Uvicorn (server), Toga (native GUI) |
 | **Packaging** | Briefcase (macOS .app/.dmg) |
-| **Storage** | SQLite (~/.local/share/penny/) |
+| **Storage** | Vault (~/Documents/Penny/) + SQLite projection |
 | **Bundle Size** | ~33 MB |
 | **Dev Environment** | Nix flakes + UV |
+| **Tests** | 73 passing |
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    macOS App Bundle                      │
-│  ┌─────────────┐                                        │
-│  │ Toga Window │  Opens browser to localhost            │
-│  └──────┬──────┘                                        │
-│         │                                               │
-│  ┌──────▼──────┐    ┌─────────────┐    ┌────────────┐  │
-│  │   FastAPI   │◄───│   Vue.js    │    │   SQLite   │  │
-│  │   Backend   │    │  Dashboard  │    │     DB     │  │
-│  └──────┬──────┘    └─────────────┘    └─────┬──────┘  │
-│         │                                     │         │
-│  ┌──────▼─────────────────────────────────────▼──────┐  │
-│  │              Python Domain Logic                   │  │
-│  │  • CSV Parsing (pluggable)                        │  │
-│  │  • Classification Engine                          │  │
-│  │  • Account Registry                               │  │
-│  └───────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    macOS App Bundle                          │
+│  ┌─────────────┐                                            │
+│  │ Toga Window │  Opens browser to localhost                │
+│  └──────┬──────┘                                            │
+│         │                                                   │
+│  ┌──────▼──────┐    ┌─────────────┐    ┌────────────────┐  │
+│  │   FastAPI   │◄───│   Vue.js    │    │     Vault      │  │
+│  │   Backend   │    │  Dashboard  │    │ ~/Documents/   │  │
+│  └──────┬──────┘    └─────────────┘    │    Penny/      │  │
+│         │                               │  log/          │  │
+│  ┌──────▼───────────────────────────┐  │  penny.db      │  │
+│  │       Python Domain Logic         │  └───────┬────────┘  │
+│  │  • CSV Parsing (pluggable)       │          │           │
+│  │  • Classification Engine         │◄─────────┘           │
+│  │  • Vault (event-log storage)     │   replay             │
+│  └──────────────────────────────────┘                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Directory Structure
 
 ```
 src/penny/
-├── accounts/          # Account registry & reconciliation
-│   ├── models.py      # Account, Subaccount dataclasses
-│   ├── registry.py    # Account matching logic
-│   └── storage.py     # SQLite persistence
+├── accounts.py        # Account domain: models + business logic (flattened)
+├── transactions.py    # Transaction domain: models + storage (flattened)
+├── config.py          # Path configuration (PENNY_DATA_DIR)
+├── db.py              # Database connection management
+├── sql.py             # SQL query builders
 ├── api/               # FastAPI route handlers
 │   ├── accounts.py    # /api/accounts endpoints
-│   ├── import_.py     # /api/import endpoints
+│   ├── import_.py     # /api/import endpoints (uses vault)
 │   ├── rules.py       # /api/rules endpoints
 │   └── dashboard.py   # /api/dashboard endpoints
+├── vault/             # Event-log storage (ADR-010)
+│   ├── config.py      # VaultConfig (PENNY_VAULT_DIR)
+│   ├── log.py         # LogManager, LogEntry
+│   ├── manifests.py   # Dataclasses for entry types
+│   ├── apply.py       # Apply entries to SQLite projection
+│   ├── ingest.py      # CSV ingest through vault
+│   └── replay.py      # ReplayEngine for state rebuild
 ├── ingest/            # CSV parsing plugins
-│   ├── base.py        # ParserModule ABC
+│   ├── base.py        # BankModule ABC
 │   ├── detection.py   # Bank format detection
-│   ├── banks/         # Custom parsers (comdirect.py, sparkasse.py)
-│   └── formats/       # Shared parsing utilities
+│   └── formats/       # Bank-specific parsers
 ├── classify/          # Transaction classification
 │   ├── engine.py      # Rule evaluation
-│   └── __init__.py    # Helper predicates (is_(), contains(), regexp())
-├── transactions/      # Transaction models & storage
+│   └── __init__.py    # Helper predicates
 ├── static/            # Vue.js frontend
-│   ├── app.js         # Main Vue application
-│   ├── api.js         # API client
-│   ├── charts.js      # ECharts integration
-│   └── components/    # Vue components
 ├── launcher.py        # Toga GUI window
 ├── server.py          # FastAPI app setup
-├── cli.py             # CLI commands
-└── default_rules.py   # Starter classification rules
+└── cli.py             # CLI commands
 ```
 
-## Key Design Decisions
+## Vault Architecture (ADR-010)
 
-### CSV-Only Import (No Bank APIs)
-Bank APIs are fragmented and unreliable. CSV files are stable, user-controlled, and universal across all German banks.
+The vault is the **source of truth**. SQLite is a derived projection that can be rebuilt via replay.
 
-### Python Rules (Not YAML DSL)
-Classification rules are plain Python, enabling:
-- LLM co-authoring (paste transactions into Claude, get rules back)
-- Full expressiveness (no custom DSL limitations)
-- User trust model (rules are code, not sandboxed)
+```
+~/Documents/Penny/
+├── log/
+│   ├── 000001_init/
+│   │   └── manifest.json
+│   ├── 000002_ingest_comdirect/
+│   │   ├── manifest.json
+│   │   └── umsaetze_9788862492_20260331-1354.csv
+│   └── 000003_ingest_sparkasse/
+│       ├── manifest.json
+│       └── 20260401-12345678-umsatz-camt52v8.CSV
+└── penny.db            # Derived, rebuildable via replay
+```
 
-### Pluggable Parsers
-Bank CSV formats are too diverse for generic parsing:
-- **Custom parsers** (Comdirect) - Complex formats with special logic
-- **Config-driven parsers** (Sparkasse) - JSON column mapping
+### Entry Types
 
-### Desktop App via Briefcase
-Native macOS app bundle provides:
-- Standard DMG installation
-- No Homebrew dependency
-- Self-contained Python environment
+| Type | Description | Content Files |
+|------|-------------|---------------|
+| `init` | Vault initialization | - |
+| `ingest_{bank}` | CSV import | Original CSV file(s) |
+| `account_created` | Manual account creation | - |
+| `account_updated` | Account metadata change | - |
+| `balance_snapshot` | User-entered balance | - |
+| `rules` | Classification rules update | rules.py |
+
+### Replay
+
+```python
+from penny.vault import replay_vault, VaultConfig
+
+# Delete DB and rebuild from vault log
+config = VaultConfig()
+result = replay_vault(config)
+# result.entries_processed, result.entries_by_type
+```
+
+## Key Data Flows
+
+### CSV Import (via Vault)
+
+```
+1. User drops CSV
+2. ingest_csv(request) →
+   a. Detect parser from filename/content
+   b. Create log entry: manifest.json + CSV copy
+   c. apply_ingest(entry) →
+      - Parse CSV
+      - Reconcile account
+      - Store transactions (with deduplication)
+3. Return IngestResult
+```
+
+### Replay (Rebuild from Vault)
+
+```
+1. replay_vault(config) →
+   a. init_db() - fresh schema
+   b. For each log entry in sequence:
+      - apply_entry(entry)
+   c. Return ReplayResult
+```
 
 ## ADR History
 
@@ -98,13 +144,23 @@ Native macOS app bundle provides:
 | **001** | Technology Choices | Briefcase + Toga for native macOS packaging |
 | **002** | Product Positioning | Open-source LLM-collaborative finance tool |
 | **003** | CSV Import Plugin Architecture | Pluggable parsers with common schema |
-| **004** | Initial Import Design | SHA1 fingerprint deduplication, XDG storage |
+| **004** | Initial Import Design | SHA1 fingerprint deduplication |
 | **005** | Account Register | Sequential IDs, bank+account number reconciliation |
 | **006** | Frontend Bundling | Vite + npm for reproducible frontend builds |
 | **007** | Transaction Parsing | Header-driven multi-section parsing |
 | **008** | Transaction Classification | Python rules, file-order precedence |
 | **009** | Transfer Neutralization | Union-Find grouping with user predicate |
-| **011** | Layered Architecture | Interface/Domain/Model separation, no Storage classes |
+| **010** | Portable Event-Log Storage | Vault as source of truth, SQLite as projection |
+| **011** | Layered Architecture | Flat modules (accounts.py, transactions.py) |
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PENNY_VAULT_DIR` | `~/Documents/Penny` | Vault location (log + DB) |
+| `PENNY_DATA_DIR` | `~/.local/share/penny` | Legacy data dir (used by config.py) |
+
+**Note:** Tests set both to `tmp_path` for isolation.
 
 ## Core Data Models
 
@@ -112,7 +168,7 @@ Native macOS app bundle provides:
 ```python
 @dataclass
 class Transaction:
-    fingerprint: str       # SHA1 for deduplication
+    fingerprint: str       # SHA256[:16] for deduplication
     account_id: int        # FK to accounts
     subaccount_type: str   # giro, visa, tagesgeld, depot
     date: date
@@ -120,84 +176,58 @@ class Transaction:
     memo: str
     amount_cents: int      # Negative = expense
     category: str | None   # Classification result
-    raw_buchungstext: str  # Original bank field
+    group_id: str          # For transfer linking
 ```
 
 ### Account
 ```python
 @dataclass
 class Account:
-    id: int                          # Sequential (1, 2, 3...)
-    bank: str                        # "comdirect", "sparkasse"
-    bank_account_numbers: list[str]  # From filename
+    id: int
+    bank: str              # "comdirect", "sparkasse"
     display_name: str | None
     iban: str | None
-    subaccounts: dict[str, Subaccount]
+    holder: str | None
+    subaccounts: list[Subaccount]
+    created_at: datetime
+    updated_at: datetime
 ```
-
-## Workflows
-
-### CSV Import
-1. Drop CSV file → Bank detection by filename/content
-2. Parser extracts transactions, account info, balance hints
-3. Account reconciliation (match existing or create new)
-4. Fingerprint deduplication
-5. Store in SQLite, archive raw CSV
-
-### Classification (LLM-Collaborative)
-1. Import CSVs → unclassified transactions
-2. Run `penny classify rules.py`
-3. Rules evaluated in file order; first match wins
-4. **Iteration loop:**
-   - Export unmatched as Markdown
-   - Paste into Claude → get Python rules
-   - Add to rules.py, re-run
-   - Repeat until satisfied
-
-## Frontend Views
-
-| View | Purpose |
-|------|---------|
-| **Import** | CSV upload + file detection |
-| **Accounts** | Account register + balance management |
-| **Transactions** | Table with filtering, search, pagination |
-| **Rules** | Rule editor + classification log |
-| **Report** | ECharts dashboard (income/expense, category breakdown, Sankey) |
 
 ## Development Commands
 
 ```bash
 make dev              # Toga GUI in dev mode
 make serve            # Backend + Vite HMR
-make test             # Run pytest
+make test             # Run pytest (73 tests)
 make app              # Build macOS .app + .dmg
-make frontend-build   # Build bundled frontend assets
 ```
 
-## Testing
+## Current State (Handover)
 
-10 test modules covering:
-- Account registry and reconciliation
-- German field extraction (Buchungstext)
-- Rule evaluation and precedence
-- Comdirect/Sparkasse CSV parsing
-- Bank format auto-detection
-- Full import pipeline integration
+### Completed
+- Vault foundation: config, log manager, manifests
+- CSV import wired through vault (`ingest_csv`)
+- Replay engine with deterministic state rebuild
+- Flattened module structure (accounts.py, transactions.py)
+- 73 tests passing
 
-## Technology Rationale
+### Key Files for Vault
+- `src/penny/vault/config.py` - VaultConfig class
+- `src/penny/vault/log.py` - LogManager, LogEntry
+- `src/penny/vault/apply.py` - apply_ingest, apply_entry
+- `src/penny/vault/ingest.py` - ingest_csv, IngestRequest
+- `src/penny/vault/replay.py` - ReplayEngine, replay_vault
 
-| Choice | Why |
-|--------|-----|
-| **Python** | Data analysis ecosystem, familiar for finance |
-| **FastAPI** | Lightweight, async, integrates with Python |
-| **Vue.js** | Proven dashboarding experience |
-| **Briefcase** | Proper macOS app structure vs PyInstaller |
-| **SQLite** | Simple, self-contained, queryable, local-first |
-| **Vite** | Minimal setup, fast dev, HMR support |
+### Tests
+- `tests/test_vault.py` - Vault foundation tests (20)
+- `tests/test_vault_ingest.py` - Ingest + replay tests (6)
 
-## Privacy Model
+### Next Steps (from ADR-010 Implementation Plan)
+1. **Phase 4: Startup Flow** - Initialize vault on first run, replay on startup
+2. **Phase 5: CLI Commands** - `penny vault init/status/replay`
+3. Wire other mutations through vault (account_created, balance_snapshot, rules)
 
-- All data stays local (~/.local/share/penny/)
-- No cloud sync, no bank API connections
-- User controls their CSV files
-- Rules are local Python files
+### Git
+- Branch: `csv-import`
+- Remote: `github` → `git@github.com:HeinrichHartmann/Penny.git`
+- Status: Clean, pushed to github/csv-import
