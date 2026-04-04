@@ -26,7 +26,9 @@ def test_bootstrap_initializes_empty_vault(tmp_path):
 
     assert result.init_entry_created is True
     assert result.demo_data_loaded is True  # Demo data loaded on first init
-    assert result.replay_result.entries_processed == 1  # Demo import entry
+    # Demo import + account rename ("Demo Account")
+    assert result.replay_result.entries_processed == 2
+    assert result.replay_result.entries_by_type == {"ingest": 1, "account_updated": 1}
     assert config.imports_dir.exists()
     assert config.rules_dir.exists()
     assert config.mutations_path.exists()

@@ -80,6 +80,11 @@ def bootstrap_demo_data(config: VaultConfig | None = None) -> bool:
     )
 
     # Import demo data
-    ingest_csv(request, config=config)
+    result = ingest_csv(request, config=config)
+
+    # Set demo account display name
+    from penny.accounts import update_account_metadata
+
+    update_account_metadata(result.account_id, display_name="Demo Account")
 
     return True
