@@ -9,7 +9,7 @@ import click
 
 from penny.accounts import AccountRegistry, AccountStorage, DuplicateAccountError
 from penny.classify import load_rules
-from penny.classify.engine import _load_module
+from penny.classify.engine import _load_module, _ACTIVE_COLLECTOR, RuleCollector
 from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
@@ -243,8 +243,13 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
       def in_same_transfer_group(a, b):  # Predicate function
           return ...
     """
-    # Load the rules module
-    module = _load_module(rules_file)
+    # Load the rules module (with context for @rule decorators)
+    collector = RuleCollector(rules_file)
+    token = _ACTIVE_COLLECTOR.set(collector)
+    try:
+        module = _load_module(rules_file)
+    finally:
+        _ACTIVE_COLLECTOR.reset(token)
 
     # Extract transfer config
     prefix = getattr(module, "TRANSFER_PREFIX", "transfer/")
@@ -261,9 +266,9 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
     click.echo(f"  TRANSFER_WINDOW_DAYS = {window_days}")
     click.echo("")
 
-    # Load all transactions
+    # Load all transactions (unconsolidated - need raw entries for linking)
     storage = get_transaction_storage()
-    entries = storage.list_transactions(limit=None)
+    entries = storage.list_transactions(limit=None, consolidated=False)
     if not entries:
         click.echo("No entries found.")
         return

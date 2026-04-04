@@ -120,7 +120,7 @@ TRANSFER_PREFIX = "transfer/"
 TRANSFER_WINDOW_DAYS = 10
 
 
-def in_same_transfer_group(a, b):
+def in_same_transfer_group(a, b):  # noqa: ARG001
     """Return True if entries a and b belong to the same transfer.
 
     This function is called for pairs of entries that:
@@ -137,32 +137,13 @@ def in_same_transfer_group(a, b):
 
     Returns:
         True if a and b are part of the same logical transfer
-    """
-    days_apart = abs((a.date - b.date).days)
 
-    # --- Card settlements: Visa credit ↔ Giro debit, same account ---
-    if a.category == "transfer/card_settlement" and b.category == "transfer/card_settlement":
-        if a.account_id == b.account_id:
-            is_visa_giro_pair = (
-                (a.subaccount_type == "visa" and b.subaccount_type == "giro") or
-                (a.subaccount_type == "giro" and b.subaccount_type == "visa")
-            )
-            if is_visa_giro_pair and a.amount_cents == -b.amount_cents and days_apart <= 5:
+    Example implementation:
+        days_apart = abs((a.date - b.date).days)
+        # Match opposite amounts between accounts within 1 day
+        if a.account_id != b.account_id:
+            if a.amount_cents == -b.amount_cents and days_apart <= 1:
                 return True
-
-    # --- Internal transfers: Private ↔ Shared accounts ---
-    # Match opposite amounts between different accounts within 1 day
-    if a.account_id != b.account_id:
-        if a.amount_cents == -b.amount_cents and days_apart <= 1:
-            return True
-
-    # --- Tagesgeld: Giro ↔ Tagesgeld within same account ---
-    if a.account_id == b.account_id:
-        is_giro_tagesgeld_pair = (
-            (a.subaccount_type == "giro" and b.subaccount_type == "tagesgeld") or
-            (a.subaccount_type == "tagesgeld" and b.subaccount_type == "giro")
-        )
-        if is_giro_tagesgeld_pair and a.amount_cents == -b.amount_cents and days_apart == 0:
-            return True
-
-    return False
+        return False
+    """
+    return False  # No grouping by default
