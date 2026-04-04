@@ -152,12 +152,10 @@ class TransactionStorage:
     # =========================================================================
     #
     # This query always uses GROUP BY for uniform handling of grouped and
-    # standalone transactions. The consolidation column determines behavior:
+    # standalone transactions. The grouping column determines behavior:
     #
-    #   consolidated=True  → GROUP BY group_id
-    #                        Groups collapse to net sum
-    #   consolidated=False → GROUP BY fingerprint
-    #                        Each entry separate (trivial 1-member groups)
+    #   GROUP BY group_id      → transfer groups collapse to net sums
+    #   GROUP BY fingerprint   → raw entries remain distinct
     #
     # INVARIANT: group_id is NEVER NULL. Standalone transactions have
     # group_id = fingerprint. This is enforced on insert and by migration.
@@ -175,13 +173,13 @@ class TransactionStorage:
     #   transaction_type str  Representative type
     #   reference       str   Representative reference
     #   category        str   Representative category (should be same for group)
-    #   group_id        str   The consolidation ID used
+    #   group_id        str   The grouping ID used
     #   account_name    str   Resolved display name
     #   account_number  str   Resolved bank account number
     #   entry_count     int   Number of entries in this group (1 = standalone)
     #
-    # For standalone transactions (entry_count=1), all values are the original.
-    # For groups (entry_count>1), amount_cents is the net sum, others are
+    # For standalone entries (entry_count=1), all values are the original.
+    # For grouped rows (entry_count>1), amount_cents is the net sum, others are
     # representative values. Consumers can usually ignore entry_count and
     # treat all rows as normal transactions.
     # =========================================================================
@@ -219,28 +217,14 @@ class TransactionStorage:
         {limit_clause}
     """
 
-    def list_transactions(
+    def _list_transactions(
         self,
+        consolidation_col: str,
         *,
         account_id: int | None = None,
         limit: int | None = 20,
-        consolidated: bool = True,
     ) -> list[Transaction]:
-        """List transactions with optional grouping.
-
-        Args:
-            account_id: Filter to specific account
-            limit: Max rows to return (None for all)
-            consolidated: If True, group by group_id (transfers collapse).
-                          If False, group by fingerprint (each entry separate).
-
-        Returns:
-            List of Transaction objects. For consolidated groups, amount_cents
-            is the net sum and entry_count > 1. Standalone entries have
-            entry_count = 1 with original values.
-        """
-        consolidation_col = "t.group_id" if consolidated else "t.fingerprint"
-
+        """List transactions using the provided SQL grouping column."""
         where_clause = ""
         params: list[object] = []
         if account_id is not None:
@@ -262,6 +246,26 @@ class TransactionStorage:
             rows = conn.execute(query, params).fetchall()
 
         return [self._hydrate_transaction(row) for row in rows]
+
+    def list_transaction_entries(
+        self,
+        *,
+        account_id: int | None = None,
+        limit: int | None = 20,
+    ) -> list[Transaction]:
+        """List raw transaction entries grouped by fingerprint."""
+
+        return self._list_transactions("t.fingerprint", account_id=account_id, limit=limit)
+
+    def list_transaction_groups(
+        self,
+        *,
+        account_id: int | None = None,
+        limit: int | None = 20,
+    ) -> list[Transaction]:
+        """List transfer-consolidated transaction groups grouped by group_id."""
+
+        return self._list_transactions("t.group_id", account_id=account_id, limit=limit)
 
     def count_transactions(self, *, account_id: int | None = None) -> int:
         """Return the number of stored transactions."""

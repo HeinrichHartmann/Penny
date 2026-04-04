@@ -49,7 +49,7 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     assert "Shopping:GenericAmazon: 1" in result.output
 
     storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None)
+    transactions = storage.list_transaction_entries(limit=None)
     categories = {transaction.payee: transaction.category for transaction in transactions}
     rules = {transaction.payee: transaction.classification_rule for transaction in transactions}
 
@@ -75,7 +75,7 @@ def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, 
     assert "Shopping:SpecificAmazon: 1" in second.output
 
     storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None)
+    transactions = storage.list_transaction_entries(limit=None)
     amazon = next(transaction for transaction in transactions if "AMAZON" in transaction.payee)
 
     assert amazon.category == "Shopping:SpecificAmazon"
@@ -113,7 +113,7 @@ def salary(transaction):
     ]
 
     storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None, consolidated=False)
+    transactions = storage.list_transaction_entries(limit=None)
     categories = {transaction.payee: transaction.category for transaction in transactions}
 
     assert categories["Example Employer"] == "Income:Salary"
@@ -128,7 +128,7 @@ def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, 
     _import_fixture(runner, fixture_dir, tmp_path)
 
     storage = TransactionStorage(tmp_path / "penny.db")
-    transactions = storage.list_transactions(limit=None, consolidated=False)
+    transactions = storage.list_transaction_entries(limit=None)
 
     with pytest.raises(RuntimeError, match="without a category"):
         storage.apply_classifications(
@@ -141,5 +141,5 @@ def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, 
             ]
         )
 
-    after = storage.list_transactions(limit=None, consolidated=False)
+    after = storage.list_transaction_entries(limit=None)
     assert all(transaction.category is None for transaction in after)

@@ -136,7 +136,7 @@ async def run_rules():
 
     # Get all transactions
     tx_storage = TransactionStorage()
-    transactions = tx_storage.list_transactions(limit=None, consolidated=False)
+    transactions = tx_storage.list_transaction_entries(limit=None)
     log("info", f"Processing {len(transactions)} transactions")
 
     result = run_classification_pass(transactions, config)

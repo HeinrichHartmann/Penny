@@ -183,7 +183,7 @@ def transactions_list(account_id: int | None, limit: int):
     """List recent transactions."""
 
     storage = get_transaction_storage()
-    transaction_list = storage.list_transactions(account_id=account_id, limit=limit)
+    transaction_list = storage.list_transaction_groups(account_id=account_id, limit=limit)
     if not transaction_list:
         click.echo("No transactions found.")
         return
@@ -202,7 +202,7 @@ def classify(rules_file: Path):
     """Classify all imported transactions using a Python rules module."""
 
     storage = get_transaction_storage()
-    transactions = storage.list_transactions(limit=None, consolidated=False)
+    transactions = storage.list_transaction_entries(limit=None)
     if not transactions:
         click.echo("No transactions found.")
         return
@@ -259,7 +259,7 @@ def link_transfers_cmd(rules_file: Path, dry_run: bool):
 
     # Load all transactions (unconsolidated - need raw entries for linking)
     storage = get_transaction_storage()
-    entries = storage.list_transactions(limit=None, consolidated=False)
+    entries = storage.list_transaction_entries(limit=None)
     if not entries:
         click.echo("No entries found.")
         return
