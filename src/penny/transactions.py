@@ -83,6 +83,18 @@ class Transaction:
         )
 
 
+@dataclass(frozen=True)
+class TransactionFilter:
+    """Reusable filters for listing transactions."""
+
+    from_date: date | None = None
+    to_date: date | None = None
+    account_ids: frozenset[int] | None = None
+    category_prefix: str | None = None
+    search_query: str | None = None
+    tab: str | None = None
+
+
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
@@ -147,23 +159,98 @@ def store_transactions(
     return new_count, duplicate_count
 
 
+def _merge_filters(
+    filters: TransactionFilter | None,
+    account_id: int | None,
+) -> TransactionFilter | None:
+    """Merge legacy account_id filter into the reusable filter object."""
+    if filters is None and account_id is None:
+        return None
+
+    account_ids = set(filters.account_ids) if filters and filters.account_ids is not None else None
+    if account_id is not None:
+        if account_ids is None:
+            account_ids = {account_id}
+        else:
+            account_ids.add(account_id)
+
+    return TransactionFilter(
+        from_date=filters.from_date if filters else None,
+        to_date=filters.to_date if filters else None,
+        account_ids=frozenset(account_ids) if account_ids is not None else None,
+        category_prefix=filters.category_prefix if filters else None,
+        search_query=filters.search_query if filters else None,
+        tab=filters.tab if filters else None,
+    )
+
+
+def filter_transactions(
+    transactions: list[Transaction],
+    filters: TransactionFilter,
+) -> list[Transaction]:
+    """Apply reusable filters to a list of transactions."""
+    filtered: list[Transaction] = []
+    search_query = filters.search_query.lower() if filters.search_query else None
+
+    for transaction in transactions:
+        if filters.from_date and transaction.date < filters.from_date:
+            continue
+        if filters.to_date and transaction.date > filters.to_date:
+            continue
+        if filters.account_ids is not None and transaction.account_id not in filters.account_ids:
+            continue
+        if filters.category_prefix:
+            if not transaction.category or not transaction.category.startswith(filters.category_prefix):
+                continue
+        if search_query:
+            search_text = f"{transaction.raw_buchungstext} {transaction.payee}".lower()
+            if search_query not in search_text:
+                continue
+        if filters.tab == "expense" and transaction.amount_cents >= 0:
+            continue
+        if filters.tab == "income" and transaction.amount_cents <= 0:
+            continue
+        filtered.append(transaction)
+
+    return filtered
+
+
 def list_transactions(
     *,
+    filters: TransactionFilter | None = None,
     account_id: int | None = None,
     limit: int | None = 20,
     neutralize: bool = True,
 ) -> list[Transaction]:
     """List transactions, optionally consolidating transfer groups."""
+    merged_filters = _merge_filters(filters, account_id)
+    query_account_id = None
+    query_limit = limit
+
+    if merged_filters is not None:
+        query_limit = None
+        if merged_filters.account_ids is not None and len(merged_filters.account_ids) == 1:
+            query_account_id = next(iter(merged_filters.account_ids))
+    else:
+        query_account_id = account_id
+
     sql, params = list_transactions_query(
-        account_id=account_id,
-        limit=limit,
+        account_id=query_account_id,
+        limit=query_limit,
         neutralize=neutralize,
     )
 
     with closing(connect()) as conn:
         rows = conn.execute(sql, params).fetchall()
 
-    return [Transaction.from_row(row) for row in rows]
+    transactions = [Transaction.from_row(row) for row in rows]
+
+    if merged_filters is not None:
+        transactions = filter_transactions(transactions, merged_filters)
+        if limit is not None:
+            transactions = transactions[:limit]
+
+    return transactions
 
 
 def count_transactions(*, account_id: int | None = None) -> int:

@@ -1,6 +1,7 @@
 """Dashboard API router - analytics and visualization endpoints."""
 
 from collections import defaultdict
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Query
@@ -8,30 +9,62 @@ from fastapi.responses import PlainTextResponse
 
 from penny.api.helpers import (
     category_bucket,
-    format_currency,
-    get_db,
     period_key,
     period_label,
     roll_up_top_buckets,
     sort_period_keys,
 )
+from penny.db import connect
+from penny.reports import generate_report_text
 from penny.sql import (
     breakout_query,
     cashflow_query,
     categories_query,
     pivot_query,
-    report_query,
     summary_query,
     tree_query,
 )
+from penny.transactions import TransactionFilter, list_transactions
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    return date.fromisoformat(value)
+
+
+def _parse_account_ids(value: str | None) -> frozenset[int] | None:
+    if value is None:
+        return None
+    account_ids = {int(account_id) for account_id in value.split(",") if account_id}
+    return frozenset(account_ids)
+
+
+def _build_transaction_filter(
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    accounts: str | None = None,
+    category: str | None = None,
+    q: str | None = None,
+    tab: str | None = None,
+) -> TransactionFilter:
+    return TransactionFilter(
+        from_date=_parse_date(from_date),
+        to_date=_parse_date(to_date),
+        account_ids=_parse_account_ids(accounts),
+        category_prefix=category,
+        search_query=q,
+        tab=tab,
+    )
 
 
 @router.get("/meta")
 async def meta():
     """Return metadata about available data."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     # Get accounts from accounts table
@@ -71,7 +104,7 @@ async def categories(
     q: Optional[str] = Query(None),
 ):
     """Return distinct category paths for the current raw filter selection."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = categories_query(
@@ -94,7 +127,7 @@ async def summary(
     q: Optional[str] = Query(None),
 ):
     """Return expense/income summary."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = summary_query(
@@ -132,7 +165,7 @@ async def tree(
     q: Optional[str] = Query(None),
 ):
     """Return hierarchical category tree for treemap."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = tree_query(
@@ -186,7 +219,7 @@ async def pivot(
     q: Optional[str] = Query(None),
 ):
     """Return pivot table data."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = pivot_query(
@@ -245,7 +278,7 @@ async def cashflow(
     q: Optional[str] = Query(None),
 ):
     """Return Sankey diagram data derived from filtered transactions."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = cashflow_query(
@@ -306,7 +339,7 @@ async def breakout(
     q: Optional[str] = Query(None),
 ):
     """Return time-series breakout data."""
-    conn = get_db()
+    conn = connect()
     cursor = conn.cursor()
 
     sql, params = breakout_query(
@@ -370,63 +403,10 @@ async def report(
     q: Optional[str] = Query(None),
 ):
     """Return plain text financial report."""
-    conn = get_db()
-    cursor = conn.cursor()
-
-    sql, params = report_query(
+    filters = _build_transaction_filter(
         from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
     )
-    rows = cursor.execute(sql, params).fetchall()
-    conn.close()
-
-    expense_total = sum(abs(row[3]) for row in rows if row[3] < 0)
-    income_total = sum(row[3] for row in rows if row[3] > 0)
-    net_flow = income_total - expense_total
-
-    expense_categories = defaultdict(int)
-    income_categories = defaultdict(int)
-    for row in rows:
-        bucket = category_bucket(row[2])
-        if row[3] < 0:
-            expense_categories[bucket] += abs(row[3])
-        elif row[3] > 0:
-            income_categories[bucket] += row[3]
-
-    top_expenses = sorted(expense_categories.items(), key=lambda item: item[1], reverse=True)[:5]
-    top_income = sorted(income_categories.items(), key=lambda item: item[1], reverse=True)[:5]
-    account_label = ", ".join(a for a in (accounts or "").split(",") if a) or "all"
-    period_lbl = f"{from_date or 'beginning'} to {to_date or 'today'}"
-
-    lines = [
-        "=" * 79,
-        "                              PENNY FINANCE REPORT",
-        "=" * 79,
-        "",
-        f"Period:   {period_lbl}",
-        f"Accounts: {account_label}",
-        "",
-        "SUMMARY",
-        "-" * 7,
-        f"  Transactions:    {len(rows)}",
-        f"  Total Income:    {format_currency(income_total)}",
-        f"  Total Expenses:  {format_currency(expense_total)}",
-        f"  Net Flow:        {format_currency(net_flow)}",
-    ]
-
-    if top_expenses:
-        lines.extend(["", "TOP EXPENSE CATEGORIES", "-" * 22])
-        for index, (name, value) in enumerate(top_expenses, start=1):
-            share = round((value / expense_total) * 100) if expense_total else 0
-            lines.append(f"  {index}. {name:<20} {format_currency(value):>12}  ({share:>2}%)")
-
-    if top_income:
-        lines.extend(["", "TOP INCOME CATEGORIES", "-" * 21])
-        for index, (name, value) in enumerate(top_income, start=1):
-            share = round((value / income_total) * 100) if income_total else 0
-            lines.append(f"  {index}. {name:<20} {format_currency(value):>12}  ({share:>2}%)")
-
-    lines.extend(["", "Report generated by Penny v0.1.0"])
-    return "\n".join(lines)
+    return generate_report_text(filters)
 
 
 @router.get("/transactions")
@@ -439,55 +419,19 @@ async def transactions(
     category: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
 ):
-    """Return filtered transaction list.
-
-    Uses storage layer for proper GROUP BY when neutralize=True.
-    Filtering is done in Python for simplicity.
-    """
-    from penny.transactions import list_transactions
-
-    all_txns = list_transactions(limit=None, neutralize=neutralize)
-
-    # Parse account IDs filter
-    account_ids = None
-    if accounts:
-        account_ids = {int(a) for a in accounts.split(",") if a}
-
-    # Filter transactions
-    filtered = []
-    for tx in all_txns:
-        # Date filter
-        date_str = tx.date.isoformat()
-        if from_date and date_str < from_date:
-            continue
-        if to_date and date_str > to_date:
-            continue
-
-        # Account filter
-        if account_ids is not None and tx.account_id not in account_ids:
-            continue
-
-        # Category filter (prefix match)
-        if category:
-            if not tx.category or not tx.category.startswith(category):
-                continue
-
-        # Search filter
-        if q:
-            search_text = (tx.raw_buchungstext or tx.payee or "").lower()
-            if q.lower() not in search_text:
-                continue
-
-        # Tab filter (expense/income) - applied to net amount for groups
-        if tab == "expense" and tx.amount_cents >= 0:
-            continue
-        if tab == "income" and tx.amount_cents <= 0:
-            continue
-
-        filtered.append(tx)
-
-    # Sort by date descending, then fingerprint for stability
-    filtered.sort(key=lambda tx: (tx.date, tx.fingerprint), reverse=True)
+    """Return filtered transaction list using the shared domain filter logic."""
+    filtered = list_transactions(
+        filters=_build_transaction_filter(
+            from_date=from_date,
+            to_date=to_date,
+            accounts=accounts,
+            category=category,
+            q=q,
+            tab=tab,
+        ),
+        limit=None,
+        neutralize=neutralize,
+    )
 
     # Map to frontend format
     txns = [

@@ -142,7 +142,6 @@ def transaction_scope_sql(
     query += f"\n GROUP BY {grouping_col}"
     return f"({query}) {alias}"
 
-
 def format_currency(cents: int) -> str:
     """Format cents as EUR using German separators."""
     amount = abs(cents) / 100

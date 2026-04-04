@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -15,8 +16,8 @@ from penny.accounts import (
     reconcile_account,
     remove_account,
 )
-from penny.classify import load_rules_config, run_classification_pass
-from penny.classify.engine import RuleCollector, _ACTIVE_COLLECTOR, _load_module
+from penny.classify import run_classification_pass
+from penny.classify.engine import LoadedRulesConfig, RuleCollector, _ACTIVE_COLLECTOR, _load_module
 from penny.db import init_default_db
 from penny.ingest import (
     DetectionError,
@@ -24,7 +25,9 @@ from penny.ingest import (
     match_file,
     read_file_with_encoding,
 )
+from penny.reports import generate_report_text
 from penny.transactions import (
+    TransactionFilter,
     apply_classifications,
     apply_groups,
     list_transactions,
@@ -41,11 +44,162 @@ from penny.vault import (
     replay_vault,
 )
 
+
+def _load_rules_bundle(rules_file: Path) -> tuple[LoadedRulesConfig, object]:
+    """Load rules once and return both config and raw module."""
+    collector = RuleCollector(rules_file)
+    token = _ACTIVE_COLLECTOR.set(collector)
+    try:
+        module = _load_module(rules_file)
+        config = LoadedRulesConfig(
+            ruleset=collector.build(),
+            default_category=getattr(module, "DEFAULT_CATEGORY", "uncategorized"),
+        )
+        return config, module
+    finally:
+        _ACTIVE_COLLECTOR.reset(token)
+
+
+def _extract_transfer_settings(module: object) -> tuple[str, int, object | None]:
+    """Read optional transfer-linking hooks from the rules module."""
+    return (
+        getattr(module, "TRANSFER_PREFIX", "transfer/"),
+        getattr(module, "TRANSFER_WINDOW_DAYS", 10),
+        getattr(module, "in_same_transfer_group", None),
+    )
+
 def _format_account_row(account) -> str:
     name = account.display_name or "-"
     iban = account.iban or "-"
     status = "hidden" if account.hidden else "active"
     return f"{account.id:<3} {account.bank:<12} {name:<20} {iban:<24} {status}"
+
+
+def _build_transaction_filter(
+    *,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    account_ids: tuple[int, ...] = (),
+    category: str | None = None,
+    query: str | None = None,
+    tab: str | None = None,
+) -> TransactionFilter:
+    return TransactionFilter(
+        from_date=from_date.date() if from_date else None,
+        to_date=to_date.date() if to_date else None,
+        account_ids=frozenset(account_ids) if account_ids else None,
+        category_prefix=category,
+        search_query=query,
+        tab=tab,
+    )
+
+
+def _echo_classification_lines(transactions, decisions, traces, *, verbose: int) -> None:
+    """Print verbose classification output."""
+    if verbose <= 0:
+        return
+
+    decisions_by_fingerprint = {
+        decision.fingerprint: decision
+        for decision in decisions
+    }
+
+    for transaction in transactions:
+        decision = decisions_by_fingerprint.get(transaction.fingerprint)
+        if decision is None:
+            continue
+
+        if verbose == 1:
+            click.echo(
+                f"{transaction.date.isoformat()} | "
+                f"{transaction.payee[:30]:<30} | "
+                f"{transaction.amount_cents / 100:>9.2f} | "
+                f"{decision.category} | "
+                f"rule={decision.rule_name}"
+            )
+            continue
+
+        click.echo(
+            f"{transaction.date.isoformat()} | "
+            f"{transaction.payee[:30]:<30} | "
+            f"{transaction.amount_cents / 100:>9.2f}"
+        )
+        for evaluation in traces.get(transaction.fingerprint, []):
+            status = "yes" if evaluation.matched else "no"
+            suffix = f" !! {evaluation.error}" if evaluation.error else ""
+            click.echo(f"  [{status}] {evaluation.rule_name} -> {evaluation.category}{suffix}")
+        click.echo(f"  => {decision.rule_name} -> {decision.category}")
+
+
+def _echo_classification_summary(rules_file: Path, config: LoadedRulesConfig, result) -> None:
+    """Print the compact classification summary."""
+    click.echo(f"Loaded rules: {rules_file}")
+    click.echo(f"Rules: {len(config.ruleset.rules)}")
+    click.echo(f"Default category: {config.default_category}")
+    click.echo(f"Matched: {result.matched_count}")
+    click.echo(f"Default: {result.default_count}")
+    for category, count in sorted(result.category_counts.items()):
+        click.echo(f"  {category}: {count}")
+
+
+def _apply_rules(rules_file: Path, *, verbose: int = 0) -> None:
+    """Apply classification rules and optional transfer linking."""
+    transactions = list_transactions(limit=None, neutralize=False)
+    if not transactions:
+        click.echo("No transactions found.")
+        return
+
+    config, module = _load_rules_bundle(rules_file)
+    result = run_classification_pass(
+        transactions,
+        config,
+        collect_rule_trace=verbose >= 2,
+    )
+
+    if result.errors:
+        for error in result.errors:
+            click.echo(f"Error classifying {error.payee}: {error.error}", err=True)
+        raise click.ClickException(f"{len(result.errors)} classification errors")
+
+    apply_classifications(result.decisions)
+    _echo_classification_lines(
+        transactions,
+        result.decisions,
+        result.traces,
+        verbose=verbose,
+    )
+    _echo_classification_summary(rules_file, config, result)
+
+    decisions_by_fingerprint = {
+        decision.fingerprint: decision
+        for decision in result.decisions
+    }
+    for transaction in transactions:
+        decision = decisions_by_fingerprint[transaction.fingerprint]
+        transaction.category = decision.category
+        transaction.classification_rule = decision.rule_name
+
+    prefix, window_days, predicate = _extract_transfer_settings(module)
+    if predicate is None:
+        click.echo("")
+        click.echo("Transfer linking: skipped (no in_same_transfer_group defined)")
+        return
+
+    transfer_result = link_transfers(
+        transactions,
+        predicate,
+        prefix=prefix,
+        window_days=window_days,
+    )
+    apply_groups(transfer_result.assignments)
+
+    click.echo("")
+    click.echo("Transfers:")
+    click.echo(f"  Prefix: {prefix!r}")
+    click.echo(f"  Window: {window_days} days")
+    click.echo(f"  Groups found: {transfer_result.groups_found}")
+    click.echo(f"  Linked entries: {transfer_result.grouped_entries}")
+    click.echo(f"  Standalone transfers: {transfer_result.standalone_entries}")
 
 
 @click.group()
@@ -252,12 +406,38 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
 
 
 @transactions.command("list")
-@click.option("--account", "-a", "account_id", type=int, help="Filter by account ID")
-@click.option("--limit", "-n", default=20, show_default=True, help="Number of transactions")
-def transactions_list(account_id: int | None, limit: int):
+@click.option("--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)")
+@click.option("--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)")
+@click.option("--account", "-a", "account_ids", multiple=True, type=int, help="Filter by account ID (repeatable)")
+@click.option("--category", help="Filter by category prefix")
+@click.option("--query", "-q", help="Search booking text or payee")
+@click.option("--tab", type=click.Choice(["expense", "income"]), help="Filter by amount sign")
+@click.option("--neutralize/--no-neutralize", default=True, show_default=True, help="Collapse transfer groups to net sums")
+@click.option("--limit", "-n", type=int, help="Number of transactions to show")
+def transactions_list(
+    from_date: datetime | None,
+    to_date: datetime | None,
+    account_ids: tuple[int, ...],
+    category: str | None,
+    query: str | None,
+    tab: str | None,
+    neutralize: bool,
+    limit: int | None,
+):
     """List recent transactions."""
 
-    transaction_list = list_transactions(account_id=account_id, limit=limit, neutralize=True)
+    transaction_list = list_transactions(
+        filters=_build_transaction_filter(
+            from_date=from_date,
+            to_date=to_date,
+            account_ids=account_ids,
+            category=category,
+            query=query,
+            tab=tab,
+        ),
+        limit=limit,
+        neutralize=neutralize,
+    )
     if not transaction_list:
         click.echo("No transactions found.")
         return
@@ -270,92 +450,41 @@ def transactions_list(account_id: int | None, limit: int):
         )
 
 
-@main.command("classify")
-@click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-def classify(rules_file: Path):
-    """Classify all imported transactions using a Python rules module."""
+@main.command("report")
+@click.option("--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)")
+@click.option("--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)")
+@click.option("--account", "-a", "account_ids", multiple=True, type=int, help="Filter by account ID (repeatable)")
+@click.option("--category", help="Filter by category prefix")
+@click.option("--query", "-q", help="Search booking text or payee")
+def report(
+    from_date: datetime | None,
+    to_date: datetime | None,
+    account_ids: tuple[int, ...],
+    category: str | None,
+    query: str | None,
+):
+    """Generate the plain text finance report."""
 
-    transactions = list_transactions(limit=None, neutralize=False)
-    if not transactions:
-        click.echo("No transactions found.")
-        return
-
-    config = load_rules_config(rules_file)
-    result = run_classification_pass(transactions, config)
-    apply_classifications(result.decisions)
-
-    click.echo(f"Loaded rules: {rules_file}")
-    click.echo(f"Rules: {len(config.ruleset.rules)}")
-    click.echo(f"Default category: {config.default_category}")
-    click.echo(f"Matched: {result.matched_count}")
-    click.echo(f"Default: {result.default_count}")
-    for category, count in sorted(result.category_counts.items()):
-        click.echo(f"  {category}: {count}")
-
-
-@main.command("link-transfers")
-@click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--dry-run", is_flag=True, help="Show what would be linked without persisting")
-def link_transfers_cmd(rules_file: Path, dry_run: bool):
-    """Link transfer entries into groups using rules from a Python module.
-
-    The rules file should define:
-
-    \b
-      TRANSFER_PREFIX = "transfer/"      # Category prefix to filter
-      TRANSFER_WINDOW_DAYS = 10          # Max days apart for comparison
-      def in_same_transfer_group(a, b):  # Predicate function
-          return ...
-    """
-    # Load the rules module (with context for @rule decorators)
-    collector = RuleCollector(rules_file)
-    token = _ACTIVE_COLLECTOR.set(collector)
-    try:
-        module = _load_module(rules_file)
-    finally:
-        _ACTIVE_COLLECTOR.reset(token)
-
-    # Extract transfer config
-    prefix = getattr(module, "TRANSFER_PREFIX", "transfer/")
-    window_days = getattr(module, "TRANSFER_WINDOW_DAYS", 10)
-    predicate = getattr(module, "in_same_transfer_group", None)
-
-    if predicate is None:
-        raise click.ClickException(
-            f"Rules file must define 'in_same_transfer_group(a, b)' function"
+    click.echo(
+        generate_report_text(
+            _build_transaction_filter(
+                from_date=from_date,
+                to_date=to_date,
+                account_ids=account_ids,
+                category=category,
+                query=query,
+            )
         )
+    )
 
-    click.echo(f"Loaded rules: {rules_file}")
-    click.echo(f"  TRANSFER_PREFIX = {prefix!r}")
-    click.echo(f"  TRANSFER_WINDOW_DAYS = {window_days}")
-    click.echo("")
 
-    # Load all transactions (unconsolidated - need raw entries for linking)
-    entries = list_transactions(limit=None, neutralize=False)
-    if not entries:
-        click.echo("No entries found.")
-        return
+@main.command("apply")
+@click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-v", "verbose", count=True, help="Increase verbosity (-v result lines, -vv rule trace)")
+def apply(rules_file: Path, verbose: int):
+    """Apply classification rules and optional transfer linking."""
 
-    # Run linking
-    result = link_transfers(entries, predicate, prefix=prefix, window_days=window_days)
-
-    click.echo(f"Entries: {result.total_entries} total, {result.transfer_entries} transfers")
-    click.echo(f"Groups found: {result.groups_found}")
-    click.echo(f"  - {result.pairs} pairs (2 entries)")
-    click.echo(f"  - {result.triplets} triplets (3 entries)")
-    click.echo(f"  - {result.larger} larger groups (max {result.max_group_size} entries)")
-    click.echo("")
-
-    if dry_run:
-        click.echo(f"Dry run: would link {result.grouped_entries} entries into {result.groups_found} groups")
-        return
-
-    # Apply to database
-    grouped, standalone = apply_groups(result.assignments)
-    click.echo(f"Linked: {grouped} entries into groups")
-    click.echo(f"Standalone: {standalone} entries")
-    click.echo("")
-    click.echo("Done.")
+    _apply_rules(rules_file, verbose=verbose)
 
 
 if __name__ == "__main__":
