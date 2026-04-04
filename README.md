@@ -53,6 +53,30 @@ uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.1.0
 
 This installs the `penny` command as a standalone CLI tool.
 
+From a local checkout, install the CLI tool with:
+
+```bash
+make install
+```
+
+Common CLI commands:
+
+```bash
+# Start the backend server
+penny serve
+
+# Import a CSV into the local vault + projection
+penny import path/to/export.csv
+
+# Apply classification and transfer-grouping rules
+penny apply rules.py -v
+
+# Inspect archived imports and rebuild/drop the projection DB
+penny log list
+penny db rebuild
+penny db drop
+```
+
 ## Development
 
 ### Prerequisites
@@ -67,8 +91,8 @@ This installs the `penny` command as a standalone CLI tool.
 direnv allow
 # or: nix develop
 
-# Install dependencies
-make install
+# Install development dependencies
+make dev-install
 ```
 
 ### Run in Development
@@ -82,6 +106,9 @@ make serve
 
 # Open browser to dev server
 make web-open
+
+# Run just the API server via the installed CLI
+penny serve
 ```
 
 ### Build Distributable

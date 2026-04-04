@@ -1,4 +1,4 @@
-.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build release release-dry-run clean install sync test frontend-install frontend-build frontend-dev
+.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
 dev: sync frontend-build
@@ -42,8 +42,12 @@ web-open-dev:
 sync:
 	uv sync
 
+# Install the standalone Penny CLI tool from this checkout
+install:
+	uv tool install --reinstall --force .
+
 # Install development dependencies including briefcase
-install: frontend-install
+dev-install: frontend-install
 	uv sync --group dev
 
 # Build macOS app (alias for build)
@@ -54,7 +58,7 @@ app-open:
 	open "build/penny/macos/app/Penny.app"
 
 # Build macOS app using briefcase
-build: install frontend-build
+build: dev-install frontend-build
 	@echo "Building macOS app..."
 	yes | uv run python -m briefcase create macOS app
 	uv run python -m briefcase build macOS app
@@ -74,11 +78,11 @@ release-dry-run: build
 	DRY_RUN=1 ./scripts/release.sh
 
 # Build without packaging (faster iteration)
-build-dev: install frontend-build
+build-dev: dev-install frontend-build
 	uv run python -m briefcase dev
 
 # Update existing build (faster than full rebuild)
-update: install frontend-build
+update: dev-install frontend-build
 	uv run python -m briefcase update macOS app
 	uv run python -m briefcase build macOS app
 
@@ -92,7 +96,7 @@ clean:
 	@echo "Cleaned build artifacts"
 
 # Run tests
-test: install
+test: dev-install
 	uv run python -m pytest tests/ -v
 
 # Show help
@@ -103,6 +107,8 @@ help:
 	@echo "  make serve     - Run Vite + backend with hot reload and open browser"
 	@echo "  make serve-api - Run just the backend API server on http://127.0.0.1:8001"
 	@echo "  make dev-web   - Alias for make serve"
+	@echo "  make install   - Install the standalone penny CLI tool from this checkout"
+	@echo "  make dev-install - Install development dependencies for working on the repo"
 	@echo "  make frontend-build - Build bundled frontend assets"
 	@echo "  make frontend-dev   - Run Vite dev server on http://127.0.0.1:8000"
 	@echo "  make web-open  - Open browser to http://127.0.0.1:8000"
@@ -115,6 +121,7 @@ help:
 	@echo "  make release-dry-run - Validate the release command without publishing"
 	@echo "  make app-open  - Open the built .app"
 	@echo "  make update    - Update existing build (faster)"
+	@echo "  make test      - Run the test suite"
 	@echo "  make clean     - Remove build artifacts"
 	@echo ""
 	@echo "Examples:"

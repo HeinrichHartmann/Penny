@@ -48,6 +48,7 @@ src/penny/
 ├── sql.py             # SQL query builders
 ├── api/               # FastAPI route handlers
 │   ├── accounts.py    # /api/accounts endpoints
+│   ├── helpers.py     # Shared API formatting helpers
 │   ├── import_.py     # /api/import endpoints (uses vault)
 │   ├── rules.py       # /api/rules endpoints
 │   └── dashboard.py   # /api/dashboard endpoints
@@ -57,14 +58,19 @@ src/penny/
 │   ├── manifests.py   # Dataclasses for entry types
 │   ├── apply.py       # Apply entries to SQLite projection
 │   ├── ingest.py      # CSV ingest through vault
-│   └── replay.py      # ReplayEngine for state rebuild
+│   ├── mutations.py   # Append-only mutation log
+│   ├── rules_store.py # Versioned rules snapshots
+│   ├── replay.py      # ReplayEngine for state rebuild
+│   └── startup.py     # First-run bootstrap + replay
 ├── ingest/            # CSV parsing plugins
 │   ├── base.py        # BankModule ABC
 │   ├── detection.py   # Bank format detection
 │   └── formats/       # Bank-specific parsers
 ├── classify/          # Transaction classification
 │   ├── engine.py      # Rule evaluation
-│   └── __init__.py    # Helper predicates
+│   └── __init__.py    # Helper predicates (is_(), contains(), regexp())
+├── transfers/         # Transfer neutralization
+│   └── engine.py      # Union-Find grouping
 ├── static/            # Vue.js frontend
 ├── launcher.py        # Toga GUI window
 ├── server.py          # FastAPI app setup
@@ -223,11 +229,12 @@ make app              # Build macOS .app + .dmg
 - `tests/test_vault_ingest.py` - Ingest + replay tests (6)
 
 ### Next Steps (from ADR-010 Implementation Plan)
-1. **Phase 4: Startup Flow** - Initialize vault on first run, replay on startup
-2. **Phase 5: CLI Commands** - `penny vault init/status/replay`
-3. Wire other mutations through vault (account_created, balance_snapshot, rules)
+1. Wire more mutations through the vault (`account_created`, balance snapshots, edits)
+2. Keep shrinking API route logic in favor of domain functions reused by CLI and UI
+3. Keep replay deterministic so the SQLite projection can always be rebuilt from local artifacts
 
-### Git
-- Branch: `csv-import`
-- Remote: `github` → `git@github.com:HeinrichHartmann/Penny.git`
-- Status: Clean, pushed to github/csv-import
+## Local-First Constraints
+
+- All data stays local in `~/Documents/Penny/`
+- No cloud sync and no bank API connections
+- Users control their CSV files and local rules
