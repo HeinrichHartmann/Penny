@@ -262,7 +262,7 @@ def test_group_id_never_null(storage_with_accounts: TransactionStorage):
 
     storage_with_accounts.store_transactions([tx])
 
-    stored = storage_with_accounts.list_transaction_entries(limit=1)
+    stored = storage_with_accounts.list_transactions(limit=1, neutralize=False)
     assert len(stored) == 1
     assert stored[0].group_id == stored[0].fingerprint
 
@@ -283,11 +283,11 @@ def test_consolidated_query_groups_entries(storage_with_accounts: TransactionSto
     })
 
     # Unconsolidated: 2 entries
-    raw = storage_with_accounts.list_transaction_entries()
+    raw = storage_with_accounts.list_transactions(neutralize=False)
     assert len(raw) == 2
 
     # Consolidated: 1 entry with net amount
-    consolidated = storage_with_accounts.list_transaction_groups()
+    consolidated = storage_with_accounts.list_transactions(neutralize=True)
     assert len(consolidated) == 1
     assert consolidated[0].amount_cents == 0  # -10000 + 10000
     assert consolidated[0].entry_count == 2
@@ -299,7 +299,7 @@ def test_consolidated_query_preserves_standalone(storage_with_accounts: Transact
 
     storage_with_accounts.store_transactions([tx])
 
-    consolidated = storage_with_accounts.list_transaction_groups()
+    consolidated = storage_with_accounts.list_transactions(neutralize=True)
     assert len(consolidated) == 1
     assert consolidated[0].amount_cents == -5000
     assert consolidated[0].entry_count == 1
@@ -314,7 +314,7 @@ def test_apply_groups_updates_existing(storage_with_accounts: TransactionStorage
     storage_with_accounts.store_transactions([tx1, tx2])
 
     # Initially both standalone
-    raw = storage_with_accounts.list_transaction_entries()
+    raw = storage_with_accounts.list_transactions(neutralize=False)
     assert all(tx.group_id == tx.fingerprint for tx in raw)
 
     # Apply grouping
@@ -328,5 +328,5 @@ def test_apply_groups_updates_existing(storage_with_accounts: TransactionStorage
     assert standalone == 0
 
     # Now both share group_id
-    raw = storage_with_accounts.list_transaction_entries()
+    raw = storage_with_accounts.list_transactions(neutralize=False)
     assert all(tx.group_id == group_id for tx in raw)
