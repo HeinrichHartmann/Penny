@@ -27,3 +27,5 @@ logs/
 .env
 demo.db
 .direnv/
+rules.py
+REVIEW/

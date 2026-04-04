@@ -1,10 +1,10 @@
-from pathlib import Path
+import importlib.resources
 
-from penny.classify import load_rules
+from penny.classify import load_rules_config
 
 
-def test_root_rules_module_loads():
-    ruleset = load_rules(Path(__file__).resolve().parents[1] / "rules.py")
+def test_default_rules_template_loads():
+    config = load_rules_config(importlib.resources.files("penny").joinpath("default_rules.py"))
 
-    assert len(ruleset.rules) >= 30
-    assert ruleset.rules[0].category == "salary"
+    assert config.default_category == "uncategorized"
+    assert config.ruleset.rules == []
