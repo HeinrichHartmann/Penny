@@ -26,6 +26,7 @@ class IngestRequest:
 
     filename: str
     content: str | bytes
+    csv_type: str | None = None
 
 
 def ingest_csv(
@@ -68,7 +69,7 @@ def ingest_csv(
 
     # Detect parser first (fail fast if unknown format)
     try:
-        parser = match_file(request.filename, content_str)
+        parser = match_file(request.filename, content_str, csv_type=request.csv_type)
     except DetectionError:
         raise
 

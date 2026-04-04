@@ -1,4 +1,5 @@
 from click.testing import CliRunner
+import pytest
 
 from penny.accounts import (
     add_account,
@@ -55,8 +56,8 @@ def test_add_duplicate_hidden_account_fails(db):
         raise AssertionError("Expected duplicate account creation to fail")
 
 
-def test_accounts_cli_add_list_remove(monkeypatch, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+@pytest.mark.integration
+def test_accounts_cli_add_list_remove():
     runner = CliRunner()
 
     result = runner.invoke(main, ["accounts", "add", "comdirect", "--account-number", "9788862492"])

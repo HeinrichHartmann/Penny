@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from penny.config import default_db_path
 from penny.vault.config import VaultConfig
 from penny.vault.log import LogManager
 from penny.vault.apply import apply_entry
@@ -41,11 +42,16 @@ class ReplayEngine:
         Returns:
             ReplayResult with counts of entries processed.
         """
-        from penny.db import init_db
+        from penny.db import init_db, init_default_db
 
-        # Initialize fresh database with schema (in-memory or at default path)
-        # For tests, caller should set PENNY_DATA_DIR to tmp_path
-        init_db()
+        # Drop any existing projection so replay is deterministic against drift.
+        db_path = default_db_path()
+        init_db(None)
+        if db_path.exists():
+            db_path.unlink()
+
+        # Rebuild the file-backed projection from the current PENNY_DATA_DIR.
+        init_default_db()
 
         entries_processed = 0
         entries_by_type: dict[str, int] = {}

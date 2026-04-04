@@ -13,6 +13,8 @@ from penny.vault import (
 from penny.ingest import read_file_with_encoding
 from penny.transactions import count_transactions
 
+pytestmark = pytest.mark.integration
+
 
 class TestVaultIngest:
     @pytest.fixture

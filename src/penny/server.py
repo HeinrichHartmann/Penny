@@ -1,5 +1,6 @@
 """FastAPI web server for Penny."""
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -7,8 +8,17 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from penny.api import accounts_router, dashboard_router, import_router, rules_router
+from penny.vault import bootstrap_application_state
 
-app = FastAPI(title="Penny")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Initialize and replay the vault-backed projection on app startup."""
+    bootstrap_application_state()
+    yield
+
+
+app = FastAPI(title="Penny", lifespan=lifespan)
 
 # Frontend paths
 STATIC_DIR = Path(__file__).parent / "static"

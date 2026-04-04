@@ -1,11 +1,14 @@
 from click.testing import CliRunner
+import pytest
 
 from penny.cli import main
 from penny.transactions import count_transactions
 
 
-def test_import_creates_transactions_and_account(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+pytestmark = pytest.mark.integration
+
+
+def test_import_creates_transactions_and_account(fixture_dir):
     runner = CliRunner()
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
 
@@ -26,8 +29,7 @@ def test_import_creates_transactions_and_account(monkeypatch, fixture_dir, tmp_p
     assert count_transactions() == 3
 
 
-def test_reimport_deduplicates(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+def test_reimport_deduplicates(fixture_dir):
     runner = CliRunner()
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
 
@@ -40,8 +42,7 @@ def test_reimport_deduplicates(monkeypatch, fixture_dir, tmp_path):
     assert "Duplicates: 3 (skipped)" in second.output
 
 
-def test_import_dry_run_does_not_persist(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+def test_import_dry_run_does_not_persist(fixture_dir):
     runner = CliRunner()
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
 

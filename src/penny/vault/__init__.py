@@ -14,6 +14,7 @@ from penny.vault.manifests import (
 from penny.vault.apply import apply_ingest, apply_entry, IngestResult
 from penny.vault.ingest import ingest_csv, ingest_csv_files, IngestRequest
 from penny.vault.replay import ReplayEngine, ReplayResult, replay_vault
+from penny.vault.startup import StartupResult, bootstrap_application_state, ensure_vault_initialized
 
 __all__ = [
     # Config
@@ -41,4 +42,8 @@ __all__ = [
     "ReplayEngine",
     "ReplayResult",
     "replay_vault",
+    # Startup
+    "StartupResult",
+    "bootstrap_application_state",
+    "ensure_vault_initialized",
 ]

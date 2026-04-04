@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from penny import __version__
 from penny.accounts import (
     DuplicateAccountError,
     add_account,
@@ -17,6 +18,7 @@ from penny.accounts import (
 )
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import RuleCollector, _ACTIVE_COLLECTOR, _load_module
+from penny.config import default_db_path
 from penny.db import init_default_db
 from penny.ingest import (
     DetectionError,
@@ -28,12 +30,16 @@ from penny.transactions import (
     apply_classifications,
     apply_groups,
     list_transactions,
-    store_transactions,
 )
 from penny.transfers import link_transfers
-
-
-
+from penny.vault import (
+    IngestRequest,
+    LogManager,
+    VaultConfig,
+    ensure_vault_initialized,
+    ingest_csv as ingest_vault_csv,
+    replay_vault,
+)
 
 def _format_account_row(account) -> str:
     name = account.display_name or "-"
@@ -108,6 +114,68 @@ def transactions():
 SUPPORTED_CSV_TYPES = get_supported_csv_types()
 
 
+@main.group()
+def vault():
+    """Manage the portable vault and SQLite projection."""
+
+
+@vault.command("init")
+def vault_init():
+    """Initialize the vault and create the first log entry if needed."""
+    config = VaultConfig()
+    created = ensure_vault_initialized(config)
+    log = LogManager(config)
+
+    click.echo(f"Vault: {config.path}")
+    if created:
+        click.echo("Status: initialized")
+        click.echo(f"Entries: {log.count()}")
+    else:
+        click.echo("Status: already initialized")
+        click.echo(f"Entries: {log.count()}")
+
+
+@vault.command("status")
+def vault_status():
+    """Show vault and projection status."""
+    config = VaultConfig()
+    log = LogManager(config)
+
+    click.echo(f"Vault: {config.path}")
+    click.echo(f"Projection DB: {default_db_path()}")
+    click.echo(f"Initialized: {'yes' if config.is_initialized() else 'no'}")
+
+    if not config.is_initialized():
+        click.echo("Entries: 0")
+        return
+
+    entries = log.list_entries()
+    click.echo(f"Entries: {len(entries)}")
+    latest = log.latest_entry()
+    if latest is not None:
+        click.echo(f"Latest: {latest.sequence:06d}_{latest.entry_type}")
+
+    counts: Counter[str] = Counter(entry.read_manifest().type for entry in entries)
+    for entry_type, count in sorted(counts.items()):
+        click.echo(f"  {entry_type}: {count}")
+
+
+@vault.command("replay")
+def vault_replay():
+    """Rebuild the SQLite projection from the vault log."""
+    config = VaultConfig()
+    created = ensure_vault_initialized(config)
+    result = replay_vault(config)
+
+    click.echo(f"Vault: {config.path}")
+    click.echo(f"Projection DB: {default_db_path()}")
+    if created:
+        click.echo(f"Initialized with 000001_init (app {__version__})")
+    click.echo(f"Entries processed: {result.entries_processed}")
+    for entry_type, count in sorted(result.entries_by_type.items()):
+        click.echo(f"  {entry_type}: {count}")
+
+
 @main.command("import")
 @click.argument("csv_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option(
@@ -165,15 +233,18 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             )
         return
 
-    new_count, duplicate_count = store_transactions(
-        parsed_transactions,
-        source_file=csv_file.name,
+    result = ingest_vault_csv(
+        IngestRequest(
+            filename=csv_file.name,
+            content=csv_file.read_bytes(),
+            csv_type=csv_type,
+        )
     )
 
     click.echo("")
     click.echo("Importing...")
-    click.echo(f"  New: {new_count} transactions")
-    click.echo(f"  Duplicates: {duplicate_count} (skipped)")
+    click.echo(f"  New: {result.transactions_new} transactions")
+    click.echo(f"  Duplicates: {result.transactions_duplicate} (skipped)")
     click.echo("")
     click.echo("Done.")
 

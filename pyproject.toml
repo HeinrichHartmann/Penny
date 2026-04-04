@@ -54,3 +54,8 @@ dev = [
     "briefcase>=0.3.21",
     "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: end-to-end or file-backed tests that exercise the real app interface",
+]

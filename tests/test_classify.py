@@ -3,15 +3,15 @@ import asyncio
 import pytest
 from click.testing import CliRunner
 
-from penny.api.rules import run_rules
+from penny.api.rules import get_rules_path, run_rules
 from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
 from penny.cli import main
 from penny.transactions import apply_classifications, list_transactions
 
 
-def _import_fixture(runner: CliRunner, fixture_dir, tmp_path):
+def _import_fixture(runner: CliRunner, fixture_dir):
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
-    result = runner.invoke(main, ["import", str(csv_path)], env={"PENNY_DATA_DIR": str(tmp_path)})
+    result = runner.invoke(main, ["import", str(csv_path)])
     assert result.exit_code == 0
 
 
@@ -32,10 +32,10 @@ def test_load_rules_preserves_file_order(fixture_dir):
     ]
 
 
-def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+@pytest.mark.integration
+def test_classify_updates_transactions(fixture_dir):
     runner = CliRunner()
-    _import_fixture(runner, fixture_dir, tmp_path)
+    _import_fixture(runner, fixture_dir)
 
     rules_path = fixture_dir / "rules_primary.py"
     result = runner.invoke(main, ["classify", str(rules_path)])
@@ -58,10 +58,10 @@ def test_classify_updates_transactions(monkeypatch, fixture_dir, tmp_path):
     assert rules["AMAZON PAYMENTS EUROPE S.C.A."] == "amazon"
 
 
-def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+@pytest.mark.integration
+def test_classify_can_reclassify_with_different_rules(fixture_dir):
     runner = CliRunner()
-    _import_fixture(runner, fixture_dir, tmp_path)
+    _import_fixture(runner, fixture_dir)
 
     first_rules = fixture_dir / "rules_primary.py"
     second_rules = fixture_dir / "rules_reordered.py"
@@ -80,12 +80,13 @@ def test_classify_can_reclassify_with_different_rules(monkeypatch, fixture_dir, 
     assert amazon.classification_rule == "amazon_specific"
 
 
-def test_api_run_rules_applies_default_category_to_unmatched(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+@pytest.mark.integration
+def test_api_run_rules_applies_default_category_to_unmatched(fixture_dir):
     runner = CliRunner()
-    _import_fixture(runner, fixture_dir, tmp_path)
+    _import_fixture(runner, fixture_dir)
 
-    rules_path = tmp_path / "rules.py"
+    rules_path = get_rules_path()
+    rules_path.parent.mkdir(parents=True, exist_ok=True)
     rules_path.write_text(
         """
 from penny.classify import contains, rule
@@ -119,10 +120,10 @@ def salary(transaction):
     assert all(transaction.category for transaction in transactions)
 
 
-def test_apply_classifications_requires_complete_pass(monkeypatch, fixture_dir, tmp_path):
-    monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
+@pytest.mark.integration
+def test_apply_classifications_requires_complete_pass(fixture_dir):
     runner = CliRunner()
-    _import_fixture(runner, fixture_dir, tmp_path)
+    _import_fixture(runner, fixture_dir)
 
     transactions = list_transactions(limit=None, neutralize=False)
 
