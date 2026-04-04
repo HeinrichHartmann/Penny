@@ -257,9 +257,7 @@ def generate_demo_csv(
                         "buchungstag": tx_date.strftime("%d.%m.%y"),
                         "valutadatum": tx_date.strftime("%d.%m.%y"),
                         "buchungstext": tmpl["buchungstext"],
-                        "verwendungszweck": tmpl["verwendungszweck"].format(
-                            month_name=month_name
-                        ),
+                        "verwendungszweck": tmpl["verwendungszweck"].format(month_name=month_name),
                         "glaeubiger_id": "",
                         "mandatsreferenz": "",
                         "kundenreferenz": tmpl["reference"].format(year=year, month=month),
@@ -326,9 +324,7 @@ def generate_demo_csv(
                             "buchungstag": tx_date.strftime("%d.%m.%y"),
                             "valutadatum": tx_date.strftime("%d.%m.%y"),
                             "buchungstext": tmpl["buchungstext"],
-                            "verwendungszweck": tmpl["verwendungszweck"].format(
-                                name=sub["name"]
-                            ),
+                            "verwendungszweck": tmpl["verwendungszweck"].format(name=sub["name"]),
                             "glaeubiger_id": "",
                             "mandatsreferenz": "",
                             "kundenreferenz": sub["ref"] + f"-{year}-{month:02d}",
@@ -409,7 +405,13 @@ def generate_demo_csv(
                     )
 
         # Variable transactions (groceries, restaurants, etc.)
-        for var_type in ["grocery", "restaurant", "online_shopping", "atm_withdrawal", "gas_station"]:
+        for var_type in [
+            "grocery",
+            "restaurant",
+            "online_shopping",
+            "atm_withdrawal",
+            "gas_station",
+        ]:
             if var_type in TRANSACTION_TEMPLATES:
                 tmpl = TRANSACTION_TEMPLATES[var_type]
                 num_transactions = random.randint(*tmpl["times_per_month"])
@@ -433,7 +435,9 @@ def generate_demo_csv(
                         payee = tmpl.get("payee", "")
 
                     verwendungszweck = tmpl["verwendungszweck"].format(
-                        payee=payee, reference=f"{random.randint(100000, 999999)}", random=f"{random.randint(100000, 999999)}"
+                        payee=payee,
+                        reference=f"{random.randint(100000, 999999)}",
+                        random=f"{random.randint(100000, 999999)}",
                     )
 
                     transactions.append(
