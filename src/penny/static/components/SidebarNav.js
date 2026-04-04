@@ -24,6 +24,11 @@ const PRIMARY_ITEMS = [
     label: 'Report',
     icon: '<path d="M3 12.5h10"></path><path d="M5 12.5v-3"></path><path d="M8 12.5v-6"></path><path d="M11 12.5v-4.5"></path>',
   },
+  {
+    id: 'balance',
+    label: 'Balance',
+    icon: '<path d="M2.5 8h11"></path><path d="M3 4l5 4 5-4"></path><path d="M3 12l5-4 5 4"></path><circle cx="8" cy="8" r="1"></circle>',
+  },
 ];
 
 const FOOTER_ITEMS = [

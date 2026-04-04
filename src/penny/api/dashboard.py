@@ -24,6 +24,8 @@ from penny.sql import (
     tree_query,
 )
 from penny.transactions import TransactionFilter, list_transactions
+from penny.vault import LogManager, VaultConfig
+from penny.vault.manifests import BalanceSnapshotManifest
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -456,4 +458,163 @@ async def transactions(
         "count": len(txns),
         "total_cents": total_cents,
         "transactions": txns,
+    }
+
+
+@router.get("/account_value_history")
+async def account_value_history(
+    accounts: str = Query(...),
+    from_date: str = Query(None, alias="from"),
+    to_date: str = Query(None, alias="to"),
+):
+    """Return account value history and transaction volume over time.
+
+    Reconstructs historical account value from:
+    1. Balance snapshots recorded in the vault
+    2. Transaction history from the database
+
+    Returns time-series data for visualization.
+    """
+    account_ids = _parse_account_ids(accounts)
+    if not account_ids:
+        return {"error": "No accounts specified"}
+
+    # Get all balance snapshots from the vault log
+    config = VaultConfig()
+    log_manager = LogManager(config)
+    balance_snapshots = []
+
+    for entry in log_manager.iter_entries():
+        manifest = entry.read_manifest()
+        if isinstance(manifest, BalanceSnapshotManifest):
+            if manifest.account_id in account_ids:
+                balance_snapshots.append({
+                    "account_id": manifest.account_id,
+                    "date": manifest.snapshot_date,
+                    "balance_cents": manifest.balance_cents,
+                    "subaccount_type": manifest.subaccount_type,
+                    "note": manifest.note,
+                })
+
+    # Sort balance snapshots by date
+    balance_snapshots.sort(key=lambda x: x["date"])
+
+    # Get all transactions for these accounts
+    conn = connect()
+    cursor = conn.cursor()
+
+    account_id_placeholders = ",".join("?" * len(account_ids))
+    base_query = f"""
+        SELECT date, account_id, subaccount_type, amount_cents
+        FROM transactions
+        WHERE account_id IN ({account_id_placeholders})
+    """
+
+    params = list(account_ids)
+
+    if from_date:
+        base_query += " AND date >= ?"
+        params.append(from_date)
+
+    if to_date:
+        base_query += " AND date <= ?"
+        params.append(to_date)
+
+    base_query += " ORDER BY date"
+
+    transactions = cursor.execute(base_query, params).fetchall()
+    conn.close()
+
+    # Build time series data
+    # Group transactions by date
+    txn_by_date = defaultdict(lambda: {"total_cents": 0, "count": 0})
+
+    for row in transactions:
+        txn_date = row[0]
+        amount = row[3]
+        txn_by_date[txn_date]["total_cents"] += amount
+        txn_by_date[txn_date]["count"] += 1
+
+    # Build account value time series
+    # Strategy: Start from the most recent balance snapshot and work backwards/forwards
+    value_points = []
+
+    if balance_snapshots:
+        # Use the most recent snapshot as anchor
+        latest_snapshot = balance_snapshots[-1]
+        anchor_date = latest_snapshot["date"]
+        anchor_balance = latest_snapshot["balance_cents"]
+
+        # Calculate balance at each date by adding/subtracting transactions
+        all_dates = sorted(set(txn["date"] for txn in transactions) | {s["date"] for s in balance_snapshots})
+
+        # Filter dates if needed
+        if from_date:
+            all_dates = [d for d in all_dates if d >= from_date]
+        if to_date:
+            all_dates = [d for d in all_dates if d <= to_date]
+
+        # Build cumulative transaction totals from anchor date
+        cumulative_before_anchor = 0
+        cumulative_after_anchor = 0
+
+        for txn_date in sorted(txn_by_date.keys()):
+            if txn_date < anchor_date:
+                cumulative_before_anchor += txn_by_date[txn_date]["total_cents"]
+            elif txn_date > anchor_date:
+                cumulative_after_anchor += txn_by_date[txn_date]["total_cents"]
+
+        # Calculate balance at each date
+        for d in all_dates:
+            if d == anchor_date:
+                balance = anchor_balance
+            elif d < anchor_date:
+                # Subtract transactions between this date and anchor
+                txns_between = sum(
+                    txn_by_date[td]["total_cents"]
+                    for td in txn_by_date.keys()
+                    if d < td <= anchor_date
+                )
+                balance = anchor_balance - txns_between
+            else:  # d > anchor_date
+                # Add transactions between anchor and this date
+                txns_between = sum(
+                    txn_by_date[td]["total_cents"]
+                    for td in txn_by_date.keys()
+                    if anchor_date < td <= d
+                )
+                balance = anchor_balance + txns_between
+
+            value_points.append({
+                "date": d,
+                "balance_cents": balance,
+                "is_snapshot": d in [s["date"] for s in balance_snapshots],
+            })
+    else:
+        # No balance snapshots - just show cumulative transaction flow
+        cumulative = 0
+        for d in sorted(txn_by_date.keys()):
+            cumulative += txn_by_date[d]["total_cents"]
+            value_points.append({
+                "date": d,
+                "balance_cents": cumulative,
+                "is_snapshot": False,
+            })
+
+    # Build transaction volume data
+    volume_points = [
+        {
+            "date": d,
+            "transaction_count": txn_by_date[d]["count"],
+            "inflow_cents": sum(row[3] for row in transactions if row[0] == d and row[3] > 0),
+            "outflow_cents": abs(sum(row[3] for row in transactions if row[0] == d and row[3] < 0)),
+        }
+        for d in sorted(txn_by_date.keys())
+    ]
+
+    return {
+        "account_ids": list(account_ids),
+        "balance_snapshots": balance_snapshots,
+        "value_points": value_points,
+        "volume_points": volume_points,
     }
