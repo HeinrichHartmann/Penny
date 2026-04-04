@@ -8,6 +8,40 @@ from penny.vault import ingest_csv, IngestRequest
 router = APIRouter(prefix="/api", tags=["import"])
 
 
+def _auto_run_classification() -> None:
+    """Run classification rules automatically after import.
+
+    This is called after transactions are stored to immediately classify them.
+    Silently skips if no rules file exists or if classification fails.
+    """
+    try:
+        from penny.classify import load_rules_config, run_classification_pass
+        from penny.transactions import apply_classifications, list_transactions
+        from penny.vault import ensure_rules_snapshot
+
+        # Get the rules snapshot path (returns None if no rules exist)
+        rules_path = ensure_rules_snapshot()
+        if not rules_path or not rules_path.exists():
+            return
+
+        # Load rules configuration
+        config = load_rules_config(rules_path)
+
+        # Get all transactions
+        transactions = list_transactions(limit=None, neutralize=False)
+        if not transactions:
+            return
+
+        # Run classification pass
+        result = run_classification_pass(transactions, config)
+
+        # Apply classifications
+        apply_classifications(result.decisions)
+    except Exception:
+        # Silently skip if classification fails - don't break import flow
+        pass
+
+
 @router.post("/import")
 async def import_csv(file: UploadFile = File(...)):
     """Import transactions from a CSV file.
@@ -37,6 +71,9 @@ async def import_csv(file: UploadFile = File(...)):
             status_code=400,
             detail=f"Import failed: {e}",
         )
+
+    # Auto-run classification rules after import (Issue #8)
+    _auto_run_classification()
 
     return {
         "status": "success",

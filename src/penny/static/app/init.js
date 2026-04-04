@@ -19,7 +19,9 @@ export const initializeAppState = async ({
   filters.to = initialUrlState.to || defaultRange.to;
 
   const allAccountIds = m.accounts.map((acc) => acc.id);
-  filters.accounts = initialUrlState.accounts
+  // Enable all accounts by default (Issue #9)
+  // Only use URL state if it's non-empty, otherwise default to all accounts
+  filters.accounts = initialUrlState.accounts && initialUrlState.accounts.length > 0
     ? initialUrlState.accounts.map(Number).filter((id) => allAccountIds.includes(id))
     : [...allAccountIds];
   filters.neutralize = initialUrlState.neutralize == null

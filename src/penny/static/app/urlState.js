@@ -35,7 +35,11 @@ export const syncUrlState = ({
 
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
-  params.set('accounts', filters.accounts.join(','));
+  // Only set accounts if non-empty (Issue #9)
+  // This ensures empty selection defaults to all accounts on reload
+  if (filters.accounts && filters.accounts.length > 0) {
+    params.set('accounts', filters.accounts.join(','));
+  }
   params.set('neutralize', String(filters.neutralize));
 
   if (selectedCategory) params.set('category', selectedCategory);
