@@ -30,10 +30,9 @@ penny-vault/
   log/
     000001_init.json
     000002_account_created.json
-    000003_import_comdirect/
-      event.json
-      source.csv
-      transactions.jsonl
+    000003_ingest_comdirect/
+      manifest.json
+      umsaetze_9788862492_20260331-1354.csv
     000004_account_updated.json
     000005_balance_snapshot_added.json
     000023_rules.py
@@ -59,7 +58,7 @@ Examples:
 - balance snapshot edited
 - transaction override added
 - transfer group edited
-- CSV imported
+- CSV ingested
 - rules updated
 
 The log is append-only:
@@ -74,7 +73,11 @@ Penny rebuilds application state by replaying the mutation log in order.
 
 The replay result is the canonical current state.
 
-In v1, Penny should assume full replay from the vault on startup. Derived local caches or projections may be added later, but they are not the source of truth.
+In v1, Penny should assume full replay from the vault on startup.
+
+If replay breaks, that should surface immediately at startup, because it means the persisted mutation log is no longer readable with the current application version.
+
+Derived local caches or projections may be added later, but they are not the source of truth.
 
 ### Log Entry Types
 
@@ -96,24 +99,52 @@ Example:
 
 Some mutations need richer artifacts than a single JSON object.
 
-#### Import Mutations
+#### Ingest Mutations
 
-Imports are stored as directories:
+Accepted CSV drops are stored as ingest directories:
 
 ```text
-000003_import_comdirect/
-  event.json
-  source.csv
-  transactions.jsonl
+000003_ingest_comdirect/
+  manifest.json
+  umsaetze_9788862492_20260331-1354.csv
+```
+
+CSV files keep their original filenames.
+
+The manifest is the first-class ingest record for that folder.
+
+Example:
+
+```json
+{
+  "schema_version": 1,
+  "type": "ingest",
+  "timestamp": "2026-04-04T14:22:11Z",
+  "csv_file_count": 1,
+  "parser": "comdirect",
+  "parser_version": "comdirect@1",
+  "app_version": "0.1.0",
+  "status": "applied"
+}
 ```
 
 This preserves:
 
-- the original raw file
-- the import metadata
-- the normalized parsed result at the time of import
+- the original raw CSV files
+- the ingest metadata
 
-The normalized parsed result is persisted so that future parser changes do not alter historical replay.
+Only raw user input is stored. Parsed transactions are recomputed during replay by running the parser on the source files.
+
+The ingest manifest should at minimum capture:
+
+- ingest timestamp
+- number of CSV files included in the ingest
+- parser identifier
+- parser version
+- application version
+- ingest status
+
+If a dropped file cannot be parsed, Penny rejects the drop and does not create a new ingest directory.
 
 #### Rules Mutations
 
@@ -131,6 +162,21 @@ Replay semantics:
 - old rule versions remain available for audit and history
 
 This keeps rules human-readable and preserves the exact classifier code that was active at a given point in the mutation history.
+
+### UI Implication
+
+The current "Import" concept should be treated as an **Ingest log**.
+
+That view should eventually show:
+
+- every accepted ingest in log order
+- ingest date
+- number of CSV files in that ingest
+- parser used
+- parser version used at the time
+- replay or processing failures, if any
+
+This makes the ingest surface meaningful as an auditable history instead of a transient upload panel.
 
 ### Compatibility Contract
 
@@ -167,7 +213,7 @@ Examples:
 ```text
 000001_init.json
 000002_account_created.json
-000003_import_comdirect/
+000003_ingest_comdirect/
 000004_balance_snapshot_added.json
 000023_rules.py
 ```
@@ -178,7 +224,7 @@ The numeric prefix is the ordering mechanism; the suffix is descriptive only.
 
 - Penny becomes portable by copying one user-owned directory
 - backups are straightforward
-- rules, imports, and manual edits become auditable history
+- rules, ingests, and manual edits become auditable history
 - rebuilding state on a new laptop becomes deterministic
 - internal SQLite state is no longer opaque or critical
 
