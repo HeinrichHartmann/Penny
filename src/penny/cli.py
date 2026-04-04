@@ -18,7 +18,7 @@ from penny.accounts import (
 )
 from penny.classify import run_classification_pass
 from penny.classify.engine import LoadedRulesConfig, RuleCollector, _ACTIVE_COLLECTOR, _load_module
-from penny.db import init_default_db
+from penny.db import init_db, init_default_db
 from penny.ingest import (
     DetectionError,
     get_supported_csv_types,
@@ -26,6 +26,7 @@ from penny.ingest import (
     read_file_with_encoding,
 )
 from penny.reports import generate_report_text
+from penny.server import run_server
 from penny.transactions import (
     TransactionFilter,
     apply_classifications,
@@ -273,6 +274,16 @@ def vault():
     """Manage the portable vault and SQLite projection."""
 
 
+@main.group()
+def db():
+    """Manage the SQLite projection database."""
+
+
+@main.group()
+def log():
+    """Inspect archived ingest log entries."""
+
+
 @vault.command("init")
 def vault_init():
     """Initialize the portable Penny directory."""
@@ -330,6 +341,68 @@ def vault_replay():
     click.echo(f"Imports processed: {result.entries_processed}")
     for entry_type, count in sorted(result.entries_by_type.items()):
         click.echo(f"  {entry_type}: {count}")
+
+
+@db.command("rebuild")
+def db_rebuild():
+    """Rebuild the SQLite projection from the archived ingest log."""
+    config = VaultConfig()
+    created = ensure_vault_initialized(config)
+    result = replay_vault(config)
+
+    click.echo(f"Vault: {config.path}")
+    click.echo(f"Projection DB: {config.db_path}")
+    if created:
+        click.echo("Initialized portable storage structure")
+    click.echo("Rebuilt projection from vault log")
+    click.echo(f"Imports processed: {result.entries_processed}")
+    for entry_type, count in sorted(result.entries_by_type.items()):
+        click.echo(f"  {entry_type}: {count}")
+
+
+@db.command("drop")
+def db_drop():
+    """Delete the SQLite projection database after confirmation."""
+    config = VaultConfig()
+    db_path = config.db_path
+
+    click.echo(f"Projection DB: {db_path}")
+    click.confirm("Drop the SQLite projection database?", abort=True)
+
+    init_db(None)
+    if db_path.exists():
+        db_path.unlink()
+        click.echo("Dropped projection database.")
+    else:
+        click.echo("Projection database did not exist.")
+
+
+@log.command("list")
+def log_list():
+    """List archived ingest log entries."""
+    config = VaultConfig()
+    manager = LogManager(config)
+    entries = manager.list_entries()
+
+    if not entries:
+        click.echo("No log entries found.")
+        return
+
+    click.echo("Seq    Timestamp             Type    Parser      Files  Contents")
+    for entry in entries:
+        manifest = entry.read_manifest()
+        parser = getattr(manifest, "parser", "-")
+        files = getattr(manifest, "csv_files", [])
+        type_name = getattr(manifest, "type", "-")
+        contents = ", ".join(files) if files else "-"
+        click.echo(
+            f"{entry.sequence:<6} "
+            f"{manifest.timestamp:<20} "
+            f"{type_name:<7} "
+            f"{parser:<11} "
+            f"{len(files):<5} "
+            f"{contents}"
+        )
 
 
 @main.command("import")
@@ -403,6 +476,15 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
     click.echo(f"  Duplicates: {result.transactions_duplicate} (skipped)")
     click.echo("")
     click.echo("Done.")
+
+
+@main.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind host")
+@click.option("--port", default=8000, show_default=True, type=int, help="Bind port")
+def serve(host: str, port: int):
+    """Start the Penny web server."""
+
+    run_server(host=host, port=port)
 
 
 @transactions.command("list")
