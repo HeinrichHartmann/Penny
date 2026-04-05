@@ -144,8 +144,70 @@ async def list_imports():
                 "status": manifest.status,
                 "account_id": account_id,
                 "account_label": account_label,
+                "enabled": getattr(manifest, "enabled", True),
+                "warning": getattr(manifest, "warning", None),
             }
         )
 
     # Return in reverse chronological order (most recent first)
     return {"imports": list(reversed(imports))}
+
+
+@router.post("/imports/{sequence}/toggle")
+async def toggle_import_enabled(sequence: int):
+    """Toggle the enabled state of an import entry.
+
+    This modifies the manifest.json in the vault log entry.
+    Changes take effect on next DB rebuild.
+    """
+    import json
+
+    config = VaultConfig()
+    log = LogManager(config)
+
+    # Find the entry
+    entry = None
+    for e in log.iter_entries():
+        if e.sequence == sequence:
+            entry = e
+            break
+
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Import entry {sequence} not found")
+
+    manifest = entry.read_manifest()
+    if not isinstance(manifest, IngestManifest):
+        raise HTTPException(status_code=400, detail="Entry is not an import")
+
+    # Toggle enabled state
+    new_enabled = not getattr(manifest, "enabled", True)
+
+    # Read, modify, write manifest
+    manifest_path = entry.path / "manifest.json"
+    data = json.loads(manifest_path.read_text())
+    data["enabled"] = new_enabled
+    manifest_path.write_text(json.dumps(data, indent=2))
+
+    return {"sequence": sequence, "enabled": new_enabled}
+
+
+@router.post("/rebuild")
+async def rebuild_database():
+    """Rebuild the database from vault log.
+
+    Clears the existing database and replays all enabled log entries.
+    Also runs classification rules after rebuild.
+    """
+    from penny.vault.replay import replay_vault
+
+    config = VaultConfig()
+    result = replay_vault(config)
+
+    # Run classification rules after rebuild
+    _auto_run_classification()
+
+    return {
+        "status": "success",
+        "entries_processed": result.entries_processed,
+        "entries_by_type": result.entries_by_type,
+    }

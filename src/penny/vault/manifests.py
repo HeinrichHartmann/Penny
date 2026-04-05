@@ -107,6 +107,8 @@ class IngestManifest(BaseManifest):
     parser_version: str = ""
     app_version: str = ""
     status: Literal["applied", "failed"] = "applied"
+    enabled: bool = True  # If False, skip during replay
+    warning: str | None = None  # E.g., "Cross-account import detected"
 
 
 @dataclass

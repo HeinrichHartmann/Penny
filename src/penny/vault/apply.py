@@ -143,7 +143,9 @@ def apply_entry(entry: LogEntry) -> None:
         case "init":
             pass  # Nothing to apply
         case "ingest":
-            apply_ingest(entry)
+            # Skip disabled imports (e.g., cross-account imports)
+            if getattr(manifest, "enabled", True):
+                apply_ingest(entry)
         case "account_created":
             _apply_account_created(entry, manifest)  # type: ignore
         case "account_updated":
