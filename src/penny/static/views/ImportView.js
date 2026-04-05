@@ -1,6 +1,6 @@
 import { onMounted, ref } from 'vue/dist/vue.esm-bundler.js';
 
-import { uploadCsv, fetchImportHistory } from '../api.js';
+import { uploadCsv, fetchImportHistory, toggleImportEnabled, rebuildDatabase } from '../api.js';
 import { createImportViewState } from './import.js';
 
 export const ImportView = {
@@ -23,6 +23,8 @@ export const ImportView = {
 
     const importHistory = ref([]);
     const historyLoading = ref(false);
+    const rebuilding = ref(false);
+    const rebuildResult = ref(null);
 
     const loadImportHistory = async () => {
       historyLoading.value = true;
@@ -34,6 +36,34 @@ export const ImportView = {
         importHistory.value = [];
       } finally {
         historyLoading.value = false;
+      }
+    };
+
+    const handleToggleEnabled = async (imp) => {
+      try {
+        const result = await toggleImportEnabled(imp.sequence);
+        // Update local state
+        imp.enabled = result.enabled;
+      } catch (error) {
+        console.error('Failed to toggle import:', error);
+        alert('Failed to toggle import: ' + error.message);
+      }
+    };
+
+    const handleRebuild = async () => {
+      if (!confirm('Rebuild the database from vault log? This will clear and recreate all data.')) {
+        return;
+      }
+      rebuilding.value = true;
+      rebuildResult.value = null;
+      try {
+        await rebuildDatabase();
+        // Full page reload to refresh all app state
+        window.location.reload();
+      } catch (error) {
+        console.error('Failed to rebuild database:', error);
+        alert('Failed to rebuild database: ' + error.message);
+        rebuilding.value = false;
       }
     };
 
@@ -66,6 +96,10 @@ export const ImportView = {
       importHistory,
       historyLoading,
       formatDate,
+      handleToggleEnabled,
+      handleRebuild,
+      rebuilding,
+      rebuildResult,
     };
   },
   template: `
@@ -128,7 +162,22 @@ export const ImportView = {
 
       <!-- Import History Section -->
       <div style="margin-top: 32px;">
-        <h3 style="font-size: 1.1rem; margin-bottom: 16px; color: var(--muted);">Import History</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="font-size: 1.1rem; color: var(--muted); margin: 0;">Import History</h3>
+          <button
+            @click="handleRebuild"
+            :disabled="rebuilding"
+            style="padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem;"
+            :style="{ opacity: rebuilding ? 0.6 : 1 }"
+          >
+            {{ rebuilding ? 'Rebuilding...' : 'Rebuild Database' }}
+          </button>
+        </div>
+
+        <div v-if="rebuildResult" class="panel" style="margin-bottom: 16px; padding: 16px; background: #d4edda; border-left: 3px solid #155724;">
+          <strong style="color: #155724;">Database Rebuilt:</strong>
+          {{ rebuildResult.entries_processed }} entries processed
+        </div>
 
         <div v-if="historyLoading" class="panel" style="padding: 40px; text-align: center;">
           <p style="color: var(--muted);">Loading import history...</p>
@@ -139,20 +188,31 @@ export const ImportView = {
         </div>
 
         <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
-          <div v-for="imp in importHistory" :key="imp.sequence" class="panel" style="padding: 20px;">
+          <div v-for="imp in importHistory" :key="imp.sequence" class="panel" style="padding: 20px;" :style="{ opacity: imp.enabled ? 1 : 0.5 }">
             <div style="display: flex; align-items: flex-start; gap: 16px;">
-              <div style="
-                width: 48px;
-                height: 48px;
-                border-radius: 8px;
-                background: linear-gradient(135deg, #845b31 0%, #6b4a29 100%);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 1.3rem;
-                flex-shrink: 0;
-              ">
-                {{ imp.status === 'applied' ? '✓' : '✗' }}
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                <div :style="{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '8px',
+                  background: imp.enabled ? 'linear-gradient(135deg, #845b31 0%, #6b4a29 100%)' : '#ccc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.3rem',
+                  flexShrink: 0
+                }">
+                  {{ imp.status === 'applied' ? '✓' : '✗' }}
+                </div>
+                <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 0.75rem; color: var(--muted);">
+                  <input
+                    type="checkbox"
+                    :checked="imp.enabled"
+                    @change="handleToggleEnabled(imp)"
+                    style="cursor: pointer;"
+                  >
+                  Enabled
+                </label>
               </div>
               <div style="flex: 1; min-width: 0;">
                 <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; word-break: break-word;">
@@ -160,6 +220,9 @@ export const ImportView = {
                 </div>
                 <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 8px;">
                   {{ formatDate(imp.timestamp) }}
+                </div>
+                <div v-if="imp.warning" style="font-size: 0.8rem; color: #856404; background: #fff3cd; padding: 4px 8px; border-radius: 4px; margin-bottom: 8px;">
+                  {{ imp.warning }}
                 </div>
                 <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.75rem;">
                   <span style="padding: 2px 8px; background: #e8dcc8; border-radius: 4px;">
@@ -175,6 +238,9 @@ export const ImportView = {
                     color: imp.status === 'applied' ? '#155724' : '#721c24'
                   }">
                     {{ imp.status === 'applied' ? 'Applied' : 'Failed' }}
+                  </span>
+                  <span v-if="!imp.enabled" style="padding: 2px 8px; background: #f8d7da; color: #721c24; border-radius: 4px;">
+                    Disabled
                   </span>
                 </div>
               </div>

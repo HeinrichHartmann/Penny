@@ -168,6 +168,37 @@ export const fetchImportHistory = async () => {
 };
 
 /**
+ * Toggle import enabled state.
+ * @param {number} sequence
+ * @returns {Promise<{ sequence: number, enabled: boolean }>}
+ */
+export const toggleImportEnabled = async (sequence) => {
+  const resp = await fetch(`/api/imports/${sequence}/toggle`, {
+    method: 'POST',
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Toggle failed');
+  }
+  return resp.json();
+};
+
+/**
+ * Rebuild the database from vault log.
+ * @returns {Promise<{ status: string, entries_processed: number, entries_by_type: object }>}
+ */
+export const rebuildDatabase = async () => {
+  const resp = await fetch('/api/rebuild', {
+    method: 'POST',
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Rebuild failed');
+  }
+  return resp.json();
+};
+
+/**
  * Upload a CSV file for import.
  * @param {File} file
  * @returns {Promise<object>}
