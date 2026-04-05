@@ -1,2 +1,0 @@
-seq	type	enabled	timestamp	record
-0001	ingest	1	2026-04-05T19:05:05Z	{"csv_files":["20260404-12345678-umsatz-camt52v8.CSV"],"parser":"sparkasse","parser_version":"sparkasse@1","app_version":"0.1.0"}

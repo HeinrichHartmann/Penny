@@ -4,6 +4,8 @@ dist/
 .briefcase/
 node_modules/
 src/penny/static/dist/
+test-results/
+tests/ui/.playwright/
 
 # Python
 __pycache__/
