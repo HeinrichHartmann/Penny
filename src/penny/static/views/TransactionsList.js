@@ -1,13 +1,41 @@
+import { computed } from 'vue/dist/vue.esm-bundler.js';
 import { formatCurrency } from '../utils/format.js';
 
 export const TransactionsList = {
   name: 'TransactionsList',
   props: {
     model: { type: Object, required: true },
+    filter: { type: String, default: null }, // 'expense' | 'income' | null (all)
+    limit: { type: Number, default: 0 }, // 0 = no limit, use pagination
   },
-  setup() {
+  setup(props) {
+    const filteredTxns = computed(() => {
+      let txns = props.model.visibleTransactions || [];
+      if (props.filter === 'expense') {
+        txns = txns.filter(tx => tx.amount_cents < 0);
+      } else if (props.filter === 'income') {
+        txns = txns.filter(tx => tx.amount_cents >= 0);
+      }
+      if (props.limit > 0) {
+        txns = txns.slice(0, props.limit);
+      }
+      return txns;
+    });
+
+    const filteredTotal = computed(() => {
+      return filteredTxns.value.reduce((sum, tx) => sum + tx.amount_cents, 0);
+    });
+
+    const filteredCount = computed(() => filteredTxns.value.length);
+
+    const showPagination = computed(() => !props.limit && props.model.filteredTransactionCount > 0);
+
     return {
       formatCurrency,
+      filteredTxns,
+      filteredTotal,
+      filteredCount,
+      showPagination,
     };
   },
   template: `
@@ -16,17 +44,14 @@ export const TransactionsList = {
         <div class="txn-header-main">
           <div class="txn-header">
             Transactions
-            <span class="sub" v-if="model.transactions">{{ model.transactions.count }} transactions</span>
+            <span class="sub">{{ filteredCount }} transactions</span>
           </div>
         </div>
         <div class="txn-header-total">
-          <div v-if="model.transactions" class="txn-total">
+          <div class="txn-total">
             <span class="txn-total-label">Total:</span>
-            <span
-              class="txn-total-value"
-              :style="{ color: model.transactions.total_cents >= 0 ? 'var(--income-color)' : '#c1121f' }"
-            >
-              {{ formatCurrency(model.transactions.total_cents) }}
+            <span class="txn-total-value" :style="{ color: filteredTotal >= 0 ? 'var(--income-color)' : '#c1121f' }">
+              {{ formatCurrency(filteredTotal) }}
             </span>
           </div>
         </div>
@@ -53,14 +78,10 @@ export const TransactionsList = {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="tx in model.visibleTransactions" :key="tx.fp">
+            <tr v-for="tx in filteredTxns" :key="tx.fp">
               <td>{{ tx.booking_date }}</td>
               <td>
-                <button
-                  type="button"
-                  class="breadcrumb-link"
-                  @click="model.applyAccountFilter(tx.account_id)"
-                >
+                <button type="button" class="breadcrumb-link" @click="model.applyAccountFilter(tx.account_id)">
                   {{ tx.account }}{{ tx.subaccount ? '/' + tx.subaccount : '' }}
                 </button>
               </td>
@@ -68,11 +89,7 @@ export const TransactionsList = {
               <td>
                 <span class="category-entry">
                   <span class="cat-dot" :style="{ background: model.categoryColor(tx.category) || 'var(--muted)' }"></span>
-                  <button
-                    type="button"
-                    class="breadcrumb-link mono category-cell"
-                    @click="model.applyCategorySelection(tx.category)"
-                  >
+                  <button type="button" class="breadcrumb-link mono category-cell" @click="model.applyCategorySelection(tx.category)">
                     {{ tx.category }}
                   </button>
                 </span>
@@ -84,35 +101,17 @@ export const TransactionsList = {
           </tbody>
         </table>
       </div>
-      <div v-if="model.transactions" class="txn-footer">
+      <div v-if="showPagination" class="txn-footer">
         <span class="txn-footer-summary">
           Showing {{ model.transactionRangeStart }}-{{ model.transactionRangeEnd }} of {{ model.filteredTransactionCount }}
-          <span v-if="model.searchQuery && model.filteredTransactionCount !== model.transactions.count" style="color: var(--muted);">
-            ({{ model.transactions.count }} total)
-          </span>
         </span>
-        <div class="pagination-controls" v-if="model.filteredTransactionCount > 0">
-          <button class="shortcut-btn" @click="model.goToTransactionPage(1)" :disabled="model.currentTransactionPage === 1">
-            First
-          </button>
-          <button class="shortcut-btn" @click="model.goToPreviousTransactionPage()" :disabled="model.currentTransactionPage === 1">
-            Prev
-          </button>
-          <button
-            v-for="page in model.transactionPageButtons"
-            :key="page"
-            class="shortcut-btn"
-            :class="{ active: model.currentTransactionPage === page }"
-            @click="model.goToTransactionPage(page)"
-          >
-            {{ page }}
-          </button>
-          <button class="shortcut-btn" @click="model.goToNextTransactionPage()" :disabled="model.currentTransactionPage === model.totalTransactionPages">
-            Next
-          </button>
-          <button class="shortcut-btn" @click="model.goToTransactionPage(model.totalTransactionPages)" :disabled="model.currentTransactionPage === model.totalTransactionPages">
-            Last
-          </button>
+        <div class="pagination-controls">
+          <button class="shortcut-btn" @click="model.goToTransactionPage(1)" :disabled="model.currentTransactionPage === 1">First</button>
+          <button class="shortcut-btn" @click="model.goToPreviousTransactionPage()" :disabled="model.currentTransactionPage === 1">Prev</button>
+          <button v-for="page in model.transactionPageButtons" :key="page" class="shortcut-btn"
+            :class="{ active: model.currentTransactionPage === page }" @click="model.goToTransactionPage(page)">{{ page }}</button>
+          <button class="shortcut-btn" @click="model.goToNextTransactionPage()" :disabled="model.currentTransactionPage === model.totalTransactionPages">Next</button>
+          <button class="shortcut-btn" @click="model.goToTransactionPage(model.totalTransactionPages)" :disabled="model.currentTransactionPage === model.totalTransactionPages">Last</button>
         </div>
       </div>
     </div>

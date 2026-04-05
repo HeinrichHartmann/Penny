@@ -199,7 +199,13 @@ export const ReportView = {
         </table>
       </div>
 
-      <transactions-list v-if="transactionsModel" :model="transactionsModel" style="margin-top: 20px;"></transactions-list>
+      <transactions-list
+        v-if="transactionsModel && (model.tab === 'expense' || model.tab === 'income')"
+        :model="transactionsModel"
+        :filter="model.tab"
+        :limit="20"
+        style="margin-top: 20px;"
+      ></transactions-list>
     </div>
   `,
 };
