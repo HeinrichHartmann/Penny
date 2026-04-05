@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import date
 
+import pandas as pd
 from fastapi import APIRouter, Query
 from fastapi.responses import PlainTextResponse
 
@@ -487,15 +488,20 @@ async def account_value_history(
     accounts: str = Query(...),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
+    neutralize: bool = Query(True),
 ):
-    """Return account value history and transaction volume over time.
+    """Return account balance history with one point per transaction.
 
-    Reconstructs historical account value from:
-    1. Balance snapshots recorded in the vault
-    2. Transaction history from the database
+    Filters: accounts (required), from/to dates, neutralize.
+    Does NOT support category/search/tab filters - balance is an account concept.
 
-    Returns time-series data for visualization.
+    Logic:
+    1. Get all transactions for accounts in date range
+    2. For EACH account: compute cumsum and offset from its latest snapshot
+    3. Sort all transactions by date
+    4. At each point, sum balances across all accounts
     """
+    # Parse and validate accounts
     account_ids = _parse_account_ids(accounts)
     if not account_ids:
         return {"error": "No accounts specified"}
@@ -505,153 +511,135 @@ async def account_value_history(
             "account_ids": [],
             "balance_snapshots": [],
             "value_points": [],
-            "volume_points": [],
         }
 
-    # Get all balance snapshots from the vault log
+    # Get all balance snapshots for these accounts (from vault log)
     config = VaultConfig()
     log_manager = LogManager(config)
-    balance_snapshots = []
+    all_snapshots = []
 
     for entry in log_manager.iter_entries():
         manifest = entry.read_manifest()
         if isinstance(manifest, BalanceSnapshotManifest):
             if manifest.account_id in account_ids:
-                balance_snapshots.append(
+                all_snapshots.append(
                     {
                         "account_id": manifest.account_id,
                         "date": manifest.snapshot_date,
                         "balance_cents": manifest.balance_cents,
-                        "subaccount_type": manifest.subaccount_type,
-                        "note": manifest.note,
                     }
                 )
 
-    # Sort balance snapshots by date
-    balance_snapshots.sort(key=lambda x: x["date"])
+    # Sort snapshots by date
+    all_snapshots.sort(key=lambda x: (x["account_id"], x["date"]))
 
-    # Get all transactions for these accounts
-    conn = connect()
-    cursor = conn.cursor()
+    # Find latest snapshot per account
+    latest_snapshot_per_account: dict[int, dict] = {}
+    for snap in all_snapshots:
+        acc_id = snap["account_id"]
+        # Later snapshots overwrite earlier ones (list is sorted by date)
+        latest_snapshot_per_account[acc_id] = snap
 
-    account_id_placeholders = ",".join("?" * len(account_ids))
-    base_query = f"""
-        SELECT date, account_id, subaccount_type, amount_cents
-        FROM transactions
-        WHERE account_id IN ({account_id_placeholders})
-    """
+    # Get transactions - ONLY filter by accounts, dates, neutralize
+    filters = TransactionFilter(
+        from_date=_parse_date(from_date),
+        to_date=_parse_date(to_date),
+        account_ids=account_ids,
+    )
 
-    params = list(account_ids)
+    transactions = list_transactions(
+        filters=filters,
+        limit=None,
+        neutralize=neutralize,
+    )
 
-    if from_date:
-        base_query += " AND date >= ?"
-        params.append(from_date)
-
-    if to_date:
-        base_query += " AND date <= ?"
-        params.append(to_date)
-
-    base_query += " ORDER BY date"
-
-    transactions = cursor.execute(base_query, params).fetchall()
-    conn.close()
-
-    # Build time series data
-    # Group transactions by date
-    txn_by_date = defaultdict(lambda: {"total_cents": 0, "count": 0})
-
-    for row in transactions:
-        txn_date = row[0]
-        amount = row[3]
-        txn_by_date[txn_date]["total_cents"] += amount
-        txn_by_date[txn_date]["count"] += 1
-
-    # Build account value time series
-    # Strategy: Start from the most recent balance snapshot and work backwards/forwards
-    value_points = []
-
-    if balance_snapshots:
-        # Use the most recent snapshot as anchor
-        latest_snapshot = balance_snapshots[-1]
-        anchor_date = latest_snapshot["date"]
-        anchor_balance = latest_snapshot["balance_cents"]
-
-        # Calculate balance at each date by adding/subtracting transactions
-        all_dates = sorted(
-            set(txn["date"] for txn in transactions) | {s["date"] for s in balance_snapshots}
-        )
-
-        # Filter dates if needed
-        if from_date:
-            all_dates = [d for d in all_dates if d >= from_date]
-        if to_date:
-            all_dates = [d for d in all_dates if d <= to_date]
-
-        # Build cumulative transaction totals from anchor date
-        cumulative_before_anchor = 0
-        cumulative_after_anchor = 0
-
-        for txn_date in sorted(txn_by_date.keys()):
-            if txn_date < anchor_date:
-                cumulative_before_anchor += txn_by_date[txn_date]["total_cents"]
-            elif txn_date > anchor_date:
-                cumulative_after_anchor += txn_by_date[txn_date]["total_cents"]
-
-        # Calculate balance at each date
-        for d in all_dates:
-            if d == anchor_date:
-                balance = anchor_balance
-            elif d < anchor_date:
-                # Subtract transactions between this date and anchor
-                txns_between = sum(
-                    txn_by_date[td]["total_cents"]
-                    for td in txn_by_date.keys()
-                    if d < td <= anchor_date
-                )
-                balance = anchor_balance - txns_between
-            else:  # d > anchor_date
-                # Add transactions between anchor and this date
-                txns_between = sum(
-                    txn_by_date[td]["total_cents"]
-                    for td in txn_by_date.keys()
-                    if anchor_date < td <= d
-                )
-                balance = anchor_balance + txns_between
-
-            value_points.append(
-                {
-                    "date": d,
-                    "balance_cents": balance,
-                    "is_snapshot": d in [s["date"] for s in balance_snapshots],
-                }
-            )
-    else:
-        # No balance snapshots - just show cumulative transaction flow
-        cumulative = 0
-        for d in sorted(txn_by_date.keys()):
-            cumulative += txn_by_date[d]["total_cents"]
-            value_points.append(
-                {
-                    "date": d,
-                    "balance_cents": cumulative,
-                    "is_snapshot": False,
-                }
-            )
-
-    # Build transaction volume data
-    volume_points = [
-        {
-            "date": d,
-            "transaction_count": txn_by_date[d]["count"],
-            "inflow_cents": sum(row[3] for row in transactions if row[0] == d and row[3] > 0),
-            "outflow_cents": abs(sum(row[3] for row in transactions if row[0] == d and row[3] < 0)),
+    if not transactions:
+        return {
+            "account_ids": list(account_ids),
+            "balance_snapshots": all_snapshots,
+            "value_points": [],
         }
-        for d in sorted(txn_by_date.keys())
-    ]
+
+    # Build DataFrame with account_id
+    df = pd.DataFrame(
+        [
+            {
+                "date": tx.date.isoformat(),
+                "account_id": tx.account_id,
+                "amount_cents": tx.amount_cents,
+                "fingerprint": tx.fingerprint,
+                "payee": tx.payee,
+            }
+            for tx in transactions
+        ]
+    )
+
+    # Compute per-account cumsum
+    df = df.sort_values(["account_id", "date", "fingerprint"]).reset_index(drop=True)
+    df["account_cumsum"] = df.groupby("account_id")["amount_cents"].cumsum()
+
+    # Compute per-account offset from latest snapshot
+    def get_offset(acc_id: int) -> int:
+        if acc_id not in latest_snapshot_per_account:
+            return 0
+        snap = latest_snapshot_per_account[acc_id]
+        snap_date = snap["date"]
+        snap_balance = snap["balance_cents"]
+
+        # Find cumsum at or before snapshot date for this account
+        acc_df = df[df["account_id"] == acc_id]
+        txns_up_to = acc_df[acc_df["date"] <= snap_date]
+        if not txns_up_to.empty:
+            cumsum_at_snap = int(txns_up_to["account_cumsum"].iloc[-1])
+            return snap_balance - cumsum_at_snap
+        else:
+            # All transactions after snapshot - offset is snapshot balance
+            return snap_balance
+
+    offsets = {acc_id: get_offset(acc_id) for acc_id in account_ids}
+
+    # Apply per-account offset to get account balance
+    df["account_balance"] = df.apply(
+        lambda row: row["account_cumsum"] + offsets.get(row["account_id"], 0),
+        axis=1,
+    )
+
+    # Now sort by date globally and compute running total balance across all accounts
+    df = df.sort_values(["date", "fingerprint"]).reset_index(drop=True)
+
+    # Track running balance per account, sum for total
+    running_balances: dict[int, int] = {acc_id: offsets.get(acc_id, 0) for acc_id in account_ids}
+    total_balances = []
+
+    for _, row in df.iterrows():
+        acc_id = row["account_id"]
+        running_balances[acc_id] = int(row["account_balance"])
+        total_balances.append(sum(running_balances.values()))
+
+    df["total_balance"] = total_balances
+
+    # Mark snapshot dates
+    snapshot_dates = {s["date"] for s in all_snapshots}
+    df["is_snapshot"] = df["date"].isin(snapshot_dates)
+
+    # Aggregate to one point per day (end-of-day balance)
+    # Keep the last row for each date (which has the final balance for that day)
+    daily_df = df.groupby("date").last().reset_index()
+
+    # Build value_points - one per day
+    value_points = []
+    for _, row in daily_df.iterrows():
+        value_points.append(
+            {
+                "date": row["date"],
+                "total_balance": int(row["total_balance"]),
+                "is_snapshot": bool(row["is_snapshot"]),
+            }
+        )
 
     return {
         "account_ids": list(account_ids),
-        "balance_snapshots": balance_snapshots,
+        "balance_snapshots": all_snapshots,
+        "offsets": offsets,  # For debugging
         "value_points": value_points,
-        "volume_points": volume_points,
     }

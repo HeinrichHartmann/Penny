@@ -382,6 +382,10 @@ createApp({
     const balanceViewState = createBalanceViewState({
       fetchAccountValueHistory,
       filters,
+      onDateRangeChange: (from, to) => {
+        filters.from = from;
+        filters.to = to;
+      },
     });
 
     const balanceViewModel = createBalanceViewModel({

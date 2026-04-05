@@ -84,6 +84,37 @@ export const BalanceView = {
           </tbody>
         </table>
       </div>
+
+      <div v-if="model.valueHistory && model.valueHistory.value_points && model.valueHistory.value_points.length > 0" class="panel" style="margin-top: 20px;">
+        <div class="txn-header">
+          Transactions
+          <span class="sub">{{ model.valueHistory.value_points.length }} transactions</span>
+        </div>
+        <div class="txn-table-wrap" style="max-height: 400px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:90px">Date</th>
+                <th>Description</th>
+                <th class="text-right" style="width:100px">Amount</th>
+                <th class="text-right" style="width:120px">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(tx, index) in model.valueHistory.value_points" :key="tx.fingerprint || index">
+                <td>{{ tx.date }}</td>
+                <td style="font-size: 0.85rem;">{{ tx.payee }}</td>
+                <td class="text-right" :style="{ color: tx.amount_cents >= 0 ? 'var(--income-color)' : '#c1121f' }">
+                  {{ formatCurrency(tx.amount_cents) }}
+                </td>
+                <td class="text-right" :style="{ fontWeight: tx.is_snapshot ? 'bold' : 'normal' }">
+                  {{ formatCurrency(tx.total_balance) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   `,
 };
