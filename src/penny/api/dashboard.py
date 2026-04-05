@@ -143,6 +143,7 @@ async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -151,7 +152,8 @@ async def summary(
     cursor = conn.cursor()
 
     sql, params = summary_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     transactions = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -181,6 +183,7 @@ async def tree(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -189,7 +192,8 @@ async def tree(
     cursor = conn.cursor()
 
     sql, params = tree_query(
-        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -235,6 +239,7 @@ async def pivot(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -243,7 +248,8 @@ async def pivot(
     cursor = conn.cursor()
 
     sql, params = pivot_query(
-        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -294,6 +300,7 @@ async def cashflow(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -302,7 +309,8 @@ async def cashflow(
     cursor = conn.cursor()
 
     sql, params = cashflow_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -357,6 +365,7 @@ async def breakout(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -365,7 +374,8 @@ async def breakout(
     cursor = conn.cursor()
 
     sql, params = breakout_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()

@@ -126,10 +126,12 @@ def summary_query(
     accounts: str | None = None,
     category: str | None = None,
     q: str | None = None,
+    neutralize: bool = True,
 ) -> tuple[str, list]:
     """Query for /api/summary endpoint.
 
     Returns amount_cents for expense/income aggregation.
+    When neutralize=True, groups by group_id to net out transfers.
     """
     params: list = []
     where = _where(
@@ -142,7 +144,15 @@ def summary_query(
     )
     where = _where_and(where, _visible_accounts_condition())
 
-    sql = f"SELECT amount_cents FROM transactions{where}"
+    if neutralize:
+        sql = f"""
+            SELECT SUM(amount_cents) as amount_cents
+            FROM transactions{where}
+            GROUP BY group_id
+            HAVING SUM(amount_cents) != 0
+        """
+    else:
+        sql = f"SELECT amount_cents FROM transactions{where}"
     return sql, params
 
 
@@ -154,12 +164,15 @@ def tree_query(
     accounts: str | None = None,
     category: str | None = None,
     q: str | None = None,
+    neutralize: bool = True,
 ) -> tuple[str, list]:
     """Query for /api/tree endpoint.
 
     Returns category, payee, amount_cents for treemap construction.
+    When neutralize=True, groups by group_id to net out transfers.
     """
     params: list = []
+    # Don't apply tab filter in base query when neutralizing - filter after grouping
     where = _where(
         params,
         from_date=from_date,
@@ -167,11 +180,20 @@ def tree_query(
         accounts=accounts,
         category=category,
         q=q,
-        tab=tab,
+        tab=None if neutralize else tab,
     )
     where = _where_and(where, _visible_accounts_condition())
 
-    sql = f"SELECT category, payee, amount_cents FROM transactions{where}"
+    if neutralize:
+        having = "HAVING SUM(amount_cents) < 0" if tab == "expense" else "HAVING SUM(amount_cents) > 0"
+        sql = f"""
+            SELECT MAX(category) as category, MAX(payee) as payee, SUM(amount_cents) as amount_cents
+            FROM transactions{where}
+            GROUP BY group_id
+            {having}
+        """
+    else:
+        sql = f"SELECT category, payee, amount_cents FROM transactions{where}"
     return sql, params
 
 
@@ -183,10 +205,12 @@ def pivot_query(
     accounts: str | None = None,
     category: str | None = None,
     q: str | None = None,
+    neutralize: bool = True,
 ) -> tuple[str, list]:
     """Query for /api/pivot endpoint.
 
     Returns category, amount_cents for pivot table aggregation.
+    When neutralize=True, groups by group_id to net out transfers.
     """
     params: list = []
     where = _where(
@@ -196,11 +220,20 @@ def pivot_query(
         accounts=accounts,
         category=category,
         q=q,
-        tab=tab,
+        tab=None if neutralize else tab,
     )
     where = _where_and(where, _visible_accounts_condition())
 
-    sql = f"SELECT category, amount_cents FROM transactions{where}"
+    if neutralize:
+        having = "HAVING SUM(amount_cents) < 0" if tab == "expense" else "HAVING SUM(amount_cents) > 0"
+        sql = f"""
+            SELECT MAX(category) as category, SUM(amount_cents) as amount_cents
+            FROM transactions{where}
+            GROUP BY group_id
+            {having}
+        """
+    else:
+        sql = f"SELECT category, amount_cents FROM transactions{where}"
     return sql, params
 
 
@@ -211,10 +244,12 @@ def cashflow_query(
     accounts: str | None = None,
     category: str | None = None,
     q: str | None = None,
+    neutralize: bool = True,
 ) -> tuple[str, list]:
     """Query for /api/cashflow endpoint.
 
     Returns category, amount_cents for Sankey diagram.
+    When neutralize=True, groups by group_id to net out transfers.
     """
     params: list = []
     where = _where(
@@ -227,7 +262,15 @@ def cashflow_query(
     )
     where = _where_and(where, _visible_accounts_condition())
 
-    sql = f"SELECT category, amount_cents FROM transactions{where}"
+    if neutralize:
+        sql = f"""
+            SELECT MAX(category) as category, SUM(amount_cents) as amount_cents
+            FROM transactions{where}
+            GROUP BY group_id
+            HAVING SUM(amount_cents) != 0
+        """
+    else:
+        sql = f"SELECT category, amount_cents FROM transactions{where}"
     return sql, params
 
 
@@ -238,10 +281,12 @@ def breakout_query(
     accounts: str | None = None,
     category: str | None = None,
     q: str | None = None,
+    neutralize: bool = True,
 ) -> tuple[str, list]:
     """Query for /api/breakout endpoint.
 
     Returns date, category, amount_cents for time-series breakout.
+    When neutralize=True, groups by group_id to net out transfers.
     """
     params: list = []
     where = _where(
@@ -254,7 +299,15 @@ def breakout_query(
     )
     where = _where_and(where, _visible_accounts_condition())
 
-    sql = f"SELECT date, category, amount_cents FROM transactions{where}"
+    if neutralize:
+        sql = f"""
+            SELECT MIN(date) as date, MAX(category) as category, SUM(amount_cents) as amount_cents
+            FROM transactions{where}
+            GROUP BY group_id
+            HAVING SUM(amount_cents) != 0
+        """
+    else:
+        sql = f"SELECT date, category, amount_cents FROM transactions{where}"
     return sql, params
 
 
