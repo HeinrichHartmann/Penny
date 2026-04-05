@@ -1,4 +1,5 @@
 import { SelectorHeader } from '../components/SelectorHeader.js';
+import { TransactionsList } from './TransactionsList.js';
 import { breakoutGranularityLabel } from '../utils/date.js';
 import { formatCompactSigned, formatCurrency } from '../utils/format.js';
 
@@ -6,9 +7,11 @@ export const ReportView = {
   name: 'ReportView',
   components: {
     SelectorHeader,
+    TransactionsList,
   },
   props: {
     model: { type: Object, required: true },
+    transactionsModel: { type: Object, required: false },
   },
   setup() {
     return {
@@ -195,6 +198,8 @@ export const ReportView = {
           </tbody>
         </table>
       </div>
+
+      <transactions-list v-if="transactionsModel" :model="transactionsModel" style="margin-top: 20px;"></transactions-list>
     </div>
   `,
 };
