@@ -12,7 +12,6 @@ File structure:
         rules/0002_2024-04-05T10:01:00Z_rules.py
         balance/0003_2024-04-05T10:02:00Z_balance.tsv
         transactions/0001_2024-04-05T10:00:00Z/file.CSV
-        transactions/0001_2024-04-05T10:00:00Z/manifest.json
 """
 
 from __future__ import annotations

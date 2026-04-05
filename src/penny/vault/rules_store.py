@@ -23,7 +23,10 @@ def latest_rules_path(config: VaultConfig | None = None) -> Path | None:
     cfg = config or VaultConfig()
     if not cfg.rules_dir.exists():
         return None
-    candidates = sorted(cfg.rules_dir.glob("*_rules.py"))
+    candidates = sorted(
+        cfg.rules_dir.glob("*_rules.py"),
+        key=lambda path: (path.stat().st_mtime_ns, path.name),
+    )
     return candidates[-1] if candidates else None
 
 
@@ -36,7 +39,7 @@ def ensure_rules_snapshot(config: VaultConfig | None = None) -> Path:
     if existing is not None:
         return existing
 
-    path = cfg.rules_dir / f"{_timestamp()}_rules.py"
+    path = cfg.rules_dir / f"0000_{_timestamp()}_rules.py"
     path.write_text(default_rules_template(), encoding="utf-8")
     return path
 

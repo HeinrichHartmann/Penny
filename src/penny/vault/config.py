@@ -57,12 +57,6 @@ class VaultConfig:
         """Return the append-only mutation log path."""
         return self.path / "mutations.tsv"
 
-    # Backward compatibility alias (will be removed)
-    @property
-    def imports_dir(self) -> Path:
-        """DEPRECATED: Use transactions_dir instead."""
-        return self.path / "imports"
-
     def exists(self) -> bool:
         """Return True if the vault directory exists."""
         return self.path.exists()

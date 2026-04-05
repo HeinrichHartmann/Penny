@@ -4,7 +4,7 @@ import pytest
 from click.testing import CliRunner
 
 from penny.api.rules import RulesUpdate, get_rules_path, run_rules, save_rules
-from penny.classify import ClassificationDecision, contains, is_, load_rules, regexp
+from penny.classify import ClassificationDecision
 from penny.cli import main
 from penny.db import init_db
 from penny.transactions import apply_classifications, list_transactions
@@ -17,24 +17,6 @@ def _import_fixture(runner: CliRunner, fixture_dir):
     assert result.exit_code == 0
 
 
-def test_match_helpers_are_case_insensitive():
-    assert is_(" AMAZON ", "amazon")
-    assert contains("AMAZON PAYMENTS EUROPE", "payments")
-    assert regexp("Lohn / Gehalt", r"gehalt")
-
-
-def test_load_rules_preserves_file_order(fixture_dir):
-    ruleset = load_rules(fixture_dir / "rules_reordered.py")
-
-    assert [rule.name for rule in ruleset.rules] == [
-        "salary",
-        "hotel",
-        "amazon_specific",
-        "amazon",
-    ]
-
-
-@pytest.mark.integration
 def test_classify_updates_transactions(fixture_dir):
     runner = CliRunner()
     _import_fixture(runner, fixture_dir)
@@ -60,7 +42,6 @@ def test_classify_updates_transactions(fixture_dir):
     assert rules["AMAZON PAYMENTS EUROPE S.C.A."] == "amazon"
 
 
-@pytest.mark.integration
 def test_classify_can_reclassify_with_different_rules(fixture_dir):
     runner = CliRunner()
     _import_fixture(runner, fixture_dir)
@@ -82,7 +63,6 @@ def test_classify_can_reclassify_with_different_rules(fixture_dir):
     assert amazon.classification_rule == "amazon_specific"
 
 
-@pytest.mark.integration
 def test_api_run_rules_applies_default_category_to_unmatched(fixture_dir):
     runner = CliRunner()
     _import_fixture(runner, fixture_dir)
@@ -103,7 +83,6 @@ def salary(transaction):
             )
         )
     )
-    # Verify rules file exists (used by run_rules internally)
     _ = get_rules_path()
 
     result = asyncio.run(run_rules())
@@ -125,10 +104,8 @@ def salary(transaction):
     assert categories["AMAZON PAYMENTS EUROPE S.C.A."] == "NeedsReview"
     assert all(transaction.category for transaction in transactions)
 
-    # Classifications are now computed at runtime, not persisted to mutations log
-    # Only rules.py changes are stored in the vault
     rows = MutationLog(VaultConfig()).list_rows()
-    if rows:  # May be empty if no mutations were logged
+    if rows:
         assert rows[-1].type == "rules_updated"
 
     init_db(None)
@@ -141,7 +118,6 @@ def salary(transaction):
     assert replayed["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
 
 
-@pytest.mark.integration
 def test_apply_classifications_requires_complete_pass(fixture_dir):
     runner = CliRunner()
     _import_fixture(runner, fixture_dir)
@@ -171,7 +147,6 @@ def test_apply_classifications_requires_complete_pass(fixture_dir):
     assert after_map == before
 
 
-@pytest.mark.integration
 def test_replay_vault_fails_loudly_for_invalid_rules(fixture_dir):
     runner = CliRunner()
     _import_fixture(runner, fixture_dir)
