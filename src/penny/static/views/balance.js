@@ -22,6 +22,9 @@ export const createBalanceViewState = ({
   filters,
   onDateRangeChange,
 }) => {
+  const dayStartTimestamp = (dateStr) => new Date(`${dateStr}T00:00:00`).getTime();
+  const nextDayTimestamp = (dateStr) => dayStartTimestamp(dateStr) + (24 * 60 * 60 * 1000);
+
   const showVolume = ref(false);
   const balanceChartEl = ref(null);
   let balanceChart = null;
@@ -102,16 +105,64 @@ export const createBalanceViewState = ({
     }
 
     // Data is already aggregated to one point per day from backend
-    const balanceData = valuePoints.map(p => [p.date, p.total_balance]);
-
-    // Track which points are anchors (for FAT dots)
-    const anchorFlags = valuePoints.map(p => p.is_anchor || false);
-
-    // Create lookup map from date to delta for inconsistencies
-    const deltaMap = {};
+    // Tie deltas to the same date-indexed points as the main balance line.
+    // This keeps the inconsistency bar anchored to the rendered balance point.
+    const deltaByDate = {};
     inconsistencies.forEach(inc => {
-      deltaMap[inc.date] = inc.delta_cents;
+      deltaByDate[inc.date] = inc;
     });
+    const chartPoints = valuePoints.map(point => ({
+      date: point.date,
+      totalBalance: point.total_balance,
+      isAnchor: point.is_anchor || false,
+      inconsistency: deltaByDate[point.date] || null,
+    }));
+    const chartPointByDate = {};
+    chartPoints.forEach(point => {
+      chartPointByDate[point.date] = point;
+    });
+    const balanceData = [];
+    chartPoints.forEach(point => {
+      if (point.isAnchor && point.inconsistency) {
+        balanceData.push({
+          value: [point.date, point.inconsistency.projected_balance],
+          isAnchor: false,
+        });
+        balanceData.push({
+          value: [point.date, null],
+          isAnchor: false,
+          isBreak: true,
+        });
+        balanceData.push({
+          value: [point.date, point.inconsistency.anchor_balance],
+          isAnchor: true,
+        });
+        return;
+      }
+
+      balanceData.push({
+        value: [point.date, point.totalBalance],
+        isAnchor: point.isAnchor,
+      });
+    });
+    const deltaBarData = chartPoints
+      .filter(point => point.isAnchor && point.inconsistency)
+      .map(point => ([
+        {
+          xAxis: dayStartTimestamp(point.date),
+          yAxis: Math.min(
+            point.inconsistency.projected_balance,
+            point.inconsistency.anchor_balance
+          ),
+        },
+        {
+          xAxis: nextDayTimestamp(point.date),
+          yAxis: Math.max(
+            point.inconsistency.projected_balance,
+            point.inconsistency.anchor_balance
+          ),
+        },
+      ]));
 
     // Prepare data for volume bars (optional)
     const volumeData = showVolume.value
@@ -129,13 +180,14 @@ export const createBalanceViewState = ({
         type: 'line',
         data: balanceData,
         step: 'end',
+        connectNulls: false,
         // Show symbols ONLY on anchor dates (FAT dots)
         showSymbol: true,
         symbol: (value, params) => {
-          return anchorFlags[params.dataIndex] ? 'circle' : 'none';
+          return params.data?.isAnchor ? 'circle' : 'none';
         },
         symbolSize: (value, params) => {
-          return anchorFlags[params.dataIndex] ? 12 : 0;
+          return params.data?.isAnchor ? 12 : 0;
         },
         itemStyle: {
           color: '#845b31',
@@ -159,6 +211,16 @@ export const createBalanceViewState = ({
             ]
           }
         },
+        markArea: deltaBarData.length > 0 ? {
+          silent: true,
+          itemStyle: {
+            color: 'rgba(193, 18, 31, 0.82)',
+          },
+          emphasis: {
+            disabled: true,
+          },
+          data: deltaBarData,
+        } : undefined,
         yAxisIndex: 0,
       },
     ];
@@ -224,11 +286,18 @@ export const createBalanceViewState = ({
             type: 'cross',
           },
           formatter: (params) => {
-            // With time axis, value is [date, amount]
-            const date = params[0].value[0];
-            const dataIndex = params[0].dataIndex;
-            const isAnchor = anchorFlags[dataIndex];
-            const delta = deltaMap[date];
+            const firstValueParam = params.find(
+              p => Array.isArray(p.value) && p.value[0]
+            );
+            if (!firstValueParam) {
+              return '';
+            }
+
+            const date = firstValueParam.value[0];
+            const point = chartPointByDate[date];
+            const isAnchor = point?.isAnchor || false;
+            const inconsistency = point?.inconsistency || null;
+            const delta = inconsistency?.delta_cents;
 
             let result = `${date}`;
             if (isAnchor) {
@@ -236,22 +305,28 @@ export const createBalanceViewState = ({
             }
             result += '<br/>';
 
+            if (inconsistency) {
+              result += `Projected Balance: ${formatCurrency(inconsistency.projected_balance)}<br/>`;
+              result += `Anchor Balance: ${formatCurrency(inconsistency.anchor_balance)}<br/>`;
+            } else if (point) {
+              result += `Account Balance: ${formatCurrency(point.totalBalance)}<br/>`;
+            }
+
             params.forEach(p => {
-              const amount = Array.isArray(p.value) ? p.value[1] : p.value;
               if (p.seriesName === 'Account Balance') {
-                result += `${p.seriesName}: ${formatCurrency(amount)}<br/>`;
-              } else {
+                return;
+              }
+
+              const amount = Array.isArray(p.value) ? p.value[1] : p.value;
+              if (amount !== null && amount !== undefined) {
                 result += `${p.seriesName}: ${formatCurrency(Math.abs(amount))}<br/>`;
               }
             });
 
-            // ALWAYS show Delta line (for debugging/verification)
             if (isAnchor) {
               if (delta !== undefined) {
                 const deltaSign = delta >= 0 ? '+' : '';
                 result += `Delta: ${deltaSign}${formatCurrency(delta)}<br/>`;
-              } else {
-                result += `Delta: €0.00 (no inconsistency)<br/>`;
               }
             }
 

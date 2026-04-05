@@ -117,32 +117,26 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
         # October 2022 - 6 months in (accurate baseline)
         {
             "date": "2022-10-15",
-            "balance_cents": 280000,  # €2,800
+            "balance_cents": 10000000,  # +€100,000
             "note": "Q4 2022 baseline",
         },
         # April 2023 - 1 year in (OFF BY +€250)
         {
             "date": "2023-04-15",
-            "balance_cents": 305000,  # €3,050 (missing €250 in transactions)
+            "balance_cents": -10000000,  # -€100,000
             "note": "Mid-year - missing transactions",
         },
         # October 2023 - 18 months in (OFF BY -€180)
         {
             "date": "2023-10-15",
-            "balance_cents": 296000,  # €2,960 (€180 extra spending not recorded)
+            "balance_cents": 10000000,  # +€100,000
             "note": "Fall - unrecorded spending",
         },
         # February 2024 - near end (OFF BY +€320)
         {
             "date": "2024-02-01",
-            "balance_cents": 338000,  # €3,380 (missing €320 in expenses)
+            "balance_cents": -10000000,  # -€100,000
             "note": "Winter - data gap",
-        },
-        # March 2024 - final anchor (OFF BY +€120, projects forward)
-        {
-            "date": "2024-03-29",
-            "balance_cents": 322000,  # €3,220 (projection drift of +€120)
-            "note": "Final - projection drift",
         },
     ]
 

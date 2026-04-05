@@ -535,6 +535,15 @@ async def account_value_history(
 
     # Sort snapshots by account and date
     all_snapshots.sort(key=lambda x: (x["account_id"], x["date"]))
+    visible_snapshots = all_snapshots
+    if from_date or to_date:
+        from_date_str = from_date or ""
+        to_date_str = to_date or "9999-12-31"
+        visible_snapshots = [
+            snapshot
+            for snapshot in all_snapshots
+            if from_date_str <= snapshot["date"] <= to_date_str
+        ]
 
     # Get RAW transactions for FULL history (no neutralization, no date filter)
     filters = TransactionFilter(
@@ -551,7 +560,7 @@ async def account_value_history(
     if not transactions:
         return {
             "account_ids": list(account_ids),
-            "balance_snapshots": all_snapshots,
+            "balance_snapshots": visible_snapshots,
             "value_points": [],
             "inconsistencies": [],
         }
@@ -645,7 +654,7 @@ async def account_value_history(
 
     return {
         "account_ids": list(account_ids),
-        "balance_snapshots": all_snapshots,
+        "balance_snapshots": visible_snapshots,
         "value_points": value_points,
         "inconsistencies": inconsistencies,
     }

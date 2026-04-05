@@ -61,34 +61,27 @@ def project_backward_with_inconsistencies(
     return balances, deltas
 
 
-def project_forward_from_anchors(
+def project_forward_from_latest_anchor(
     date_strs: list[str],
     saldo_by_date: dict[str, int],
-    anchors: list[dict],
+    anchor: dict,
 ) -> dict[str, int]:
-    """Project balances forward, resetting to each anchor as it is reached."""
-    if not anchors:
+    """Project balances forward from the newest anchor only."""
+    if not anchor:
         return {}
 
-    remaining_anchors = list(anchors)
-    first_anchor = remaining_anchors.pop(0)
-    next_anchor = remaining_anchors.pop(0) if remaining_anchors else None
-    first_anchor_date = first_anchor["date"]
-    current_balance = first_anchor["balance_cents"]
+    anchor_date = anchor["date"]
+    current_balance = anchor["balance_cents"]
     started = False
     balances: dict[str, int] = {}
 
     for index, date_str in enumerate(date_strs):
         if not started:
-            if date_str < first_anchor_date:
+            if date_str < anchor_date:
                 continue
             started = True
-            if date_str > first_anchor_date:
+            if date_str > anchor_date:
                 current_balance += saldo_by_date.get(date_str, 0)
-
-        if next_anchor and date_str == next_anchor["date"]:
-            current_balance = next_anchor["balance_cents"]
-            next_anchor = remaining_anchors.pop(0) if remaining_anchors else None
 
         balances[date_str] = current_balance
 
@@ -114,16 +107,17 @@ def build_balance_series(
         saldo_by_date,
         normalized_anchors,
     )
-    forward_balances = project_forward_from_anchors(
+    latest_anchor = normalized_anchors[-1]
+    forward_balances = project_forward_from_latest_anchor(
         date_strs,
         saldo_by_date,
-        normalized_anchors,
+        latest_anchor,
     )
 
-    first_anchor_date = normalized_anchors[0]["date"]
+    latest_anchor_date = latest_anchor["date"]
     balances = {}
     for date_str in date_strs:
-        if date_str < first_anchor_date:
+        if date_str <= latest_anchor_date:
             if date_str in backward_balances:
                 balances[date_str] = backward_balances[date_str]
         elif date_str in forward_balances:

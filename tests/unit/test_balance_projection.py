@@ -2,7 +2,7 @@ from penny.balance_projection import (
     build_balance_series,
     normalize_anchors,
     project_backward_with_inconsistencies,
-    project_forward_from_anchors,
+    project_forward_from_latest_anchor,
 )
 
 
@@ -65,21 +65,34 @@ def test_single_anchor_projects_backward_and_forward():
     assert deltas == []
 
 
-def test_forward_projection_resets_to_each_anchor_date():
-    balances = project_forward_from_anchors(
-        ["2024-01-02", "2024-01-03", "2024-01-04"],
-        {"2024-01-03": 10, "2024-01-04": 10},
+def test_build_balance_series_uses_latest_anchor_for_main_projection():
+    balances, deltas, normalized = build_balance_series(
+        ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+        {"2024-01-02": 10, "2024-01-03": 10, "2024-01-04": 10},
         [
             {"date": "2024-01-02", "balance_cents": 100},
             {"date": "2024-01-04", "balance_cents": 150},
         ],
     )
 
+    assert normalized == [
+        {"date": "2024-01-02", "balance_cents": 100},
+        {"date": "2024-01-04", "balance_cents": 150},
+    ]
     assert balances == {
+        "2024-01-01": 90,
         "2024-01-02": 100,
-        "2024-01-03": 110,
+        "2024-01-03": 140,
         "2024-01-04": 150,
     }
+    assert deltas == [
+        {
+            "date": "2024-01-02",
+            "projected_balance": 130,
+            "anchor_balance": 100,
+            "delta_cents": -30,
+        }
+    ]
 
 
 def test_backward_projection_records_inconsistency_at_anchor_boundary():
@@ -150,17 +163,33 @@ def test_build_balance_series_fills_dates_before_first_anchor():
     ]
 
 
-def test_forward_projection_handles_anchor_before_visible_range():
-    balances = project_forward_from_anchors(
+def test_forward_projection_from_latest_anchor_handles_anchor_before_visible_range():
+    balances = project_forward_from_latest_anchor(
         ["2024-01-03", "2024-01-04"],
         {"2024-01-03": 7, "2024-01-04": 2},
-        [{"date": "2024-01-01", "balance_cents": 100}],
+        {"date": "2024-01-01", "balance_cents": 100},
     )
 
     assert balances == {
         "2024-01-03": 107,
         "2024-01-04": 109,
     }
+
+
+def test_build_balance_series_projects_forward_only_after_latest_anchor():
+    balances, deltas, _normalized = build_balance_series(
+        ["2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06"],
+        {"2024-01-04": 10, "2024-01-05": 20, "2024-01-06": -5},
+        [{"date": "2024-01-04", "balance_cents": 100}],
+    )
+
+    assert balances == {
+        "2024-01-03": 90,
+        "2024-01-04": 100,
+        "2024-01-05": 120,
+        "2024-01-06": 115,
+    }
+    assert deltas == []
 
 
 def test_build_balance_series_accepts_unsorted_anchor_input():
