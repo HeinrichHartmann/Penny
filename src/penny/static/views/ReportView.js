@@ -1,3 +1,5 @@
+import { onMounted } from 'vue/dist/vue.esm-bundler.js';
+
 import { SelectorHeader } from '../components/SelectorHeader.js';
 import { breakoutGranularityLabel } from '../utils/date.js';
 import { formatCompactSigned, formatCurrency } from '../utils/format.js';
@@ -10,7 +12,11 @@ export const ReportView = {
   props: {
     model: { type: Object, required: true },
   },
-  setup() {
+  setup(props) {
+    onMounted(async () => {
+      await props.model.loadReportData();
+    });
+
     return {
       breakoutGranularityLabel,
       formatCompactSigned,

@@ -23,8 +23,8 @@ test('demo import journey keeps core views populated', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Rules' }).click();
   await expect(page.getByRole('heading', { name: 'Classification Rules' })).toBeVisible();
-  await expect.soft(page.getByText('Matched')).toBeVisible({ timeout: uiTimeoutMs });
-  await expect.soft(page.getByText('Unmatched')).toBeVisible({ timeout: uiTimeoutMs });
+  await expect.soft(page.getByText('Matched', { exact: true })).toBeVisible({ timeout: uiTimeoutMs });
+  await expect.soft(page.getByText('Unmatched', { exact: true })).toBeVisible({ timeout: uiTimeoutMs });
   await expect.soft(page.getByText('Save rules or click "Run Classification" to see results')).toHaveCount(0, { timeout: uiTimeoutMs });
 
   await page.getByRole('button', { name: 'Transactions' }).click();
@@ -34,6 +34,7 @@ test('demo import journey keeps core views populated', async ({ page }) => {
   await page.getByRole('button', { name: 'Report' }).click();
   await expect(page.getByRole('heading', { name: 'Report', exact: true })).toBeVisible();
   await expect.soft(page.getByText('Expenses')).toBeVisible({ timeout: uiTimeoutMs });
+  await page.locator('[data-tab="report"]').click();
   await expect.soft(page.locator('pre.report-text')).not.toHaveText('Loading...', { timeout: uiTimeoutMs });
 
   await page.getByRole('button', { name: 'Balance' }).click();

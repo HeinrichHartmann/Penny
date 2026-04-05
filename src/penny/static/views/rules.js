@@ -26,6 +26,11 @@ export const createRulesViewState = ({ fetchRules, saveRules, runRules }) => {
       rulesState.exists = data.exists;
       rulesState.content = data.content || '';
       rulesState.originalContent = data.content || '';
+      rulesState.logs = data.latest_run?.logs || [];
+      rulesState.stats = data.latest_run?.stats || null;
+      if (data.latest_run?.status === 'error') {
+        rulesState.error = 'Classification failed - see logs below';
+      }
     } catch (error) {
       rulesState.error = error.message;
     } finally {

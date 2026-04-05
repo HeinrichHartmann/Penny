@@ -327,6 +327,7 @@ createApp({
       selectorState,
       selectorActions,
       transactions,
+      loadTransactions: loadTransactionsForCurrentView,
       currentTransactionPage,
       totalTransactionPages,
       transactionPageButtons,
@@ -349,9 +350,13 @@ createApp({
       selectorState,
       selectorActions,
       summary,
+      loadReportData: loadAll,
       tab,
-      setTab: (value) => {
+      setTab: async (value) => {
         tab.value = value;
+        if (view.value === 'report') {
+          await loadAll();
+        }
       },
       breakout,
       breakoutGranularity,
