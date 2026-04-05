@@ -1,6 +1,6 @@
 import { onMounted, ref } from 'vue/dist/vue.esm-bundler.js';
 
-import { uploadCsv, uploadRules, fetchImportHistory, toggleImportEnabled, rebuildDatabase } from '../api.js';
+import { uploadCsv, uploadRules, fetchImportHistory, toggleImportEnabled, rebuildDatabase, importDemoData } from '../api.js';
 import { createImportViewState } from './import.js';
 
 export const ImportView = {
@@ -26,6 +26,7 @@ export const ImportView = {
     const historyLoading = ref(false);
     const rebuilding = ref(false);
     const rebuildResult = ref(null);
+    const importingDemo = ref(false);
 
     const loadImportHistory = async () => {
       historyLoading.value = true;
@@ -84,6 +85,43 @@ export const ImportView = {
       }
     };
 
+    const handleImportDemo = async () => {
+      importingDemo.value = true;
+      try {
+        const { results } = await importDemoData();
+
+        // Emit each result to trigger app refresh
+        for (const result of results) {
+          emit('imported', result);
+        }
+
+        await loadImportHistory();
+
+        // Build summary message
+        const csv = results.find(r => r.type === 'csv');
+        const rules = results.find(r => r.type === 'rules');
+        const balance = results.find(r => r.type === 'balance_anchors');
+
+        let message = 'Demo data imported!\n\n';
+        if (csv) {
+          message += `✓ ${csv.filename} (${csv.transactions.new} transactions)\n`;
+        }
+        if (rules) {
+          message += `✓ ${rules.filename}\n`;
+        }
+        if (balance) {
+          message += `✓ ${balance.filename} (${balance.snapshots_created} snapshots)\n`;
+        }
+
+        alert(message);
+      } catch (error) {
+        console.error('Failed to import demo data:', error);
+        alert('Failed to import demo data: ' + error.message);
+      } finally {
+        importingDemo.value = false;
+      }
+    };
+
     onMounted(async () => {
       await loadImportHistory();
     });
@@ -101,6 +139,8 @@ export const ImportView = {
       handleRebuild,
       rebuilding,
       rebuildResult,
+      handleImportDemo,
+      importingDemo,
     };
   },
   template: `
@@ -128,14 +168,14 @@ export const ImportView = {
             {{ importState.isDragging ? '📥' : '📂' }}
           </div>
           <p style="color: var(--muted); margin-bottom: 12px;">
-            Drag & drop CSV files from your bank
+            Drag & drop CSV files, rules.py, or balance-anchors.tsv
           </p>
           <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 16px;">
-            Supports: Comdirect, Sparkasse, and more
+            CSV: Comdirect, Sparkasse | TSV: Balance snapshots
           </p>
           <label style="display: inline-block; padding: 8px 16px; background: var(--accent); color: white; border-radius: 4px; cursor: pointer;">
             Choose Files
-            <input type="file" accept=".csv,.py" multiple @change="handleFileSelect" style="display: none;">
+            <input type="file" accept=".csv,.py,.tsv" multiple @change="handleFileSelect" style="display: none;">
           </label>
         </template>
       </div>
@@ -196,7 +236,15 @@ export const ImportView = {
         </div>
 
         <div v-else-if="importHistory.length === 0" class="panel" style="padding: 40px; text-align: center;">
-          <p style="color: var(--muted);">No imports yet. Upload a CSV file to get started.</p>
+          <p style="color: var(--muted); margin-bottom: 20px;">No imports yet. Upload a CSV file to get started.</p>
+          <button
+            @click="handleImportDemo"
+            :disabled="importingDemo"
+            style="padding: 12px 24px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem;"
+            :style="{ opacity: importingDemo ? 0.6 : 1 }"
+          >
+            {{ importingDemo ? 'Importing Demo Data...' : 'Import Demo Data' }}
+          </button>
         </div>
 
         <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">

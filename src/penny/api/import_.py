@@ -23,17 +23,31 @@ def _auto_run_classification() -> None:
 
 
 @router.post("/import")
-async def import_csv(file: Annotated[UploadFile, File()]):
-    """Import transactions from a CSV file.
+async def import_file(file: Annotated[UploadFile, File()]):
+    """Import data from file (CSV, rules.py, or balance-anchors.tsv).
 
-    Flow (via vault):
-    1. Write CSV to vault log entry
-    2. Apply entry: detect parser, reconcile account, parse, store
-    3. Return result
+    Detects file type and routes appropriately:
+    - .csv -> Import transactions
+    - .py -> Update classification rules
+    - .tsv -> Import balance snapshots
     """
+    filename = file.filename or "upload"
     content_bytes = await file.read()
-    filename = file.filename or "upload.csv"
 
+    # Route based on file extension
+    if filename.endswith(".py"):
+        # Import rules file
+        return await _import_rules(filename, content_bytes)
+    elif filename.endswith(".tsv"):
+        # Import balance snapshots
+        return await _import_balance_anchors(filename, content_bytes)
+    else:
+        # Import CSV (transactions)
+        return await _import_csv(filename, content_bytes)
+
+
+async def _import_csv(filename: str, content_bytes: bytes):
+    """Import transactions from CSV file."""
     request = IngestRequest(
         filename=filename,
         content=content_bytes,
@@ -63,6 +77,7 @@ async def import_csv(file: Annotated[UploadFile, File()]):
     return {
         "status": "success",
         "filename": filename,
+        "type": "csv",
         "parser": result.parser_name,
         "account": {
             "id": result.account_id,
@@ -79,6 +94,195 @@ async def import_csv(file: Annotated[UploadFile, File()]):
             "total_parsed": result.transactions_total,
         },
     }
+
+
+async def _import_rules(filename: str, content_bytes: bytes):
+    """Import classification rules from .py file."""
+    from penny.vault.rules import update_rules
+
+    content = content_bytes.decode("utf-8")
+
+    try:
+        path = update_rules(content)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Rules import failed: {e}",
+        ) from e
+
+    return {
+        "status": "success",
+        "filename": filename,
+        "type": "rules",
+        "path": path,
+    }
+
+
+async def _import_balance_anchors(filename: str, content_bytes: bytes):
+    """Import balance snapshots from TSV file.
+
+    TSV format:
+        account_iban    date    balance_cents    note
+        DE89...         2024-01-15    100000    Monthly snapshot
+    """
+    import csv
+
+    from penny.api.helpers import get_db
+    from penny.vault.manifests import BalanceSnapshotManifest
+
+    config = VaultConfig()
+    log_manager = LogManager(config)
+
+    content = content_bytes.decode("utf-8")
+    reader = csv.DictReader(content.splitlines(), delimiter="\t")
+
+    snapshots_created = 0
+    snapshots_skipped = 0
+    errors = []
+
+    for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
+        try:
+            # Extract fields
+            account_iban = row.get("account_iban", "").strip()
+            date_str = row.get("date", "").strip()
+            balance_cents_str = row.get("balance_cents", "").strip()
+            note = row.get("note", "").strip()
+
+            if not account_iban or not date_str or not balance_cents_str:
+                errors.append(f"Row {row_num}: Missing required fields")
+                snapshots_skipped += 1
+                continue
+
+            # Find account by IBAN
+            conn = get_db()
+            cursor = conn.cursor()
+            acc_row = cursor.execute(
+                "SELECT id FROM accounts WHERE bank_account_id = ? LIMIT 1",
+                (account_iban,),
+            ).fetchone()
+            conn.close()
+
+            if not acc_row:
+                errors.append(f"Row {row_num}: Account not found for IBAN {account_iban}")
+                snapshots_skipped += 1
+                continue
+
+            account_id = acc_row[0]
+            balance_cents = int(balance_cents_str)
+
+            # Create balance snapshot manifest
+            manifest = BalanceSnapshotManifest(
+                type="balance_snapshot",
+                account_id=account_id,
+                subaccount_type="giro",
+                snapshot_date=date_str,
+                balance_cents=balance_cents,
+                note=note,
+            )
+            log_manager.append("balance_snapshot", manifest)
+            snapshots_created += 1
+
+        except ValueError as e:
+            errors.append(f"Row {row_num}: Invalid number format - {e}")
+            snapshots_skipped += 1
+        except Exception as e:
+            errors.append(f"Row {row_num}: {e}")
+            snapshots_skipped += 1
+
+    return {
+        "status": "success",
+        "filename": filename,
+        "type": "balance_anchors",
+        "snapshots_created": snapshots_created,
+        "snapshots_skipped": snapshots_skipped,
+        "errors": errors if errors else None,
+    }
+
+
+@router.get("/demo-files")
+async def list_demo_files():
+    """List available demo files for download.
+
+    Returns metadata about demo files that can be imported.
+    """
+    from pathlib import Path
+
+    from penny.demo_bootstrap import get_demo_csv_path
+
+    fixtures_dir = Path(__file__).parent.parent / "fixtures"
+    demo_csv_path = get_demo_csv_path()
+    rules_path = fixtures_dir / "demo_rules.py"
+    balance_anchors_path = fixtures_dir / "balance-anchors.tsv"
+
+    files = []
+
+    if demo_csv_path.exists():
+        files.append({
+            "filename": demo_csv_path.name,
+            "type": "csv",
+            "size": demo_csv_path.stat().st_size,
+        })
+
+    if rules_path.exists():
+        files.append({
+            "filename": rules_path.name,
+            "type": "rules",
+            "size": rules_path.stat().st_size,
+        })
+
+    if balance_anchors_path.exists():
+        files.append({
+            "filename": balance_anchors_path.name,
+            "type": "balance_anchors",
+            "size": balance_anchors_path.stat().st_size,
+        })
+
+    return {"files": files}
+
+
+@router.get("/demo-files/{filename}")
+async def download_demo_file(filename: str):
+    """Download a specific demo file.
+
+    Returns the raw file content for client-side upload.
+    """
+    from pathlib import Path
+
+    from fastapi.responses import Response
+
+    from penny.demo_bootstrap import get_demo_csv_path
+
+    fixtures_dir = Path(__file__).parent.parent / "fixtures"
+    demo_csv_path = get_demo_csv_path()
+
+    # Map filename to path
+    file_map = {
+        demo_csv_path.name: demo_csv_path,
+        "demo_rules.py": fixtures_dir / "demo_rules.py",
+        "balance-anchors.tsv": fixtures_dir / "balance-anchors.tsv",
+    }
+
+    file_path = file_map.get(filename)
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Demo file not found: {filename}")
+
+    content = file_path.read_bytes()
+
+    # Determine content type
+    if filename.endswith(".csv"):
+        media_type = "text/csv"
+    elif filename.endswith(".py"):
+        media_type = "text/x-python"
+    elif filename.endswith(".tsv"):
+        media_type = "text/tab-separated-values"
+    else:
+        media_type = "application/octet-stream"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/imports")
@@ -227,3 +431,5 @@ async def rebuild_database():
         "entries_processed": result.entries_processed,
         "entries_by_type": result.entries_by_type,
     }
+
+

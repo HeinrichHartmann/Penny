@@ -245,10 +245,6 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
             let result = `${date}`;
             if (isAnchor) {
               result += ' 📍'; // Pin emoji for anchor
-              if (delta !== undefined) {
-                const deltaSign = delta >= 0 ? '+' : '';
-                result += ` (Δ: ${deltaSign}${formatCurrency(delta)})`;
-              }
             }
             result += '<br/>';
 
@@ -260,6 +256,17 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
                 result += `${p.seriesName}: ${formatCurrency(Math.abs(amount))}<br/>`;
               }
             });
+
+            // ALWAYS show Delta line (for debugging/verification)
+            if (isAnchor) {
+              if (delta !== undefined) {
+                const deltaSign = delta >= 0 ? '+' : '';
+                result += `Delta: ${deltaSign}${formatCurrency(delta)}<br/>`;
+              } else {
+                result += `Delta: €0.00 (no inconsistency)<br/>`;
+              }
+            }
+
             return result;
           },
         },
