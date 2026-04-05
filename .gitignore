@@ -26,6 +26,7 @@ logs/
 # Environment
 .env
 demo.db
+penny.db
 .direnv/
 /rules.py
 REVIEW/
