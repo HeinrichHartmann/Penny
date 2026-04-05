@@ -290,14 +290,16 @@ async def list_imports():
     """List all past imports with metadata from vault manifests.
 
     Returns:
-        List of import records including CSV imports and rules updates.
+        List of import records including CSV imports, rules updates, and balance snapshots.
     """
-    from penny.vault.manifests import RulesManifest
+    from penny.vault.manifests import BalanceSnapshotManifest, RulesManifest
 
     config = VaultConfig()
     log = LogManager(config)
 
     imports = []
+    balance_snapshots_by_file = {}  # Group snapshots by their import batch
+
     for entry in log.iter_entries():
         try:
             manifest = entry.read_manifest()
@@ -321,6 +323,20 @@ async def list_imports():
                     "type": "rules",
                 }
             )
+            continue
+
+        # Handle balance snapshots - group by timestamp (same import batch)
+        if isinstance(manifest, BalanceSnapshotManifest):
+            timestamp = manifest.timestamp
+            if timestamp not in balance_snapshots_by_file:
+                balance_snapshots_by_file[timestamp] = {
+                    "sequence": entry.sequence,
+                    "timestamp": timestamp,
+                    "count": 0,
+                    "account_ids": set(),
+                }
+            balance_snapshots_by_file[timestamp]["count"] += 1
+            balance_snapshots_by_file[timestamp]["account_ids"].add(manifest.account_id)
             continue
 
         # Only include ingest entries for CSV imports
@@ -366,6 +382,23 @@ async def list_imports():
                 "enabled": getattr(manifest, "enabled", True),
                 "warning": getattr(manifest, "warning", None),
                 "type": "ingest",
+            }
+        )
+
+    # Add grouped balance snapshot imports
+    for data in balance_snapshots_by_file.values():
+        imports.append(
+            {
+                "sequence": data["sequence"],
+                "timestamp": data["timestamp"],
+                "filenames": ["balance-anchors.tsv"],
+                "parser": "balance_anchors",
+                "status": "applied",
+                "account_id": None,
+                "account_label": f"{data['count']} snapshot(s) for {len(data['account_ids'])} account(s)",
+                "enabled": True,
+                "warning": None,
+                "type": "balance_anchors",
             }
         )
 
