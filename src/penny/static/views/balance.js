@@ -5,7 +5,7 @@
  * This view is ONLY for displaying data 1:1 as provided by the API.
  * No aggregation, calculations, or data transformations here.
  */
-import { computed, ref, nextTick } from 'vue/dist/vue.esm-bundler.js';
+import { computed, ref } from 'vue/dist/vue.esm-bundler.js';
 import * as echarts from 'echarts';
 import { PALETTE } from '../utils/color.js';
 import { formatCurrency } from '../utils/format.js';
@@ -15,9 +15,13 @@ import { formatCurrency } from '../utils/format.js';
  * @param {object} options
  * @returns {object} State and actions
  */
-export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDateRangeChange }) => {
-  const valueHistory = ref(null);
-  const loading = ref(false);
+export const createBalanceViewState = ({
+  valueHistory,
+  loading,
+  loadValueHistory,
+  filters,
+  onDateRangeChange,
+}) => {
   const showVolume = ref(false);
   const balanceChartEl = ref(null);
   let balanceChart = null;
@@ -41,27 +45,6 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
   const resetValueHistory = () => {
     valueHistory.value = null;
     loading.value = false;
-  };
-
-  const loadValueHistory = async () => {
-    if (!filters.accounts || filters.accounts.length === 0) {
-      valueHistory.value = null;
-      return;
-    }
-
-    loading.value = true;
-    try {
-      const data = await fetchAccountValueHistory(filters);
-      valueHistory.value = data;
-      // Wait for Vue to render the chart element (inside v-if) before initializing
-      await nextTick();
-      renderBalanceChart();
-    } catch (error) {
-      console.error('Failed to load value history:', error);
-      valueHistory.value = null;
-    } finally {
-      loading.value = false;
-    }
   };
 
   const renderBalanceChart = () => {

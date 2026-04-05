@@ -17,16 +17,18 @@
     <import-view
       v-if="view === 'import'"
       :key="`import-${appDataVersion}`"
-      @imported="handleImportComplete"
+      :model="importModel"
+      :actions="importViewActions"
     ></import-view>
 
     <!-- Accounts View -->
     <accounts-view
       v-if="view === 'accounts'"
       :key="`accounts-${appDataVersion}`"
+      :model="accountsModel"
+      :actions="accountsViewActions"
       :filters="filters"
       :toggle-account="toggleAccount"
-      :rehydrate-app="rehydrateAppState"
     ></accounts-view>
 
     <!-- Transactions View -->
@@ -40,7 +42,8 @@
     <rules-view
       v-if="view === 'rules'"
       :key="`rules-${appDataVersion}`"
-      :rehydrate-app="rehydrateAppState"
+      :model="rulesModel"
+      :actions="rulesViewActions"
     ></rules-view>
 
     <!-- Report View -->

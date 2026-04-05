@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('demo import journey keeps core views populated', async ({ page }) => {
   const uiTimeoutMs = 1_000;
   const firstTransactionDate = () => page.locator('tbody tr').first().locator('td').first();
-  const firstBalanceTransactionDate = () => page.locator('table').nth(1).locator('tbody tr').first().locator('td').first();
+  const firstBalanceTransactionDate = () => page.locator('main table').last().locator('tbody tr').first().locator('td').first();
   const balanceChartCanvas = () => page.locator('canvas').first();
 
   await page.goto('/');

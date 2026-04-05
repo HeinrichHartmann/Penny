@@ -1,44 +1,81 @@
-import { onMounted } from 'vue/dist/vue.esm-bundler.js';
-
-import { fetchAccounts, updateAccount, recordBalanceSnapshot, deleteAccount } from '../api.js';
 import { createAccountsViewState } from './accounts.js';
 
 export const AccountsView = {
   name: 'AccountsView',
   props: {
+    model: { type: Object, required: true },
+    actions: { type: Object, required: true },
     filters: { type: Object, required: true },
     toggleAccount: { type: Function, required: true },
-    rehydrateApp: { type: Function, required: true },
   },
   setup(props) {
     const {
-      accountsList,
-      accountsLoading,
-      includeHidden,
       editingAccountId,
       editingAccountData,
       recordingBalanceForId,
       balanceData,
-      loadAccounts,
       startEditingAccount,
       cancelEditingAccount,
-      saveAccountMetadata,
       startRecordingBalance,
       cancelRecordingBalance,
-      saveBalanceSnapshot,
-      hideAccount,
-      toggleIncludeHidden,
-    } = createAccountsViewState({
-      fetchAccounts,
-      updateAccount,
-      recordBalanceSnapshot,
-      deleteAccount,
-      rehydrateApp: props.rehydrateApp,
-    });
+    } = createAccountsViewState();
 
-    onMounted(async () => {
-      await loadAccounts();
-    });
+    const saveAccountMetadata = async (accountId) => {
+      try {
+        const updates = {};
+        if (editingAccountData.value.display_name !== undefined) {
+          updates.display_name = editingAccountData.value.display_name || null;
+        }
+        if (editingAccountData.value.iban !== undefined) {
+          updates.iban = editingAccountData.value.iban || null;
+        }
+        if (editingAccountData.value.holder !== undefined) {
+          updates.holder = editingAccountData.value.holder || null;
+        }
+        if (editingAccountData.value.notes !== undefined) {
+          updates.notes = editingAccountData.value.notes || null;
+        }
+
+        cancelEditingAccount();
+        await props.actions.saveAccountMetadata(accountId, updates);
+      } catch (error) {
+        console.error('Failed to update account:', error);
+        alert('Failed to update account: ' + error.message);
+      }
+    };
+
+    const saveBalanceSnapshot = async (accountId) => {
+      try {
+        const balanceCents = Math.round(parseFloat(balanceData.value.balance_cents) * 100);
+        if (isNaN(balanceCents)) {
+          alert('Please enter a valid balance amount');
+          return;
+        }
+
+        await props.actions.saveBalanceSnapshot(accountId, {
+          balance_cents: balanceCents,
+          balance_date: balanceData.value.balance_date,
+          note: balanceData.value.note || null,
+        });
+
+        cancelRecordingBalance();
+      } catch (error) {
+        console.error('Failed to record balance:', error);
+        alert('Failed to record balance: ' + error.message);
+      }
+    };
+
+    const hideAccount = async (accountId) => {
+      if (!confirm('Are you sure you want to hide this account? You can show it again using the "Show Archived" toggle.')) {
+        return;
+      }
+      try {
+        await props.actions.archiveAccount(accountId);
+      } catch (error) {
+        console.error('Failed to hide account:', error);
+        alert('Failed to hide account: ' + error.message);
+      }
+    };
 
     const formatCurrency = (cents) => {
       if (cents === null || cents === undefined) return null;
@@ -46,14 +83,10 @@ export const AccountsView = {
     };
 
     return {
-      accountsList,
-      accountsLoading,
-      includeHidden,
       editingAccountId,
       editingAccountData,
       recordingBalanceForId,
       balanceData,
-      loadAccounts,
       startEditingAccount,
       cancelEditingAccount,
       saveAccountMetadata,
@@ -61,7 +94,6 @@ export const AccountsView = {
       cancelRecordingBalance,
       saveBalanceSnapshot,
       hideAccount,
-      toggleIncludeHidden,
       formatCurrency,
     };
   },
@@ -72,24 +104,24 @@ export const AccountsView = {
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
           <input
             type="checkbox"
-            :checked="includeHidden"
-            @change="toggleIncludeHidden"
+            :checked="model.includeHidden"
+            @change="actions.setIncludeHiddenAccounts($event.target.checked)"
             style="cursor: pointer;"
           >
           <span>Show Archived</span>
         </label>
       </div>
 
-      <div v-if="accountsLoading" class="panel" style="padding: 40px; text-align: center;">
+      <div v-if="model.loading" class="panel" style="padding: 40px; text-align: center;">
         <p style="color: var(--muted);">Loading accounts...</p>
       </div>
 
-      <div v-else-if="accountsList.length === 0" class="panel" style="padding: 40px; text-align: center;">
+      <div v-else-if="model.accounts.length === 0" class="panel" style="padding: 40px; text-align: center;">
         <p style="color: var(--muted);">No accounts imported yet. Import CSVs to see your accounts here.</p>
       </div>
 
       <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px;">
-        <div v-for="acc in accountsList" :key="acc.id"
+        <div v-for="acc in model.accounts" :key="acc.id"
           :class="['panel', 'account-card', filters.accounts.includes(acc.id) ? 'active' : 'inactive']"
           :style="{
             padding: '24px',
@@ -98,7 +130,6 @@ export const AccountsView = {
             border: acc.hidden ? '2px dashed var(--muted)' : ''
           }">
 
-          <!-- Editing Mode -->
           <div v-if="editingAccountId === acc.id" style="margin-bottom: 16px;">
             <div style="margin-bottom: 12px;">
               <label style="display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Display Name</label>
@@ -158,7 +189,6 @@ export const AccountsView = {
             </div>
           </div>
 
-          <!-- Balance Recording Mode -->
           <div v-else-if="recordingBalanceForId === acc.id" style="margin-bottom: 16px;">
             <h3 style="font-size: 1rem; margin-bottom: 12px;">Record Balance Snapshot</h3>
             <div style="margin-bottom: 12px;">
@@ -209,7 +239,6 @@ export const AccountsView = {
             </div>
           </div>
 
-          <!-- Normal Display Mode -->
           <div v-else>
             <div style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px;">
               <div
@@ -244,6 +273,7 @@ export const AccountsView = {
                 </div>
                 <div style="display: flex; gap: 16px; font-size: 0.75rem; color: var(--muted);">
                   <span>{{ acc.transaction_count }} transactions</span>
+                  <span>{{ acc.balance_snapshot_count }} balance snapshots</span>
                   <span v-if="acc.subaccounts?.length">
                     {{ acc.subaccounts.join(', ') }}
                   </span>
@@ -260,7 +290,6 @@ export const AccountsView = {
               </div>
             </div>
 
-            <!-- Action Buttons -->
             <div style="display: flex; gap: 8px; margin-top: 12px;">
               <button
                 @click="startEditingAccount(acc)"

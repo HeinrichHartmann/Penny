@@ -1,13 +1,13 @@
 import { computeDefaultDateRange, computeYearButtons } from '../utils/date.js';
 
 export const initializeAppState = async ({
-  fetchMeta,
+  metaState,
   initialUrlState,
   meta,
   filters,
   yearButtons,
 }) => {
-  const m = await fetchMeta();
+  const m = metaState;
   meta.accounts = m.accounts;
   meta.min_date = m.min_date;
   meta.max_date = m.max_date;
