@@ -14,6 +14,7 @@ from penny.api.helpers import (
     roll_up_top_buckets,
     sort_period_keys,
 )
+from penny.balance_projection import build_balance_series
 from penny.db import connect
 from penny.reports import generate_report_text
 from penny.sql import (
@@ -489,18 +490,15 @@ async def account_value_history(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
 ):
-    """Return account balance history with correct anchor-based projection.
+    """Return account balance history with anchor-based projection.
 
-    CORRECT LOGIC (2026-04-05):
-    1. Get RAW (unneutralized) transactions for FULL history per account
-    2. Bucket by day to get daily saldo (net change per day)
-    3. Project from balance anchors:
-       - Anchors project BACKWARDS in time
-       - LAST anchor projects FORWARD to present
-    4. Detect inconsistencies between projections
-    5. Return daily balance with anchor markers
-
-    ALL MATH DONE IN BACKEND.
+    Math model:
+    1. Get RAW (unneutralized) transactions for full history per account.
+    2. Bucket them to a daily saldo (net change per day).
+    3. Sort anchors by date and keep only the last-added anchor per day.
+    4. Walk anchors backward to detect deltas and fill dates before the first anchor.
+    5. Walk anchors forward to build the displayed balance series, resetting to each
+       anchor when it is reached.
     """
     # Parse and validate accounts
     account_ids = _parse_account_ids(accounts)
@@ -598,71 +596,20 @@ async def account_value_history(
         date_range = pd.date_range(start=min_date, end=max_date, freq="D")
         date_strs = [d.strftime("%Y-%m-%d") for d in date_range]
 
-        # Initialize balance dict
-        balances = {}
-
         if not acc_snapshots:
             # No anchors - can't compute balances
             continue
 
-        # Sort anchors by date
-        anchors = sorted(acc_snapshots, key=lambda x: x["date"])
+        balances, backward_deltas, _normalized_anchors = build_balance_series(
+            date_strs,
+            acc_saldo,
+            acc_snapshots,
+        )
 
-        # Project from each anchor
-        for i, anchor in enumerate(anchors):
-            anchor_date = anchor["date"]
-            anchor_balance = anchor["balance_cents"]
-
-            is_last_anchor = i == len(anchors) - 1
-
-            if is_last_anchor:
-                # Last anchor projects FORWARD to end of data
-                current_balance = anchor_balance
-                balances[anchor_date] = current_balance
-
-                for date_str in date_strs:
-                    if date_str > anchor_date:
-                        current_balance += acc_saldo.get(date_str, 0)
-                        balances[date_str] = current_balance
-            else:
-                # Project BACKWARD from this anchor
-                current_balance = anchor_balance
-                balances[anchor_date] = current_balance
-
-                # Get dates before this anchor
-                prev_dates = [d for d in date_strs if d < anchor_date]
-                # Reverse to go backward in time
-                for date_str in reversed(prev_dates):
-                    # Subtract the saldo of the NEXT day (date_str + 1)
-                    next_date_idx = date_strs.index(date_str) + 1
-                    if next_date_idx < len(date_strs):
-                        next_date = date_strs[next_date_idx]
-                        current_balance -= acc_saldo.get(next_date, 0)
-                        balances[date_str] = current_balance
-
-                # Check for inconsistency with next anchor
-                if i < len(anchors) - 1:
-                    next_anchor = anchors[i + 1]
-                    next_anchor_date = next_anchor["date"]
-
-                    # The backward projection should reach next_anchor_date
-                    # Compare with forward projection from previous segments
-                    if next_anchor_date in balances:
-                        projected_balance = balances[next_anchor_date]
-                        actual_balance = next_anchor["balance_cents"]
-                        delta = actual_balance - projected_balance
-
-                        if abs(delta) > 1:  # Allow 1 cent rounding
-                            inconsistencies.append(
-                                {
-                                    "account_id": acc_id,
-                                    "date": next_anchor_date,
-                                    "projected_balance": projected_balance,
-                                    "anchor_balance": actual_balance,
-                                    "delta_cents": delta,
-                                }
-                            )
-
+        inconsistencies.extend(
+            {"account_id": acc_id, **delta}
+            for delta in backward_deltas
+        )
         account_balances[acc_id] = balances
 
     # Combine all accounts into total balance per day

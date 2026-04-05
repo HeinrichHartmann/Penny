@@ -138,11 +138,11 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
             "balance_cents": 338000,  # €3,380 (missing €320 in expenses)
             "note": "Winter - data gap",
         },
-        # March 2024 - final anchor (OFF BY -€200, projects forward)
+        # March 2024 - final anchor (OFF BY +€120, projects forward)
         {
             "date": "2024-03-29",
-            "balance_cents": 310000,  # €3,100 (€200 missing income)
-            "note": "Final - missing income",
+            "balance_cents": 322000,  # €3,220 (projection drift of +€120)
+            "note": "Final - projection drift",
         },
     ]
 

@@ -123,7 +123,7 @@ def test_demo_import_end_to_end():
         assert len(accounts_payload) == 1, "Demo import should expose one visible account"
         account = accounts_payload[0]
         assert account["transaction_count"] > 0
-        assert account["balance_cents"] == 310000
+        assert account["balance_cents"] == 322000
         assert account["balance_date"] == "2024-03-29"
 
         rules_response = client.get("/api/rules")
@@ -247,6 +247,7 @@ def test_demo_import_end_to_end():
 
         anchor_points = [vp for vp in balance_data["value_points"] if vp.get("is_anchor")]
         assert len(anchor_points) == 5, f"Expected 5 anchor points, got {len(anchor_points)}"
+        assert balance_data.get("inconsistencies"), "Expected demo balance anchors to produce deltas"
         latest_value_point = balance_data["value_points"][-1]
         assert latest_value_point["date"] == "2024-03-29"
         assert latest_value_point["total_balance"] == account["balance_cents"]
@@ -280,7 +281,7 @@ def test_demo_import_accounts_expose_balance_anchor_counts():
 
         accounts_payload = accounts_response.json()["accounts"]
         assert len(accounts_payload) == 1
-        assert accounts_payload[0]["balance_cents"] == 310000
+        assert accounts_payload[0]["balance_cents"] == 322000
         assert accounts_payload[0]["balance_date"] == "2024-03-29"
         assert accounts_payload[0]["balance_snapshot_count"] == 5
 
