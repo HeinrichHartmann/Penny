@@ -1,6 +1,6 @@
 import { onMounted, ref } from 'vue/dist/vue.esm-bundler.js';
 
-import { uploadCsv, fetchImportHistory, toggleImportEnabled, rebuildDatabase } from '../api.js';
+import { uploadCsv, uploadRules, fetchImportHistory, toggleImportEnabled, rebuildDatabase } from '../api.js';
 import { createImportViewState } from './import.js';
 
 export const ImportView = {
@@ -15,8 +15,9 @@ export const ImportView = {
       handleFileSelect,
     } = createImportViewState({
       uploadCsv,
-      afterUpload: async () => {
-        emit('imported');
+      uploadRules,
+      afterUpload: async (result) => {
+        emit('imported', result);
         await loadImportHistory();
       },
     });
@@ -134,7 +135,7 @@ export const ImportView = {
           </p>
           <label style="display: inline-block; padding: 8px 16px; background: var(--accent); color: white; border-radius: 4px; cursor: pointer;">
             Choose Files
-            <input type="file" accept=".csv" multiple @change="handleFileSelect" style="display: none;">
+            <input type="file" accept=".csv,.py" multiple @change="handleFileSelect" style="display: none;">
           </label>
         </template>
       </div>
@@ -144,19 +145,30 @@ export const ImportView = {
       </div>
 
       <div v-if="importState.lastResult" class="panel" style="margin-top: 16px; padding: 20px;">
-        <h3 style="margin-bottom: 12px; color: var(--accent);">Import Successful</h3>
+        <h3 style="margin-bottom: 12px; color: var(--accent);">
+          {{ importState.lastResult.type === 'rules' ? 'Rules Updated' : 'Import Successful' }}
+        </h3>
         <div style="display: grid; gap: 8px; font-size: 0.9rem;">
           <div><strong>File:</strong> {{ importState.lastResult.filename }}</div>
-          <div><strong>Parser:</strong> {{ importState.lastResult.parser }}</div>
-          <div><strong>Account:</strong> {{ importState.lastResult.account?.label }}</div>
-          <div v-if="importState.lastResult.account?.is_new" style="color: var(--accent);">
-            (New account created)
-          </div>
-          <div style="margin-top: 8px;">
-            <strong>Transactions:</strong>
-            {{ importState.lastResult.transactions?.new }} new,
-            {{ importState.lastResult.transactions?.duplicates }} duplicates skipped
-          </div>
+          <template v-if="importState.lastResult.type === 'rules'">
+            <div><strong>Type:</strong> Classification Rules</div>
+            <div><strong>Status:</strong> {{ importState.lastResult.status }}</div>
+            <div style="margin-top: 8px; color: var(--muted); font-size: 0.85rem;">
+              Rules file has been saved. Go to the Rules page to review and run classifications.
+            </div>
+          </template>
+          <template v-else>
+            <div><strong>Parser:</strong> {{ importState.lastResult.parser }}</div>
+            <div><strong>Account:</strong> {{ importState.lastResult.account?.label }}</div>
+            <div v-if="importState.lastResult.account?.is_new" style="color: var(--accent);">
+              (New account created)
+            </div>
+            <div style="margin-top: 8px;">
+              <strong>Transactions:</strong>
+              {{ importState.lastResult.transactions?.new }} new,
+              {{ importState.lastResult.transactions?.duplicates }} duplicates skipped
+            </div>
+          </template>
         </div>
       </div>
 

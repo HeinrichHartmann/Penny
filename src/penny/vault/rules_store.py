@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.resources
 from datetime import UTC, datetime
 from pathlib import Path
 
 from penny.vault.config import VaultConfig
-from penny.vault.mutations import MutationLog
 
 
 def _timestamp() -> str:
@@ -44,19 +42,15 @@ def ensure_rules_snapshot(config: VaultConfig | None = None) -> Path:
 
 
 def save_rules_snapshot(content: str, config: VaultConfig | None = None) -> Path:
+    """Save a rules snapshot to the rules/ directory.
+
+    This is a low-level function that just writes the file.
+    For vault-logged updates, use vault.update_rules() instead.
+    """
     cfg = config or VaultConfig()
     if not cfg.is_initialized():
         cfg.initialize()
 
     path = cfg.rules_dir / f"{_timestamp()}_rules.py"
     path.write_text(content, encoding="utf-8")
-
-    MutationLog(cfg).append(
-        "rules_updated",
-        entity_type="rules",
-        payload={
-            "path": path.name,
-            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        },
-    )
     return path
