@@ -93,6 +93,7 @@ export const setupAppLifecycle = ({
       filters,
       yearButtons,
     });
+
     setHydrating(false);
     await loadCategoryOptions();
     syncUrl();

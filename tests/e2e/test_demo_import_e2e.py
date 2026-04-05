@@ -12,6 +12,36 @@ from fastapi.testclient import TestClient
 from penny.server import app
 
 
+def _import_demo_data(client: TestClient) -> dict:
+    """Import the bundled demo files through the normal API."""
+    demo_files_response = client.get("/api/demo-files")
+    assert demo_files_response.status_code == 200
+    demo_files = demo_files_response.json()["files"]
+    assert len(demo_files) == 3
+
+    filenames = [f["filename"] for f in demo_files]
+    assert any("CSV" in name or "csv" in name for name in filenames), "Demo CSV not found"
+    assert "demo_rules.py" in filenames, "Demo rules not found"
+    assert "balance-anchors.tsv" in filenames, "Balance anchors TSV not found"
+
+    for file_info in demo_files:
+        filename = file_info["filename"]
+        download_response = client.get(f"/api/demo-files/{filename}")
+        assert download_response.status_code == 200, f"Failed to download {filename}"
+
+        files = {"file": (filename, download_response.content)}
+        import_response = client.post("/api/import", files=files)
+        assert import_response.status_code == 200, f"Failed to import {filename}"
+
+    meta_after = client.get("/api/meta").json()
+    assert len(meta_after["accounts"]) > 0, "No accounts created"
+
+    return {
+        "meta": meta_after,
+        "account_ids": ",".join(str(acc["id"]) for acc in meta_after["accounts"]),
+    }
+
+
 @pytest.mark.integration
 def test_demo_import_end_to_end():
     """Test complete demo import flow via API endpoints."""
@@ -28,33 +58,7 @@ def test_demo_import_end_to_end():
         assert imports_response.status_code == 200
         assert imports_response.json()["imports"] == []
 
-        # Step 2: Get demo files list
-        demo_files_response = client.get("/api/demo-files")
-        assert demo_files_response.status_code == 200
-        demo_files = demo_files_response.json()["files"]
-        assert len(demo_files) == 3
-
-        # Verify expected files are present
-        filenames = [f["filename"] for f in demo_files]
-        assert any("CSV" in name or "csv" in name for name in filenames), "Demo CSV not found"
-        assert "demo_rules.py" in filenames, "Demo rules not found"
-        assert "balance-anchors.tsv" in filenames, "Balance anchors TSV not found"
-
-        # Step 3: Download and import each demo file
-        import_results = []
-        for file_info in demo_files:
-            filename = file_info["filename"]
-
-            download_response = client.get(f"/api/demo-files/{filename}")
-            assert download_response.status_code == 200, f"Failed to download {filename}"
-
-            files = {"file": (filename, download_response.content)}
-            import_response = client.post("/api/import", files=files)
-            assert import_response.status_code == 200, f"Failed to import {filename}"
-
-            result = import_response.json()
-            import_results.append(result)
-            print(f"✓ Imported {filename}: {result['type']}")
+        demo_state = _import_demo_data(client)
 
         # Step 4: Verify imports appear in history
         imports_history_response = client.get("/api/imports")
@@ -73,8 +77,7 @@ def test_demo_import_end_to_end():
             print("⚠️  Balance anchors not in import history (checking vault entries instead)")
 
         # Step 5: Verify meta now has data
-        meta_after = client.get("/api/meta").json()
-        assert len(meta_after["accounts"]) > 0, "No accounts created"
+        meta_after = demo_state["meta"]
         assert meta_after["min_date"] is not None, "min_date still null"
         assert meta_after["max_date"] is not None, "max_date still null"
         assert meta_after["min_date"] == "2022-04-01", (
@@ -89,7 +92,51 @@ def test_demo_import_end_to_end():
             f"date range: {meta_after['min_date']} to {meta_after['max_date']}"
         )
 
-        account_ids = ",".join(str(acc["id"]) for acc in meta_after["accounts"])
+        account_ids = demo_state["account_ids"]
+        february_filters = {
+            "from": "2024-02-01",
+            "to": "2024-02-29",
+            "accounts": account_ids,
+            "neutralize": "true",
+        }
+
+        # Step 5b: Simulate the frontend's follow-up backend calls after demo import.
+        # This mirrors the manual serve-fresh review journey more closely than the broad
+        # "full date range" checks below.
+        categories_empty_response = client.get(
+            "/api/categories",
+            params={"from": "", "to": "", "accounts": "", "neutralize": "true"},
+        )
+        assert categories_empty_response.status_code == 200
+
+        categories_february_response = client.get(
+            "/api/categories",
+            params=february_filters,
+        )
+        assert categories_february_response.status_code == 200
+        categories_february = categories_february_response.json()["categories"]
+        assert len(categories_february) > 0, "February category list should not be empty"
+
+        accounts_response = client.get("/api/accounts")
+        assert accounts_response.status_code == 200
+        accounts_payload = accounts_response.json()["accounts"]
+        assert len(accounts_payload) == 1, "Demo import should expose one visible account"
+        assert accounts_payload[0]["transaction_count"] > 0
+
+        rules_response = client.get("/api/rules")
+        assert rules_response.status_code == 200
+        rules_payload = rules_response.json()
+        assert rules_payload["exists"] is True
+        assert "@rule(" in rules_payload["content"]
+
+        rules_run_response = client.post("/api/rules/run")
+        assert rules_run_response.status_code == 200
+        rules_run = rules_run_response.json()
+        assert rules_run["status"] == "success"
+        assert rules_run["stats"] is not None
+        assert rules_run["stats"]["transactions_count"] > 0
+        assert rules_run["stats"]["matched_count"] > 0
+        assert len(rules_run["logs"]) > 0, "Rules run should emit log lines"
 
         # Step 6: Verify transactions are present
         transactions_response = client.get(
@@ -109,6 +156,20 @@ def test_demo_import_end_to_end():
         )
 
         print(f"✓ Transactions: {transactions_data['count']} transaction(s)")
+
+        # Step 6b: Verify the narrower February-2024 view that the frontend selects.
+        february_transactions_response = client.get(
+            "/api/transactions",
+            params=february_filters,
+        )
+        assert february_transactions_response.status_code == 200
+        february_transactions = february_transactions_response.json()
+        assert february_transactions["count"] > 0, "February transactions should not be empty"
+
+        february_classified = [
+            tx for tx in february_transactions["transactions"] if tx.get("category")
+        ]
+        assert len(february_classified) > 0, "February transactions should be classified"
 
         # Step 7: Verify summary and pivot data for the report views
         summary_response = client.get(
@@ -144,6 +205,33 @@ def test_demo_import_end_to_end():
             f"total: €{pivot_data['total_cents']/100:.2f}"
         )
 
+        february_summary_response = client.get(
+            "/api/summary",
+            params={
+                "from": "2024-02-01",
+                "to": "2024-02-29",
+                "accounts": account_ids,
+            },
+        )
+        assert february_summary_response.status_code == 200
+        february_summary = february_summary_response.json()
+        assert february_summary["expense"]["count"] > 0, "February summary should not be empty"
+
+        february_pivot_response = client.get(
+            "/api/pivot",
+            params={
+                "from": "2024-02-01",
+                "to": "2024-02-29",
+                "accounts": account_ids,
+                "tab": "expense",
+                "depth": "1",
+            },
+        )
+        assert february_pivot_response.status_code == 200
+        february_pivot = february_pivot_response.json()
+        assert february_pivot["total_cents"] > 0, "February pivot should not be empty"
+        assert len(february_pivot["categories"]) > 0
+
         # Step 8: Verify balance history with anchors
         balance_response = client.get(f"/api/account_value_history?accounts={account_ids}")
         assert balance_response.status_code == 200
@@ -173,3 +261,34 @@ def test_demo_import_end_to_end():
         )
 
         print("\n✅ End-to-end demo import test PASSED")
+
+
+@pytest.mark.integration
+def test_demo_import_accounts_expose_balance_anchor_counts():
+    """Accounts API should expose imported balance anchor counts for the Accounts view."""
+    with TestClient(app) as client:
+        _import_demo_data(client)
+
+        accounts_response = client.get("/api/accounts")
+        assert accounts_response.status_code == 200
+
+        accounts_payload = accounts_response.json()["accounts"]
+        assert len(accounts_payload) == 1
+        assert accounts_payload[0]["balance_snapshot_count"] == 5
+
+
+@pytest.mark.integration
+def test_demo_import_rules_endpoint_exposes_latest_run_log():
+    """Rules API should expose the latest startup/import classification run for the Rules view."""
+    with TestClient(app) as client:
+        _import_demo_data(client)
+
+        rules_response = client.get("/api/rules")
+        assert rules_response.status_code == 200
+
+        rules_payload = rules_response.json()
+        assert rules_payload["latest_run"] is not None
+        assert rules_payload["latest_run"]["status"] == "success"
+        assert rules_payload["latest_run"]["stats"] is not None
+        assert rules_payload["latest_run"]["stats"]["transactions_count"] > 0
+        assert len(rules_payload["latest_run"]["logs"]) > 0

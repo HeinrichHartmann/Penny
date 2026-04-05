@@ -1,4 +1,56 @@
-# Current Task: Balance Chart Improvements
+# Current Task: Import UX And Fresh-Start Flow
+
+## Immediate Change
+
+- [x] Start on the Import view when Penny is completely fresh
+  - Condition: no accounts and no transaction date range yet
+  - URL-selected views still win if explicitly provided
+
+## Follow-Up Tasks
+
+### Serve-Fresh / End-To-End Coverage
+
+- [ ] Add an end-to-end test for the `make serve-fresh` workflow
+  - Spin up a fresh server/runtime
+  - Verify a clean start
+  - Import demo data
+  - Verify core API views after import
+  - Prefer a subprocess-backed test eventually, not only `TestClient`
+
+### Import History UX
+
+- [ ] Redesign import history from cards to a list-style view
+  - Use a denser history layout
+  - Make it resemble the historical import-history view
+  - Show entry-level statistics inline
+
+- [ ] Add better import statistics to history rows
+  - Rules snapshots: count `@rule(...)` definitions
+  - CSV ingests: show imported transaction count
+  - CSV ingests: show duplicates when available
+  - Balance imports: show snapshot count
+
+### Rebuild / Drift Messaging
+
+- [ ] Detect when database state no longer reflects import history
+- [ ] Show a non-blocking hint in the UI when a rebuild is needed
+  - Message should explain that projection state is stale relative to import history
+  - Offer the user a clear rebuild action
+
+### Enable / Disable UX
+
+- [ ] Do not use blocking modal alerts for enable/disable actions
+- [ ] If an entry type cannot be enabled/disabled, show the control as disabled/greyed out
+- [ ] If toggling enable/disable requires a rebuild, communicate that inline instead of via alert
+
+### Policy / Tracking
+
+- [ ] Audit the frontend for any remaining modal `alert(...)` usage
+- [ ] Consider opening GitHub issues for the import-history redesign and rebuild-state hint
+
+---
+
+# Previous Task: Balance Chart Improvements
 
 ## Goal
 Improve the Balance View chart to show clearer daily balance changes with interactive date range selection.

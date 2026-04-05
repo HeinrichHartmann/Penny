@@ -52,7 +52,7 @@ createApp({
     let isHydratingFromUrl = true;
 
     // ── State ────────────────────────────────────────────────────────────────
-    const view = ref(initialUrlState.view || 'accounts');
+    const view = ref('import');
     const meta = reactive({ accounts: [], min_date: '', max_date: '' });
     const filters = reactive({
       from: '',
