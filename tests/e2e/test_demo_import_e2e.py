@@ -121,7 +121,10 @@ def test_demo_import_end_to_end():
         assert accounts_response.status_code == 200
         accounts_payload = accounts_response.json()["accounts"]
         assert len(accounts_payload) == 1, "Demo import should expose one visible account"
-        assert accounts_payload[0]["transaction_count"] > 0
+        account = accounts_payload[0]
+        assert account["transaction_count"] > 0
+        assert account["balance_cents"] == 310000
+        assert account["balance_date"] == "2024-03-29"
 
         rules_response = client.get("/api/rules")
         assert rules_response.status_code == 200
@@ -244,6 +247,9 @@ def test_demo_import_end_to_end():
 
         anchor_points = [vp for vp in balance_data["value_points"] if vp.get("is_anchor")]
         assert len(anchor_points) == 5, f"Expected 5 anchor points, got {len(anchor_points)}"
+        latest_value_point = balance_data["value_points"][-1]
+        assert latest_value_point["date"] == "2024-03-29"
+        assert latest_value_point["total_balance"] == account["balance_cents"]
 
         print(
             f"✓ Balance: {len(balance_data['value_points'])} value points, "
@@ -274,6 +280,8 @@ def test_demo_import_accounts_expose_balance_anchor_counts():
 
         accounts_payload = accounts_response.json()["accounts"]
         assert len(accounts_payload) == 1
+        assert accounts_payload[0]["balance_cents"] == 310000
+        assert accounts_payload[0]["balance_date"] == "2024-03-29"
         assert accounts_payload[0]["balance_snapshot_count"] == 5
 
 

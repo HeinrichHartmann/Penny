@@ -57,6 +57,26 @@ For now:
 
 The automated suite should focus on backend correctness, import reproducibility, and stable app interfaces.
 
+## 3. UI Tests
+
+Location:
+- `tests/ui/`
+
+Rules:
+- UI tests are Playwright-native, not `pytest`-based.
+- Use them for real browser journeys and frontend wiring regressions.
+- Keep them focused on user-visible flows such as initial load, import actions, navigation, and visible state changes.
+
+Execution:
+- `npm run test:ui`
+- `make test` also runs the Playwright UI suite after the Python tests
+
+Environment:
+- The flake shell provides the Playwright browser bundle declaratively.
+- UI tests should not depend on `playwright install` at runtime.
+- The npm `@playwright/test` version must stay aligned with the `playwright-driver` version provided by `flake.nix`.
+- Run `make` from within the direnv/flake environment rather than invoking `direnv` inside `Makefile`.
+
 ## Transitional State
 
 Most cleanly separated files are being moved under `tests/unit/` or `tests/e2e/`.
@@ -86,4 +106,3 @@ Follow-up work to finish the migration:
 1. Split the remaining mixed top-level files into separate unit and e2e files.
 2. Replace disk fixture reads with in-memory buffers where the relevant internal API supports it cleanly.
 3. Add a true subprocess-backed server smoke test that uses `fresh_runtime.port` rather than only `TestClient`.
-
