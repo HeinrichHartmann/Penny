@@ -26,17 +26,14 @@ def test_bootstrap_initializes_empty_vault(tmp_path):
     result = bootstrap_application_state(config)
 
     assert result.init_entry_created is True
-    assert result.demo_data_loaded is True  # Demo data loaded on first init
-    # Demo import + account rename ("Demo Account")
-    assert result.replay_result.entries_processed == 2
-    assert result.replay_result.entries_by_type == {"ingest": 1, "account_updated": 1}
-    assert config.imports_dir.exists()
+    # Empty vault: no entries to replay
+    assert result.replay_result.entries_processed == 0
+    assert config.transactions_dir.exists()
     assert config.rules_dir.exists()
+    assert config.balance_dir.exists()
     assert config.mutations_path.exists()
+    assert config.ledger_path.exists()
     assert latest_rules_path(config) is not None
-    transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
-    assert transactions
-    assert all(transaction.category for transaction in transactions)
 
 
 def test_bootstrap_replays_existing_ingests(tmp_path, fixture_dir):
@@ -55,7 +52,6 @@ def test_bootstrap_replays_existing_ingests(tmp_path, fixture_dir):
     result = bootstrap_application_state(config)
 
     assert result.init_entry_created is False
-    assert result.demo_data_loaded is False  # Vault not empty, no demo data
     assert result.replay_result.entries_processed == 1
     assert result.replay_result.entries_by_type == {"ingest": 1}
     assert count_transactions() == 3

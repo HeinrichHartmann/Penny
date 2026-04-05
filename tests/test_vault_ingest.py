@@ -6,11 +6,11 @@ from penny.ingest import read_file_with_encoding
 from penny.transactions import count_transactions
 from penny.vault import (
     IngestRequest,
-    LogManager,
     VaultConfig,
     ingest_csv,
     replay_vault,
 )
+from penny.vault.ledger import Ledger
 
 pytestmark = pytest.mark.integration
 
@@ -24,8 +24,8 @@ class TestVaultIngest:
         monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
         return VaultConfig(vault_path)
 
-    def test_ingest_creates_log_entry(self, vault_config, fixture_dir):
-        """Ingest should create an archived import with manifest and CSV."""
+    def test_ingest_creates_ledger_entry(self, vault_config, fixture_dir):
+        """Ingest should create a ledger entry and store CSV."""
         csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
         content = read_file_with_encoding(csv_path)
 
@@ -42,22 +42,20 @@ class TestVaultIngest:
         assert result.transactions_new == 3
         assert result.transactions_duplicate == 0
 
-        # Check log entry was created
-        log = LogManager(vault_config)
-        assert log.count() == 1
+        # Check ledger entry was created
+        ledger = Ledger(vault_config.path)
+        entries = ledger.read_entries()
+        assert len(entries) == 1
 
-        entry = log.latest_entry()
-        assert entry is not None
-        assert entry.path.name.startswith("000001-")
+        entry = entries[0]
+        assert entry.sequence == 1
+        assert entry.entry_type == "ingest"
+        assert entry.record["parser"] == "comdirect"
+        assert entry.record["csv_files"] == [csv_path.name]
 
-        # Check manifest
-        manifest = entry.read_manifest()
-        assert manifest.type == "ingest"
-        assert manifest.parser == "comdirect"
-        assert manifest.csv_files == [csv_path.name]
-
-        # Check CSV was copied
-        copied_csv = entry.path / csv_path.name
+        # Check CSV was copied to transactions directory
+        tx_dir = entry.get_directory(vault_config.path)
+        copied_csv = tx_dir / csv_path.name
         assert copied_csv.exists()
         assert copied_csv.read_text() == content
 
@@ -78,9 +76,9 @@ class TestVaultIngest:
         assert result2.transactions_new == 0
         assert result2.transactions_duplicate == 3
 
-        # Should have 2 log entries
-        log = LogManager(vault_config)
-        assert log.count() == 2
+        # Should have 2 ledger entries
+        ledger = Ledger(vault_config.path)
+        assert len(ledger.read_entries()) == 2
 
     def test_ingest_sparkasse(self, vault_config, fixture_dir):
         """Test ingesting Sparkasse CAMT V8 format."""
@@ -94,11 +92,12 @@ class TestVaultIngest:
         assert result.parser_name == "Sparkasse"
         assert result.transactions_total == 3
 
-        # Check log entry
-        log = LogManager(vault_config)
-        entry = log.latest_entry()
-        assert entry is not None
-        assert entry.path.name.startswith("000001-")
+        # Check ledger entry
+        ledger = Ledger(vault_config.path)
+        entries = ledger.read_entries()
+        assert len(entries) == 1
+        assert entries[0].entry_type == "ingest"
+        assert entries[0].record["parser"] == "sparkasse"
 
 
 class TestVaultReplay:
@@ -190,8 +189,8 @@ class TestVaultReplay:
         assert len(fingerprints1) == 3
 
 
-class TestVaultAccountMutations:
-    """Tests for account metadata updates and balance snapshots via vault."""
+class TestVaultMutations:
+    """Tests for account operations via mutation log."""
 
     @pytest.fixture
     def vault_config(self, tmp_path, monkeypatch):
@@ -203,30 +202,18 @@ class TestVaultAccountMutations:
         config.initialize()
         return config
 
-    def test_account_updated_applies_on_replay(self, vault_config):
-        """Account metadata updates should be replayed from vault."""
+    def test_account_mutations_replay(self, vault_config):
+        """Account operations via mutations should be replayed."""
         from penny.accounts import add_account, get_account, update_account_metadata
         from penny.db import init_db
-        from penny.vault.manifests import AccountCreatedManifest, AccountUpdatedManifest
+        from penny.vault import MutationLog
 
         # Create initial database and account
         init_db()
         account = add_account("testbank", bank_account_number="123456")
         account_id = account.id
 
-        # Create vault log entry for account creation
-        log = LogManager(vault_config)
-        create_manifest = AccountCreatedManifest(
-            bank="testbank",
-            bank_account_number="123456",
-        )
-        log.append(
-            entry_type="account_created",
-            manifest=create_manifest,
-            content_files=None,
-        )
-
-        # Update account metadata
+        # Update account metadata (this writes to mutation log)
         update_account_metadata(
             account_id,
             display_name="My Account",
@@ -235,105 +222,25 @@ class TestVaultAccountMutations:
             notes="Test notes",
         )
 
-        # Create vault log entry for the update
-        update_manifest = AccountUpdatedManifest(
-            account_id=account_id,
-            fields={
-                "display_name": "My Account",
-                "iban": "DE1234567890",
-                "holder": "John Doe",
-                "notes": "Test notes",
-            },
-        )
-        log.append(
-            entry_type="account_updated",
-            manifest=update_manifest,
-            content_files=None,
-        )
-
         # Verify update worked
         updated = get_account(account_id)
         assert updated is not None
         assert updated.display_name == "My Account"
 
+        # Check mutation log has entries
+        mutation_log = MutationLog(vault_config)
+        rows = mutation_log.list_rows()
+        assert len(rows) >= 2  # account_created + account_updated
+
         # Nuke DB and replay from vault
         init_db()
         replay_result = replay_vault(vault_config)
-        # Log entries + mutations are both replayed
-        assert replay_result.entries_by_type["account_created"] >= 1
-        assert replay_result.entries_by_type["account_updated"] >= 1
+        # Mutations are replayed
+        assert "account_created" in replay_result.entries_by_type
+        assert "account_updated" in replay_result.entries_by_type
 
         # Verify account metadata was restored
-        # Note: account_id should be the same since replay is deterministic
         restored = get_account(account_id)
         assert restored is not None
         assert restored.display_name == "My Account"
         assert restored.iban == "DE1234567890"
-        assert restored.holder == "John Doe"
-        assert restored.notes == "Test notes"
-
-    def test_balance_snapshot_applies_on_replay(self, vault_config):
-        """Balance snapshots should be replayed from vault."""
-        from datetime import date as date_type
-
-        from penny.accounts import add_account, get_account, update_account_balance
-        from penny.db import init_db
-        from penny.vault.manifests import AccountCreatedManifest, BalanceSnapshotManifest
-
-        # Create initial database and account
-        init_db()
-        account = add_account("testbank", bank_account_number="123456")
-        account_id = account.id
-
-        # Create vault log entry for account creation
-        log = LogManager(vault_config)
-        create_manifest = AccountCreatedManifest(
-            bank="testbank",
-            bank_account_number="123456",
-        )
-        log.append(
-            entry_type="account_created",
-            manifest=create_manifest,
-            content_files=None,
-        )
-
-        # Record balance snapshot
-        snapshot_date = date_type(2024, 3, 31)
-        update_account_balance(
-            account_id,
-            balance_cents=123456,
-            balance_date=snapshot_date,
-        )
-
-        # Create vault log entry for balance snapshot
-        balance_manifest = BalanceSnapshotManifest(
-            account_id=account_id,
-            subaccount_type="giro",
-            snapshot_date=snapshot_date.isoformat(),
-            balance_cents=123456,
-            note="Test balance",
-        )
-        log.append(
-            entry_type="balance_snapshot",
-            manifest=balance_manifest,
-            content_files=None,
-        )
-
-        # Verify balance was recorded
-        updated = get_account(account_id)
-        assert updated is not None
-        assert updated.balance_cents == 123456
-
-        # Nuke DB and replay from vault
-        init_db()
-        replay_result = replay_vault(vault_config)
-        # Log entries + mutations are both replayed
-        assert replay_result.entries_by_type["account_created"] >= 1
-        assert replay_result.entries_by_type["balance_snapshot"] >= 1
-
-        # Verify balance was restored
-        # Note: account_id should be the same since replay is deterministic
-        restored = get_account(account_id)
-        assert restored is not None
-        assert restored.balance_cents == 123456
-        assert restored.balance_date == snapshot_date

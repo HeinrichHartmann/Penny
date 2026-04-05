@@ -28,13 +28,13 @@ def should_load_demo_data(config: VaultConfig | None = None) -> bool:
     if config is None:
         config = VaultConfig()
 
-    # Check if any imports exist
-    if not config.imports_dir.exists():
+    # Check if transactions directory exists
+    if not config.transactions_dir.exists():
         return False
 
-    # Check if imports directory is empty
-    import_entries = list(config.imports_dir.iterdir())
-    if len(import_entries) > 0:
+    # Check if transactions directory is empty
+    tx_entries = list(config.transactions_dir.iterdir())
+    if len(tx_entries) > 0:
         return False
 
     # Check if there are any mutations in the mutation log
@@ -102,10 +102,13 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
 
     Demo data spans: April 2022 - March 2024 (~2 years)
     """
-    from penny.vault import LogManager
-    from penny.vault.manifests import BalanceSnapshotManifest
+    from datetime import UTC, datetime
 
-    log_manager = LogManager(config)
+    from penny.vault.ledger import Ledger, LedgerEntry
+
+    ledger = Ledger(config.path)
+    sequence = ledger.next_sequence()
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Define balance snapshots with strategic deviations
     # Note: These are intentionally offset to create inconsistencies
@@ -143,13 +146,24 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
         },
     ]
 
+    balance_records = []
     for snapshot in snapshots:
-        manifest = BalanceSnapshotManifest(
-            type="balance_snapshot",
-            account_id=account_id,
-            subaccount_type="giro",
-            snapshot_date=snapshot["date"],
-            balance_cents=snapshot["balance_cents"],
-            note=snapshot["note"],
-        )
-        log_manager.append("balance_snapshot", manifest)
+        balance_records.append({
+            "account_id": account_id,
+            "account_iban": None,
+            "snapshot_date": snapshot["date"],
+            "balance_cents": snapshot["balance_cents"],
+            "note": snapshot["note"],
+        })
+
+    entry = LedgerEntry(
+        sequence=sequence,
+        entry_type="balance",
+        enabled=True,
+        timestamp=timestamp,
+        record={
+            "filename": "demo_snapshots",
+            "snapshots": balance_records,
+        },
+    )
+    ledger.append_entry(entry)

@@ -18,8 +18,6 @@ from penny.accounts import (
     list_accounts as list_all_accounts,
 )
 from penny.api.helpers import get_db
-from penny.vault import LogManager, VaultConfig
-from penny.vault.manifests import AccountUpdatedManifest, BalanceSnapshotManifest
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -120,18 +118,6 @@ async def update_account(
         if updated is None:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
-        # Create vault log entry for account update
-        config = VaultConfig()
-        manifest = AccountUpdatedManifest(
-            account_id=account_id,
-            fields=changes,
-        )
-        LogManager(config).append(
-            entry_type="account_updated",
-            manifest=manifest,  # type: ignore
-            content_files=None,
-        )
-
     # Return updated account
     return await get_account(account_id)
 
@@ -168,21 +154,6 @@ async def record_balance_snapshot(account_id: int, request: BalanceSnapshotReque
 
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-
-    # Create vault log entry for balance snapshot
-    config = VaultConfig()
-    manifest = BalanceSnapshotManifest(
-        account_id=account_id,
-        subaccount_type=request.subaccount_type,
-        snapshot_date=request.balance_date,
-        balance_cents=request.balance_cents,
-        note=request.note,
-    )
-    LogManager(config).append(
-        entry_type="balance_snapshot",
-        manifest=manifest,  # type: ignore
-        content_files=None,
-    )
 
     # Return updated account
     return await get_account(account_id)

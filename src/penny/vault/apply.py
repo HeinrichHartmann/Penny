@@ -8,15 +8,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
-from penny.vault.log import LogEntry
-from penny.vault.manifests import (
-    AccountCreatedManifest,
-    AccountHiddenManifest,
-    AccountUpdatedManifest,
-    BalanceSnapshotManifest,
-    IngestManifest,
-    RulesManifest,
-)
+from penny.vault.ledger import LedgerEntry
+from penny.vault.config import VaultConfig
 from penny.vault.mutations import MutationRow
 
 if TYPE_CHECKING:
@@ -38,8 +31,8 @@ class IngestResult:
     sections: dict[str, int]
 
 
-def apply_ingest(entry: LogEntry) -> IngestResult:
-    """Apply an ingest log entry to the SQLite projection.
+def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> IngestResult:
+    """Apply an ingest entry to the SQLite projection.
 
     Reads the CSV files from the entry directory, parses them,
     reconciles the account, and stores transactions.
@@ -55,24 +48,32 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     from penny.ingest import match_file, read_file_with_encoding
     from penny.transactions import _store_transactions_direct
 
-    manifest: IngestManifest = entry.read_manifest()  # type: ignore
+    if config is None:
+        config = VaultConfig()
 
-    if manifest.type != "ingest":
-        raise ValueError(f"Expected ingest manifest, got {manifest.type}")
+    if entry.entry_type != "ingest":
+        raise ValueError(f"Expected ingest entry, got {entry.entry_type}")
+
+    # Get transaction directory
+    tx_dir = entry.get_directory(config.path)
+
+    # Get manifest data from entry record
+    manifest_data = entry.record
 
     # Initialize DB (idempotent, initializes schema too)
     init_default_db()
 
     all_transactions: list[Transaction] = []
-    parser_name = manifest.parser
+    parser_name = manifest_data["parser"]
     account = None
+    csv_files = manifest_data["csv_files"]
 
     with transaction() as conn:
-        for csv_filename in manifest.csv_files:
-            csv_path = entry.path / csv_filename
+        for csv_filename in csv_files:
+            csv_path = tx_dir / csv_filename
             content = read_file_with_encoding(csv_path)
 
-            parser = match_file(csv_filename, content, csv_type=manifest.parser)
+            parser = match_file(csv_filename, content, csv_type=manifest_data["parser"])
             parser_name = parser.name
 
             detection = parser.detect(csv_filename, content)
@@ -90,12 +91,13 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
                     conn,
                     bank=detection.bank,
                     bank_account_numbers=[detection.bank_account_number],
+                    iban=detection.iban,  # Store IBAN for balance anchor matching
                     subaccounts={
                         subaccount_type: Subaccount(type=subaccount_type)
                         for subaccount_type in detection.detected_subaccounts
                     },
-                    created_at=manifest.timestamp,
-                    updated_at=manifest.timestamp,
+                    created_at=entry.timestamp,
+                    updated_at=entry.timestamp,
                 )
             else:
                 _upsert_subaccounts_direct(conn, account.id, detection.detected_subaccounts)
@@ -112,8 +114,8 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
         new_count, duplicate_count = _store_transactions_direct(
             conn,
             all_transactions,
-            source_file=manifest.csv_files[0] if manifest.csv_files else "unknown",
-            imported_at=manifest.timestamp,
+            source_file=csv_files[0] if csv_files else "unknown",
+            imported_at=entry.timestamp,
         )
 
     # Build section counts
@@ -132,95 +134,38 @@ def apply_ingest(entry: LogEntry) -> IngestResult:
     )
 
 
-def apply_entry(entry: LogEntry) -> None:
-    """Apply any log entry to the projection.
+def apply_entry(entry: LedgerEntry, config: VaultConfig) -> None:
+    """Apply a ledger entry to the projection.
 
-    Dispatches to the appropriate handler based on manifest type.
+    Dispatches to the appropriate handler based on entry type.
     """
-    manifest = entry.read_manifest()
-
-    match manifest.type:
-        case "init":
-            pass  # Nothing to apply
+    match entry.entry_type:
         case "ingest":
-            # Skip disabled imports (e.g., cross-account imports)
-            if getattr(manifest, "enabled", True):
-                apply_ingest(entry)
-        case "account_created":
-            _apply_account_created(entry, manifest)  # type: ignore
-        case "account_updated":
-            _apply_account_updated(entry, manifest)  # type: ignore
-        case "account_hidden":
-            _apply_account_hidden(entry, manifest)  # type: ignore
-        case "balance_snapshot":
-            _apply_balance_snapshot(entry, manifest)  # type: ignore
+            apply_ingest(entry, config)
+        case "balance":
+            _apply_balance(entry, config)
         case "rules":
-            _apply_rules(entry, manifest)  # type: ignore
+            _apply_rules(entry, config)
         case _:
-            raise ValueError(f"Unknown manifest type: {manifest.type}")
+            raise ValueError(f"Unknown entry type: {entry.entry_type}")
 
 
-def _apply_account_created(entry: LogEntry, manifest: AccountCreatedManifest) -> None:
-    """Apply account_created entry."""
-    from penny.accounts import _create_account_direct
-    from penny.db import transaction
-
-    with transaction() as conn:
-        _create_account_direct(
-            conn,
-            bank=manifest.bank,
-            bank_account_numbers=[manifest.bank_account_number]
-            if manifest.bank_account_number
-            else [],
-            display_name=manifest.display_name,
-            iban=manifest.iban,
-            created_at=manifest.timestamp,
-            updated_at=manifest.timestamp,
-        )
-
-
-def _apply_account_updated(entry: LogEntry, manifest: AccountUpdatedManifest) -> None:
-    """Apply account_updated entry."""
-    from penny.accounts import _update_account_metadata_direct
-    from penny.db import transaction
-
-    with transaction() as conn:
-        _update_account_metadata_direct(
-            conn,
-            manifest.account_id,
-            updated_at=manifest.timestamp,
-            **manifest.fields,
-        )
-
-
-def _apply_account_hidden(entry: LogEntry, manifest: AccountHiddenManifest) -> None:
-    """Apply account_hidden entry."""
-    from penny.accounts import _soft_delete_account_direct
-    from penny.db import transaction
-
-    with transaction() as conn:
-        _soft_delete_account_direct(
-            conn,
-            manifest.account_id,
-            updated_at=manifest.timestamp,
-        )
-
-
-def _apply_balance_snapshot(entry: LogEntry, manifest: BalanceSnapshotManifest) -> None:
-    """Apply balance_snapshot entry."""
+def _apply_balance(entry: LedgerEntry, config: VaultConfig) -> None:
+    """Apply balance entry."""
     from penny.accounts import update_account_balance
 
-    snapshot_date = date.fromisoformat(manifest.snapshot_date)
+    record = entry.record
+    snapshot_date = date.fromisoformat(record["snapshot_date"])
     update_account_balance(
-        manifest.account_id,
-        balance_cents=manifest.balance_cents,
+        record["account_id"],
+        balance_cents=record["balance_cents"],
         balance_date=snapshot_date,
     )
 
 
-def _apply_rules(entry: LogEntry, manifest: RulesManifest) -> None:
-    """Apply rules entry by ensuring the snapshot exists on disk."""
-    return None
+def _apply_rules(entry: LedgerEntry, config: VaultConfig) -> None:
+    """Apply rules entry - rules file already exists on disk, nothing to apply."""
+    pass
 
 
 def apply_mutation(row: MutationRow) -> None:

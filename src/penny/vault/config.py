@@ -33,9 +33,9 @@ class VaultConfig:
         return self.path / "penny.sqlite"
 
     @property
-    def imports_dir(self) -> Path:
-        """Return the imports archive directory."""
-        return self.path / "imports"
+    def transactions_dir(self) -> Path:
+        """Return the transactions directory."""
+        return self.path / "transactions"
 
     @property
     def rules_dir(self) -> Path:
@@ -43,9 +43,25 @@ class VaultConfig:
         return self.path / "rules"
 
     @property
+    def balance_dir(self) -> Path:
+        """Return the balance snapshots directory."""
+        return self.path / "balance"
+
+    @property
+    def ledger_path(self) -> Path:
+        """Return the history.tsv ledger path."""
+        return self.path / "history.tsv"
+
+    @property
     def mutations_path(self) -> Path:
         """Return the append-only mutation log path."""
         return self.path / "mutations.tsv"
+
+    # Backward compatibility alias (will be removed)
+    @property
+    def imports_dir(self) -> Path:
+        """DEPRECATED: Use transactions_dir instead."""
+        return self.path / "imports"
 
     def exists(self) -> bool:
         """Return True if the vault directory exists."""
@@ -54,14 +70,28 @@ class VaultConfig:
     def is_initialized(self) -> bool:
         """Return True if the portable storage structure exists."""
         return (
-            self.imports_dir.exists() and self.rules_dir.exists() and self.mutations_path.exists()
+            self.transactions_dir.exists()
+            and self.rules_dir.exists()
+            and self.balance_dir.exists()
+            and self.ledger_path.exists()
+            and self.mutations_path.exists()
         )
 
     def initialize(self) -> None:
         """Create the portable storage structure."""
         self.path.mkdir(parents=True, exist_ok=True)
-        self.imports_dir.mkdir(exist_ok=True)
+        self.transactions_dir.mkdir(exist_ok=True)
         self.rules_dir.mkdir(exist_ok=True)
+        self.balance_dir.mkdir(exist_ok=True)
+
+        # Create ledger file with header
+        if not self.ledger_path.exists():
+            self.ledger_path.write_text(
+                "seq\ttype\tenabled\ttimestamp\trecord\n",
+                encoding="utf-8",
+            )
+
+        # Create mutation log with header
         if not self.mutations_path.exists():
             self.mutations_path.write_text(
                 "seq\ttimestamp\ttype\tentity_type\tentity_id\tpayload_json\n",

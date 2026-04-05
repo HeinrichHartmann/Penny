@@ -1,4 +1,4 @@
-"""Replay engine - rebuild state from archived imports and mutations."""
+"""Replay engine - rebuild state from vault ledger."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from penny.db import transaction
 from penny.runtime_rules import run_stored_rules
 from penny.vault.apply import apply_entry, apply_mutation
 from penny.vault.config import VaultConfig
-from penny.vault.log import LogManager
+from penny.vault.ledger import Ledger
 from penny.vault.mutations import MutationLog
 
 
@@ -25,18 +25,18 @@ class ReplayResult:
 
 
 class ReplayEngine:
-    """Rebuild the SQLite projection from portable storage artifacts."""
+    """Rebuild the SQLite projection from vault ledger."""
 
     def __init__(self, config: VaultConfig | None = None):
         if config is None:
             config = VaultConfig()
         self.config = config
-        self.log = LogManager(config)
+        self.ledger = Ledger(config.path)
 
     def replay(self) -> ReplayResult:
-        """Replay all log entries and rebuild database.
+        """Replay all ledger entries and rebuild database.
 
-        Clears existing database and rebuilds from vault log.
+        Clears existing database and rebuilds from vault ledger.
 
         Returns:
             ReplayResult with counts of entries processed.
@@ -55,13 +55,12 @@ class ReplayEngine:
         entries_processed = 0
         entries_by_type: dict[str, int] = {}
 
-        for entry in self.log.iter_entries():
-            apply_entry(entry)
-            entries_processed += 1
-
-            manifest = entry.read_manifest()
-            entry_type = manifest.type
-            entries_by_type[entry_type] = entries_by_type.get(entry_type, 0) + 1
+        # Replay enabled entries from history.tsv
+        for entry in self.ledger.read_entries():
+            if entry.enabled:
+                apply_entry(entry, self.config)
+                entries_processed += 1
+                entries_by_type[entry.entry_type] = entries_by_type.get(entry.entry_type, 0) + 1
 
         _ensure_projection_state()
         _set_last_applied_mutation_seq(0)
@@ -104,56 +103,53 @@ def _set_last_applied_mutation_seq(seq: int) -> None:
     with transaction() as conn:
         conn.execute(
             """
-            INSERT INTO projection_state (key, value)
+            INSERT OR REPLACE INTO projection_state (key, value)
             VALUES ('last_applied_mutation_seq', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
             """,
             (str(seq),),
         )
 
 
 def apply_pending_mutations(
-    config: VaultConfig | None = None,
-    *,
-    upto_seq: int | None = None,
+    config: VaultConfig | None = None, *, upto_seq: int | None = None
 ) -> ReplayResult:
-    """Apply unapplied mutation rows to the current projection."""
-    cfg = config or VaultConfig()
+    """Apply new mutations since last replay.
+
+    Args:
+        config: Vault configuration.
+        upto_seq: If provided, only apply mutations up to this sequence number.
+    """
+    if config is None:
+        config = VaultConfig()
+
+    mutation_log = MutationLog(config)
     last_applied = _get_last_applied_mutation_seq()
+
     entries_processed = 0
     entries_by_type: dict[str, int] = {}
 
-    for row in MutationLog(cfg).list_rows():
+    for row in mutation_log.list_rows():
         if row.seq <= last_applied:
             continue
         if upto_seq is not None and row.seq > upto_seq:
             break
         apply_mutation(row)
-        _set_last_applied_mutation_seq(row.seq)
-        last_applied = row.seq
         entries_processed += 1
         entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
+        _set_last_applied_mutation_seq(row.seq)
 
-    return ReplayResult(entries_processed=entries_processed, entries_by_type=entries_by_type)
+    return ReplayResult(
+        entries_processed=entries_processed,
+        entries_by_type=entries_by_type,
+    )
 
 
 def _restore_runtime_classifications(config: VaultConfig) -> None:
-    """Recompute runtime-only classifications from the latest rules snapshot.
-
-    Classification results are intentionally not persisted in the mutation log,
-    so replay needs to rebuild them after the projection has been restored.
-    """
-    run_stored_rules(config=config, ensure_rules=False, include_hidden=True)
+    """Restore runtime classifications from latest rules snapshot."""
+    run_stored_rules(config=config)
 
 
 def replay_vault(config: VaultConfig | None = None) -> ReplayResult:
-    """Convenience function to replay vault and rebuild database.
-
-    Args:
-        config: Optional vault config (uses default if not provided)
-
-    Returns:
-        ReplayResult with counts of entries processed.
-    """
+    """Convenience function to replay the vault."""
     engine = ReplayEngine(config)
     return engine.replay()

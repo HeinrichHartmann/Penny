@@ -8,8 +8,7 @@ from penny.ingest import DetectionError
 from penny.runtime_rules import run_stored_rules
 from penny.vault import IngestRequest, ingest_csv
 from penny.vault.config import VaultConfig
-from penny.vault.log import LogManager
-from penny.vault.manifests import IngestManifest
+from penny.vault.ledger import Ledger, LedgerEntry
 
 router = APIRouter(prefix="/api", tags=["import"])
 
@@ -126,19 +125,28 @@ async def _import_balance_anchors(filename: str, content_bytes: bytes):
         DE89...         2024-01-15    100000    Monthly snapshot
     """
     import csv
+    from datetime import UTC, datetime
 
+    from penny.accounts import update_account_balance
     from penny.api.helpers import get_db
-    from penny.vault.manifests import BalanceSnapshotManifest
 
     config = VaultConfig()
-    log_manager = LogManager(config)
+    if not config.is_initialized():
+        config.initialize()
+
+    ledger = Ledger(config.path)
 
     content = content_bytes.decode("utf-8")
     reader = csv.DictReader(content.splitlines(), delimiter="\t")
 
+    # Generate single timestamp for all snapshots in this batch
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sequence = ledger.next_sequence()
+
     snapshots_created = 0
     snapshots_skipped = 0
     errors = []
+    balance_records = []
 
     for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
         try:
@@ -157,7 +165,7 @@ async def _import_balance_anchors(filename: str, content_bytes: bytes):
             conn = get_db()
             cursor = conn.cursor()
             acc_row = cursor.execute(
-                "SELECT id FROM accounts WHERE bank_account_id = ? LIMIT 1",
+                "SELECT id FROM accounts WHERE iban = ? LIMIT 1",
                 (account_iban,),
             ).fetchone()
             conn.close()
@@ -170,16 +178,19 @@ async def _import_balance_anchors(filename: str, content_bytes: bytes):
             account_id = acc_row[0]
             balance_cents = int(balance_cents_str)
 
-            # Create balance snapshot manifest
-            manifest = BalanceSnapshotManifest(
-                type="balance_snapshot",
-                account_id=account_id,
-                subaccount_type="giro",
-                snapshot_date=date_str,
-                balance_cents=balance_cents,
-                note=note,
-            )
-            log_manager.append("balance_snapshot", manifest)
+            # Apply the balance update
+            from datetime import date as date_type
+
+            snapshot_date = date_type.fromisoformat(date_str)
+            update_account_balance(account_id, balance_cents=balance_cents, balance_date=snapshot_date)
+
+            balance_records.append({
+                "account_id": account_id,
+                "account_iban": account_iban,
+                "snapshot_date": date_str,
+                "balance_cents": balance_cents,
+                "note": note,
+            })
             snapshots_created += 1
 
         except ValueError as e:
@@ -188,6 +199,20 @@ async def _import_balance_anchors(filename: str, content_bytes: bytes):
         except Exception as e:
             errors.append(f"Row {row_num}: {e}")
             snapshots_skipped += 1
+
+    # Create single ledger entry for the batch
+    if balance_records:
+        entry = LedgerEntry(
+            sequence=sequence,
+            entry_type="balance",
+            enabled=True,
+            timestamp=timestamp,
+            record={
+                "filename": filename,
+                "snapshots": balance_records,
+            },
+        )
+        ledger.append_entry(entry)
 
     return {
         "status": "success",
@@ -287,120 +312,97 @@ async def download_demo_file(filename: str):
 
 @router.get("/imports")
 async def list_imports():
-    """List all past imports with metadata from vault manifests.
+    """List all past imports with metadata from ledger.
 
     Returns:
         List of import records including CSV imports, rules updates, and balance snapshots.
     """
-    from penny.vault.manifests import BalanceSnapshotManifest, RulesManifest
-
     config = VaultConfig()
-    log = LogManager(config)
+    if not config.is_initialized():
+        return {"imports": []}
 
+    ledger = Ledger(config.path)
     imports = []
-    balance_snapshots_by_file = {}  # Group snapshots by their import batch
 
-    for entry in log.iter_entries():
-        try:
-            manifest = entry.read_manifest()
-        except Exception:
-            # Skip entries with invalid manifests
-            continue
-
-        # Handle rules updates
-        if isinstance(manifest, RulesManifest):
-            imports.append(
-                {
-                    "sequence": entry.sequence,
-                    "timestamp": manifest.timestamp,
-                    "filenames": ["rules.py"],
-                    "parser": "rules",
-                    "status": "applied",
-                    "account_id": None,
-                    "account_label": None,
-                    "enabled": True,
-                    "warning": None,
-                    "type": "rules",
-                }
-            )
-            continue
-
-        # Handle balance snapshots - group by timestamp (same import batch)
-        if isinstance(manifest, BalanceSnapshotManifest):
-            timestamp = manifest.timestamp
-            if timestamp not in balance_snapshots_by_file:
-                balance_snapshots_by_file[timestamp] = {
-                    "sequence": entry.sequence,
-                    "timestamp": timestamp,
-                    "count": 0,
-                    "account_ids": set(),
-                }
-            balance_snapshots_by_file[timestamp]["count"] += 1
-            balance_snapshots_by_file[timestamp]["account_ids"].add(manifest.account_id)
-            continue
-
-        # Only include ingest entries for CSV imports
-        if not isinstance(manifest, IngestManifest):
-            continue
-
-        # Get account info if available
-        account_label = None
-        account_id = None
-
-        try:
-            from penny.api.helpers import get_db
-
-            conn = get_db()
-            cursor = conn.cursor()
-            row = cursor.execute(
-                """
-                SELECT a.id, a.display_name, a.bank
-                FROM accounts a
-                WHERE a.bank = ?
-                ORDER BY a.id DESC
-                LIMIT 1
-                """,
-                (manifest.parser,),
-            ).fetchone()
-            conn.close()
-
-            if row:
-                account_id = row[0]
-                account_label = row[1] or f"{row[2]} #{row[0]}"
-        except Exception:
-            pass
-
-        imports.append(
-            {
+    for entry in ledger.read_entries():
+        # Handle rules entries
+        if entry.entry_type == "rules":
+            imports.append({
                 "sequence": entry.sequence,
-                "timestamp": manifest.timestamp,
-                "filenames": manifest.csv_files,
-                "parser": manifest.parser,
-                "status": manifest.status,
-                "account_id": account_id,
-                "account_label": account_label,
-                "enabled": getattr(manifest, "enabled", True),
-                "warning": getattr(manifest, "warning", None),
-                "type": "ingest",
-            }
-        )
+                "timestamp": entry.timestamp,
+                "filenames": [entry.record.get("filename", "rules.py")],
+                "parser": "rules",
+                "status": "applied",
+                "account_id": None,
+                "account_label": None,
+                "enabled": entry.enabled,
+                "warning": None,
+                "type": "rules",
+            })
+            continue
 
-    # Add grouped balance snapshot imports
-    for data in balance_snapshots_by_file.values():
-        imports.append(
-            {
-                "sequence": data["sequence"],
-                "timestamp": data["timestamp"],
-                "filenames": ["balance-anchors.tsv"],
+        # Handle balance entries
+        if entry.entry_type == "balance":
+            snapshots = entry.record.get("snapshots", [])
+            account_ids = set(s["account_id"] for s in snapshots)
+            imports.append({
+                "sequence": entry.sequence,
+                "timestamp": entry.timestamp,
+                "filenames": [entry.record.get("filename", "balance-anchors.tsv")],
                 "parser": "balance_anchors",
                 "status": "applied",
                 "account_id": None,
-                "account_label": f"{data['count']} snapshot(s) for {len(data['account_ids'])} account(s)",
-                "enabled": True,
+                "account_label": f"{len(snapshots)} snapshot(s) for {len(account_ids)} account(s)",
+                "enabled": entry.enabled,
                 "warning": None,
                 "type": "balance_anchors",
-            }
-        )
+            })
+            continue
+
+        # Handle ingest entries
+        if entry.entry_type == "ingest":
+            parser = entry.record.get("parser", "unknown")
+            csv_files = entry.record.get("csv_files", [])
+
+            # Get account info if available
+            account_label = None
+            account_id = None
+
+            try:
+                from penny.api.helpers import get_db
+
+                conn = get_db()
+                cursor = conn.cursor()
+                row = cursor.execute(
+                    """
+                    SELECT a.id, a.display_name, a.bank
+                    FROM accounts a
+                    WHERE a.bank = ?
+                    ORDER BY a.id DESC
+                    LIMIT 1
+                    """,
+                    (parser,),
+                ).fetchone()
+                conn.close()
+
+                if row:
+                    account_id = row[0]
+                    account_label = row[1] or f"{row[2]} #{row[0]}"
+            except Exception:
+                pass
+
+            imports.append({
+                "sequence": entry.sequence,
+                "timestamp": entry.timestamp,
+                "filenames": csv_files,
+                "parser": parser,
+                "status": "applied",
+                "account_id": account_id,
+                "account_label": account_label,
+                "enabled": entry.enabled,
+                "warning": None,
+                "type": "ingest",
+            })
 
     # Return in reverse chronological order (most recent first)
     return {"imports": list(reversed(imports))}
@@ -410,36 +412,29 @@ async def list_imports():
 async def toggle_import_enabled(sequence: int):
     """Toggle the enabled state of an import entry.
 
-    This modifies the manifest.json in the vault log entry.
+    This modifies the enabled flag in history.tsv.
     Changes take effect on next DB rebuild.
     """
-    import json
-
     config = VaultConfig()
-    log = LogManager(config)
+    if not config.is_initialized():
+        raise HTTPException(status_code=404, detail="Vault not initialized")
+
+    ledger = Ledger(config.path)
 
     # Find the entry
-    entry = None
-    for e in log.iter_entries():
-        if e.sequence == sequence:
-            entry = e
-            break
-
+    entry = ledger.get_entry(sequence)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"Import entry {sequence} not found")
 
-    manifest = entry.read_manifest()
-    if not isinstance(manifest, IngestManifest):
-        raise HTTPException(status_code=400, detail="Entry is not an import")
+    # Only allow toggling ingest entries
+    if entry.entry_type != "ingest":
+        raise HTTPException(status_code=400, detail="Only ingest entries can be toggled")
 
     # Toggle enabled state
-    new_enabled = not getattr(manifest, "enabled", True)
+    new_enabled = not entry.enabled
 
-    # Read, modify, write manifest
-    manifest_path = entry.path / "manifest.json"
-    data = json.loads(manifest_path.read_text())
-    data["enabled"] = new_enabled
-    manifest_path.write_text(json.dumps(data, indent=2))
+    # Update in ledger (atomic write)
+    ledger.update_enabled(sequence, new_enabled)
 
     return {"sequence": sequence, "enabled": new_enabled}
 

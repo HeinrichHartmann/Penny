@@ -25,8 +25,8 @@ from penny.sql import (
     tree_query,
 )
 from penny.transactions import TransactionFilter, list_transactions
-from penny.vault import LogManager, VaultConfig
-from penny.vault.manifests import BalanceSnapshotManifest
+from penny.vault.config import VaultConfig
+from penny.vault.ledger import Ledger
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -515,22 +515,25 @@ async def account_value_history(
             "inconsistencies": [],
         }
 
-    # Get all balance snapshots for these accounts (from vault log)
+    # Get all balance snapshots for these accounts (from vault ledger)
     config = VaultConfig()
-    log_manager = LogManager(config)
+    if not config.is_initialized():
+        config.initialize()
+    ledger = Ledger(config.path)
     all_snapshots = []
 
-    for entry in log_manager.iter_entries():
-        manifest = entry.read_manifest()
-        if isinstance(manifest, BalanceSnapshotManifest):
-            if manifest.account_id in account_ids:
-                all_snapshots.append(
-                    {
-                        "account_id": manifest.account_id,
-                        "date": manifest.snapshot_date,
-                        "balance_cents": manifest.balance_cents,
-                    }
-                )
+    for entry in ledger.read_entries():
+        if entry.entry_type == "balance":
+            # Balance entries have snapshots list in record
+            for snapshot in entry.record.get("snapshots", []):
+                if snapshot["account_id"] in account_ids:
+                    all_snapshots.append(
+                        {
+                            "account_id": snapshot["account_id"],
+                            "date": snapshot["snapshot_date"],
+                            "balance_cents": snapshot["balance_cents"],
+                        }
+                    )
 
     # Sort snapshots by account and date
     all_snapshots.sort(key=lambda x: (x["account_id"], x["date"]))

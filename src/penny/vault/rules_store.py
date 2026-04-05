@@ -42,15 +42,29 @@ def ensure_rules_snapshot(config: VaultConfig | None = None) -> Path:
 
 
 def save_rules_snapshot(content: str, config: VaultConfig | None = None) -> Path:
-    """Save a rules snapshot to the rules/ directory.
+    """Save a rules snapshot to the rules/ directory and record in ledger."""
+    from penny.vault.ledger import Ledger, LedgerEntry
 
-    This is a low-level function that just writes the file.
-    For vault-logged updates, use vault.update_rules() instead.
-    """
     cfg = config or VaultConfig()
     if not cfg.is_initialized():
         cfg.initialize()
 
-    path = cfg.rules_dir / f"{_timestamp()}_rules.py"
+    ledger = Ledger(cfg.path)
+    sequence = ledger.next_sequence()
+    timestamp = _timestamp()
+
+    filename = f"{sequence:04d}_{timestamp}_rules.py"
+    path = cfg.rules_dir / filename
     path.write_text(content, encoding="utf-8")
+
+    # Record in ledger
+    entry = LedgerEntry(
+        sequence=sequence,
+        entry_type="rules",
+        enabled=True,
+        timestamp=timestamp,
+        record={"filename": filename},
+    )
+    ledger.append_entry(entry)
+
     return path
