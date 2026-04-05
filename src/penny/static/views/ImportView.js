@@ -96,24 +96,6 @@ export const ImportView = {
         }
 
         await loadImportHistory();
-
-        // Build summary message
-        const csv = results.find(r => r.type === 'csv');
-        const rules = results.find(r => r.type === 'rules');
-        const balance = results.find(r => r.type === 'balance_anchors');
-
-        let message = 'Demo data imported!\n\n';
-        if (csv) {
-          message += `✓ ${csv.filename} (${csv.transactions.new} transactions)\n`;
-        }
-        if (rules) {
-          message += `✓ ${rules.filename}\n`;
-        }
-        if (balance) {
-          message += `✓ ${balance.filename} (${balance.snapshots_created} snapshots)\n`;
-        }
-
-        alert(message);
       } catch (error) {
         console.error('Failed to import demo data:', error);
         alert('Failed to import demo data: ' + error.message);
