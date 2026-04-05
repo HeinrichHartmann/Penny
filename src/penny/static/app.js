@@ -5,6 +5,7 @@ import { computed, createApp, nextTick, onMounted, reactive, ref, watch } from '
 
 import {
   createDateHelpers,
+  computeDefaultDateRange,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
 import {
@@ -237,11 +238,18 @@ createApp({
         }
       }
 
-      // Update date range if new transactions extended the range
-      if (meta.max_date && oldMaxDate && meta.max_date > oldMaxDate) {
-        // If currently filtered to a specific date range, extend it to include new data
-        if (filters.to && filters.to < meta.max_date) {
-          filters.to = meta.max_date;
+      // Update date range to show imported data
+      if (meta.max_date) {
+        if (!oldMaxDate) {
+          // First import - reset filters to show last month of imported data
+          const defaultRange = computeDefaultDateRange(meta.max_date);
+          filters.from = defaultRange.from;
+          filters.to = defaultRange.to;
+        } else if (meta.max_date > oldMaxDate) {
+          // Subsequent import - extend range to include new data
+          if (filters.to && filters.to < meta.max_date) {
+            filters.to = meta.max_date;
+          }
         }
       }
 
