@@ -20,7 +20,7 @@ def make_transaction(
     category: str | None = None,
     raw_buchungstext: str = "",
 ) -> Transaction:
-    fingerprint = generate_fingerprint(account_id, tx_date, amount_cents, payee, None)
+    fingerprint = generate_fingerprint(account_id, "giro", tx_date, amount_cents, payee, None)
     return Transaction(
         fingerprint=fingerprint,
         account_id=account_id,
