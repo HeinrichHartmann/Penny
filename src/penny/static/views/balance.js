@@ -106,6 +106,7 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
 
     const valuePoints = valueHistory.value.value_points || [];
     const volumePoints = valueHistory.value.volume_points || [];
+    const inconsistencies = valueHistory.value.inconsistencies || [];
 
     if (valuePoints.length === 0) {
       balanceChart.clear();
@@ -117,6 +118,12 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
 
     // Track which points are anchors (for FAT dots)
     const anchorFlags = valuePoints.map(p => p.is_anchor || false);
+
+    // Create lookup map from date to delta for inconsistencies
+    const deltaMap = {};
+    inconsistencies.forEach(inc => {
+      deltaMap[inc.date] = inc.delta_cents;
+    });
 
     // Prepare data for volume bars (optional)
     const volumeData = showVolume.value
@@ -233,10 +240,15 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
             const date = params[0].value[0];
             const dataIndex = params[0].dataIndex;
             const isAnchor = anchorFlags[dataIndex];
+            const delta = deltaMap[date];
 
             let result = `${date}`;
             if (isAnchor) {
               result += ' 📍'; // Pin emoji for anchor
+              if (delta !== undefined) {
+                const deltaSign = delta >= 0 ? '+' : '';
+                result += ` (Δ: ${deltaSign}${formatCurrency(delta)})`;
+              }
             }
             result += '<br/>';
 

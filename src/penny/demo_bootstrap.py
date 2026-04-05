@@ -87,4 +87,69 @@ def bootstrap_demo_data(config: VaultConfig | None = None) -> bool:
 
     update_account_metadata(result.account_id, display_name="Demo Account")
 
+    # Add balance snapshots to demonstrate anchor-based projection
+    _add_demo_balance_snapshots(config, result.account_id)
+
     return True
+
+
+def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
+    """Add demo balance snapshots with intentional deviations.
+
+    These snapshots demonstrate:
+    1. Balance anchor backward/forward projection
+    2. Inconsistency detection when projections don't match actual snapshots
+
+    Demo data spans: April 2022 - March 2024 (~2 years)
+    """
+    from penny.vault import LogManager
+    from penny.vault.manifests import BalanceSnapshotManifest
+
+    log_manager = LogManager(config)
+
+    # Define balance snapshots with strategic deviations
+    # Note: These are intentionally offset to create inconsistencies
+    # demonstrating the anchor-based projection and delta detection
+    snapshots = [
+        # October 2022 - 6 months in (accurate baseline)
+        {
+            "date": "2022-10-15",
+            "balance_cents": 280000,  # €2,800
+            "note": "Q4 2022 baseline",
+        },
+        # April 2023 - 1 year in (OFF BY +€250)
+        {
+            "date": "2023-04-15",
+            "balance_cents": 305000,  # €3,050 (missing €250 in transactions)
+            "note": "Mid-year - missing transactions",
+        },
+        # October 2023 - 18 months in (OFF BY -€180)
+        {
+            "date": "2023-10-15",
+            "balance_cents": 296000,  # €2,960 (€180 extra spending not recorded)
+            "note": "Fall - unrecorded spending",
+        },
+        # February 2024 - near end (OFF BY +€320)
+        {
+            "date": "2024-02-01",
+            "balance_cents": 338000,  # €3,380 (missing €320 in expenses)
+            "note": "Winter - data gap",
+        },
+        # March 2024 - final anchor (OFF BY -€200, projects forward)
+        {
+            "date": "2024-03-29",
+            "balance_cents": 310000,  # €3,100 (€200 missing income)
+            "note": "Final - missing income",
+        },
+    ]
+
+    for snapshot in snapshots:
+        manifest = BalanceSnapshotManifest(
+            type="balance_snapshot",
+            account_id=account_id,
+            subaccount_type="giro",
+            snapshot_date=snapshot["date"],
+            balance_cents=snapshot["balance_cents"],
+            note=snapshot["note"],
+        )
+        log_manager.append("balance_snapshot", manifest)
