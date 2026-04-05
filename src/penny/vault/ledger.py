@@ -27,7 +27,7 @@ class LedgerEntry:
     """A single entry in history.tsv."""
 
     sequence: int
-    entry_type: Literal["ingest", "rules", "balance"]
+    entry_type: Literal["ingest", "rules", "balance", "mutation"]
     enabled: bool
     timestamp: str
     record: dict[str, Any]
@@ -55,19 +55,21 @@ class LedgerEntry:
             record=json.loads(record_json),
         )
 
-    def get_directory(self, vault_path: Path) -> Path:
-        """Get storage directory for this entry."""
+    def get_directory(self, vault_path: Path) -> Path | None:
+        """Get storage directory for this entry. Returns None for inline entries."""
         if self.entry_type == "ingest":
             return vault_path / "transactions" / f"{self.sequence:04d}_{self.timestamp}"
         elif self.entry_type == "rules":
             return vault_path / "rules"
         elif self.entry_type == "balance":
             return vault_path / "balance"
+        elif self.entry_type == "mutation":
+            return None  # Mutations are inline in record, no external files
         else:
             raise ValueError(f"Unknown entry type: {self.entry_type}")
 
-    def get_file_path(self, vault_path: Path) -> Path:
-        """Get primary file path for this entry."""
+    def get_file_path(self, vault_path: Path) -> Path | None:
+        """Get primary file path for this entry. Returns None for inline entries."""
         if self.entry_type == "ingest":
             # For ingest, return directory (contains multiple files)
             return self.get_directory(vault_path)
@@ -75,6 +77,8 @@ class LedgerEntry:
             return vault_path / "rules" / f"{self.sequence:04d}_{self.timestamp}_rules.py"
         elif self.entry_type == "balance":
             return vault_path / "balance" / f"{self.sequence:04d}_{self.timestamp}_balance.tsv"
+        elif self.entry_type == "mutation":
+            return None  # Mutations are inline in record, no external files
         else:
             raise ValueError(f"Unknown entry type: {self.entry_type}")
 

@@ -10,7 +10,8 @@ from penny.classify import ClassificationDecision
 from penny.cli import main
 from penny.db import init_db
 from penny.transactions import apply_classifications, list_transactions
-from penny.vault import MutationLog, VaultConfig, replay_vault, save_rules_snapshot
+from penny.vault import VaultConfig, replay_vault, save_rules_snapshot
+from penny.vault.ledger import Ledger
 
 
 def _import_fixture(runner: CliRunner, fixture_dir):
@@ -106,9 +107,11 @@ def salary(transaction):
     assert categories["AMAZON PAYMENTS EUROPE S.C.A."] == "NeedsReview"
     assert all(transaction.category for transaction in transactions)
 
-    rows = MutationLog(VaultConfig()).list_rows()
-    if rows:
-        assert rows[-1].type == "rules_updated"
+    config = VaultConfig()
+    entries = Ledger(config.path).read_entries()
+    mutation_entries = [e for e in entries if e.entry_type == "mutation"]
+    if mutation_entries:
+        assert mutation_entries[-1].record.get("mutation_type") == "rules_updated"
 
     init_db(None)
     replay_vault(VaultConfig())

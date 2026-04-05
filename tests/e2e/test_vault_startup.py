@@ -31,7 +31,6 @@ def test_bootstrap_initializes_empty_vault(fresh_runtime):
     assert config.transactions_dir.exists()
     assert config.rules_dir.exists()
     assert config.balance_dir.exists()
-    assert config.mutations_path.exists()
     assert config.ledger_path.exists()
     assert latest_rules_path(config) is not None
 

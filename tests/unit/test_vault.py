@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from penny.vault import (
-    MutationLog,
     VaultConfig,
     ensure_rules_snapshot,
     save_rules_snapshot,
@@ -40,7 +39,6 @@ class TestVaultConfig:
         assert (config.path / "transactions").exists()
         assert config.rules_dir.exists()
         assert (config.path / "balance").exists()
-        assert config.mutations_path.exists()
         assert (config.path / "history.tsv").exists()
 
 
@@ -119,22 +117,6 @@ class TestLedger:
         entries = ledger.read_entries()
         assert entries[0].enabled is False
         assert entries[1].enabled is True
-
-
-class TestMutationLog:
-    def test_append_row(self, tmp_path):
-        config = VaultConfig(tmp_path / "vault")
-        log = MutationLog(config)
-
-        row = log.append(
-            "rules_updated",
-            entity_type="rules",
-            payload={"path": "2026-01-01T00:00:00Z_rules.py"},
-        )
-
-        assert row.seq == 1
-        assert len(log.list_rows()) == 1
-        assert "rules_updated" in config.mutations_path.read_text(encoding="utf-8")
 
 
 class TestRulesStore:

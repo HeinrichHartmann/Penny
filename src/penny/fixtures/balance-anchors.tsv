@@ -1,5 +1,5 @@
-account_iban	date	balance_cents	note
-DE89370400440532013000	2022-10-15	10000000	Anchor spike positive
-DE89370400440532013000	2023-04-15	-10000000	Anchor spike negative
-DE89370400440532013000	2023-10-15	10000000	Anchor spike positive
-DE89370400440532013000	2024-02-01	-10000000	Anchor spike negative
+account	date	balance_cents	note
+sparkasse/12345678	2022-10-15	10000000	Anchor spike positive
+sparkasse/12345678	2023-04-15	-10000000	Anchor spike negative
+sparkasse/12345678	2023-10-15	10000000	Anchor spike positive
+sparkasse/12345678	2024-02-01	-10000000	Anchor spike negative

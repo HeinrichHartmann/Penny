@@ -36,7 +36,6 @@ from penny.transactions import (
 from penny.transfers import link_transfers
 from penny.vault import (
     IngestRequest,
-    MutationLog,
     VaultConfig,
     ensure_vault_initialized,
     latest_rules_path,
@@ -307,7 +306,6 @@ def vault_status():
     """Show vault and projection status."""
     config = VaultConfig()
     ledger = Ledger(config.path)
-    mutations = MutationLog(config)
     latest_rules = latest_rules_path(config)
 
     click.echo(f"Vault: {config.path}")
@@ -315,17 +313,19 @@ def vault_status():
     click.echo(f"Initialized: {'yes' if config.is_initialized() else 'no'}")
 
     if not config.is_initialized():
-        click.echo("Imports: 0")
+        click.echo("Ledger entries: 0")
         click.echo("Rules snapshots: 0")
-        click.echo("Mutations: 0")
         return
 
-    # Count ingest entries in ledger
+    # Count entries in ledger by type
     entries = ledger.read_entries()
     ingest_count = sum(1 for e in entries if e.entry_type == "ingest")
+    mutation_count = sum(1 for e in entries if e.entry_type == "mutation")
+    balance_count = sum(1 for e in entries if e.entry_type == "balance")
     click.echo(f"Imports: {ingest_count}")
+    click.echo(f"Mutations: {mutation_count}")
+    click.echo(f"Balance snapshots: {balance_count}")
     click.echo(f"Rules snapshots: {len(list(config.rules_dir.glob('*_rules.py')))}")
-    click.echo(f"Mutations: {len(mutations.list_rows())}")
     if latest_rules is not None:
         click.echo(f"Latest rules: {latest_rules.name}")
 

@@ -52,11 +52,6 @@ class VaultConfig:
         """Return the history.tsv ledger path."""
         return self.path / "history.tsv"
 
-    @property
-    def mutations_path(self) -> Path:
-        """Return the append-only mutation log path."""
-        return self.path / "mutations.tsv"
-
     def exists(self) -> bool:
         """Return True if the vault directory exists."""
         return self.path.exists()
@@ -68,7 +63,6 @@ class VaultConfig:
             and self.rules_dir.exists()
             and self.balance_dir.exists()
             and self.ledger_path.exists()
-            and self.mutations_path.exists()
         )
 
     def initialize(self) -> None:
@@ -82,13 +76,6 @@ class VaultConfig:
         if not self.ledger_path.exists():
             self.ledger_path.write_text(
                 "seq\ttype\tenabled\ttimestamp\trecord\n",
-                encoding="utf-8",
-            )
-
-        # Create mutation log with header
-        if not self.mutations_path.exists():
-            self.mutations_path.write_text(
-                "seq\ttimestamp\ttype\tentity_type\tentity_id\tpayload_json\n",
                 encoding="utf-8",
             )
 

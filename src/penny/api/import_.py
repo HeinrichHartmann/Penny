@@ -120,107 +120,27 @@ async def _import_rules(filename: str, content_bytes: bytes):
 async def _import_balance_anchors(filename: str, content_bytes: bytes):
     """Import balance snapshots from TSV file.
 
-    TSV format:
-        account_iban    date    balance_cents    note
-        DE89...         2024-01-15    100000    Monthly snapshot
-    """
-    import csv
-    from datetime import UTC, datetime
+    TSV format (bank/account_number):
+        account                   date          balance_cents  note
+        comdirect/9788862492      2024-01-15    100000         Monthly snapshot
 
-    from penny.accounts import update_account_balance
-    from penny.api.helpers import get_db
+    Deduplicates by (account, date) - re-importing is safe.
+    """
+    from penny.vault.balance_file import import_balances
 
     config = VaultConfig()
     if not config.is_initialized():
         config.initialize()
 
-    ledger = Ledger(config.path)
-
-    content = content_bytes.decode("utf-8")
-    reader = csv.DictReader(content.splitlines(), delimiter="\t")
-
-    # Generate single timestamp for all snapshots in this batch
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sequence = ledger.next_sequence()
-
-    snapshots_created = 0
-    snapshots_skipped = 0
-    errors = []
-    balance_records = []
-
-    for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
-        try:
-            # Extract fields
-            account_iban = row.get("account_iban", "").strip()
-            date_str = row.get("date", "").strip()
-            balance_cents_str = row.get("balance_cents", "").strip()
-            note = row.get("note", "").strip()
-
-            if not account_iban or not date_str or not balance_cents_str:
-                errors.append(f"Row {row_num}: Missing required fields")
-                snapshots_skipped += 1
-                continue
-
-            # Find account by IBAN
-            conn = get_db()
-            cursor = conn.cursor()
-            acc_row = cursor.execute(
-                "SELECT id FROM accounts WHERE iban = ? LIMIT 1",
-                (account_iban,),
-            ).fetchone()
-            conn.close()
-
-            if not acc_row:
-                errors.append(f"Row {row_num}: Account not found for IBAN {account_iban}")
-                snapshots_skipped += 1
-                continue
-
-            account_id = acc_row[0]
-            balance_cents = int(balance_cents_str)
-
-            # Apply the balance update
-            from datetime import date as date_type
-
-            snapshot_date = date_type.fromisoformat(date_str)
-            update_account_balance(account_id, balance_cents=balance_cents, balance_date=snapshot_date)
-
-            balance_records.append({
-                "account_id": account_id,
-                "account_iban": account_iban,
-                "snapshot_date": date_str,
-                "balance_cents": balance_cents,
-                "note": note,
-            })
-            snapshots_created += 1
-
-        except ValueError as e:
-            errors.append(f"Row {row_num}: Invalid number format - {e}")
-            snapshots_skipped += 1
-        except Exception as e:
-            errors.append(f"Row {row_num}: {e}")
-            snapshots_skipped += 1
-
-    # Create single ledger entry for the batch
-    if balance_records:
-        entry = LedgerEntry(
-            sequence=sequence,
-            entry_type="balance",
-            enabled=True,
-            timestamp=timestamp,
-            record={
-                "filename": filename,
-                "snapshots": balance_records,
-            },
-        )
-        ledger.append_entry(entry)
+    result = import_balances(content_bytes, config)
 
     return {
         "status": "success",
         "filename": filename,
         "type": "balance_anchors",
-        "snapshots_created": snapshots_created,
-        "snapshots_skipped": snapshots_skipped,
-        "errors": errors if errors else None,
+        "snapshots_created": result.imported,
+        "snapshots_skipped": result.skipped,
+        "errors": result.errors if result.errors else None,
     }
 
 

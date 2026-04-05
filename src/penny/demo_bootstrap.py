@@ -25,6 +25,8 @@ def should_load_demo_data(config: VaultConfig | None = None) -> bool:
     Returns:
         True if demo data should be loaded
     """
+    from penny.vault.ledger import Ledger
+
     if config is None:
         config = VaultConfig()
 
@@ -37,14 +39,14 @@ def should_load_demo_data(config: VaultConfig | None = None) -> bool:
     if len(tx_entries) > 0:
         return False
 
-    # Check if there are any mutations in the mutation log
-    if not config.mutations_path.exists():
-        return False
+    # Check if ledger has any entries
+    if not config.ledger_path.exists():
+        return True  # Empty vault - should load demo data
 
-    # Read mutation log and check if there are any data rows (beyond header)
-    lines = config.mutations_path.read_text(encoding="utf-8").strip().split("\n")
-    # If only header exists (1 line) or empty, vault is empty
-    return len(lines) <= 1
+    # Read ledger and check if there are any entries
+    ledger = Ledger(config.path)
+    entries = ledger.read_entries()
+    return len(entries) == 0
 
 
 def bootstrap_demo_data(config: VaultConfig | None = None) -> bool:
@@ -103,8 +105,18 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
     Demo data spans: April 2022 - March 2024 (~2 years)
     """
     from datetime import UTC, datetime
+    from datetime import date as date_type
 
+    from penny.accounts import get_account
+    from penny.vault.balance_file import BalanceRow, append_balance_row, format_account_key
     from penny.vault.ledger import Ledger, LedgerEntry
+
+    # Get account to build account_key
+    account = get_account(account_id, include_hidden=True)
+    if account is None:
+        return
+    account_number = account.bank_account_numbers[0] if account.bank_account_numbers else ""
+    account_key = format_account_key(account.bank, account_number)
 
     ledger = Ledger(config.path)
     sequence = ledger.next_sequence()
@@ -144,11 +156,22 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
     for snapshot in snapshots:
         balance_records.append({
             "account_id": account_id,
-            "account_iban": None,
+            "account_key": account_key,
             "snapshot_date": snapshot["date"],
             "balance_cents": snapshot["balance_cents"],
             "note": snapshot["note"],
         })
+
+        # Also append to balances.tsv
+        append_balance_row(
+            BalanceRow(
+                account=account_key,
+                date=date_type.fromisoformat(snapshot["date"]),
+                balance_cents=snapshot["balance_cents"],
+                note=snapshot["note"],
+            ),
+            config,
+        )
 
     entry = LedgerEntry(
         sequence=sequence,

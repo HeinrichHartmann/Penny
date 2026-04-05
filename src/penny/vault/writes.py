@@ -3,17 +3,48 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
 from penny.db import connect
 from penny.vault.config import VaultConfig
-from penny.vault.mutations import MutationLog
+from penny.vault.ledger import Ledger, LedgerEntry
 
 if TYPE_CHECKING:
     from penny.accounts import Account, Subaccount
     from penny.classify import ClassificationDecision
     from penny.transactions import Transaction
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _append_mutation(
+    config: VaultConfig,
+    mutation_type: str,
+    *,
+    entity_type: str,
+    entity_id: str | int | None = None,
+    payload: dict | None = None,
+) -> int:
+    """Append a mutation entry to the ledger. Returns the sequence number."""
+    ledger = Ledger(config.path)
+    seq = ledger.next_sequence()
+    entry = LedgerEntry(
+        sequence=seq,
+        entry_type="mutation",
+        enabled=True,
+        timestamp=_now_iso(),
+        record={
+            "mutation_type": mutation_type,
+            "entity_type": entity_type,
+            "entity_id": "" if entity_id is None else str(entity_id),
+            "payload": payload or {},
+        },
+    )
+    ledger.append_entry(entry)
+    return seq
 
 
 def _apply_mutations(config: VaultConfig, *, upto_seq: int | None = None) -> int:
@@ -37,7 +68,8 @@ def create_account(
 ) -> Account:
 
     cfg = config or VaultConfig()
-    row = MutationLog(cfg).append(
+    seq = _append_mutation(
+        cfg,
         "account_created",
         entity_type="account",
         payload={
@@ -55,8 +87,8 @@ def create_account(
             ],
         },
     )
-    _apply_mutations(cfg, upto_seq=row.seq)
-    account = _lookup_account_created_from_row(row.seq)
+    _apply_mutations(cfg, upto_seq=seq)
+    account = _lookup_account_created_from_row(seq)
     if account is None:
         raise RuntimeError("Account creation was not applied")
     return account
@@ -87,13 +119,14 @@ def update_account(
         return get_account(account_id, include_hidden=True)
 
     cfg = config or VaultConfig()
-    row = MutationLog(cfg).append(
+    seq = _append_mutation(
+        cfg,
         "account_updated",
         entity_type="account",
         entity_id=account_id,
         payload=changes,
     )
-    _apply_mutations(cfg, upto_seq=row.seq)
+    _apply_mutations(cfg, upto_seq=seq)
     return get_account(account_id, include_hidden=True)
 
 
@@ -101,13 +134,13 @@ def hide_account(account_id: int, config: VaultConfig | None = None) -> bool:
     from penny.accounts import get_account
 
     cfg = config or VaultConfig()
-    row = MutationLog(cfg).append(
+    seq = _append_mutation(
+        cfg,
         "account_hidden",
         entity_type="account",
         entity_id=account_id,
-        payload={},
     )
-    _apply_mutations(cfg, upto_seq=row.seq)
+    _apply_mutations(cfg, upto_seq=seq)
     account = get_account(account_id, include_hidden=True)
     return account is not None and account.hidden
 
@@ -121,13 +154,14 @@ def upsert_subaccounts(
         return
 
     cfg = config or VaultConfig()
-    row = MutationLog(cfg).append(
+    seq = _append_mutation(
+        cfg,
         "subaccounts_upserted",
         entity_type="account",
         entity_id=account_id,
         payload={"subaccount_types": sorted(set(subaccount_types))},
     )
-    _apply_mutations(cfg, upto_seq=row.seq)
+    _apply_mutations(cfg, upto_seq=seq)
 
 
 def apply_classifications(
@@ -156,12 +190,13 @@ def apply_groups(
     from penny.transactions import list_transactions
 
     cfg = config or VaultConfig()
-    row = MutationLog(cfg).append(
+    seq = _append_mutation(
+        cfg,
         "groups_applied",
         entity_type="transactions",
         payload={"groups": groups},
     )
-    _apply_mutations(cfg, upto_seq=row.seq)
+    _apply_mutations(cfg, upto_seq=seq)
     raw = list_transactions(limit=None, neutralize=False, include_hidden=True)
     grouped = sum(1 for tx in raw if tx.group_id != tx.fingerprint)
     standalone = sum(1 for tx in raw if tx.group_id == tx.fingerprint)
@@ -178,7 +213,8 @@ def store_transactions(
 
     cfg = config or VaultConfig()
     before = count_transactions()
-    row = MutationLog(cfg).append(
+    seq = _append_mutation(
+        cfg,
         "transactions_stored",
         entity_type="transactions",
         payload={
@@ -205,7 +241,7 @@ def store_transactions(
             ],
         },
     )
-    _apply_mutations(cfg, upto_seq=row.seq)
+    _apply_mutations(cfg, upto_seq=seq)
     after = count_transactions()
     new_count = after - before
     return new_count, len(transactions) - new_count
