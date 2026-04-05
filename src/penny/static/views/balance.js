@@ -19,23 +19,16 @@ export const createBalanceViewState = ({
   valueHistory,
   loading,
   loadValueHistory,
-  filters,
   onDateRangeChange,
 }) => {
   const dayStartTimestamp = (dateStr) => new Date(`${dateStr}T00:00:00`).getTime();
   const nextDayTimestamp = (dateStr) => dayStartTimestamp(dateStr) + (24 * 60 * 60 * 1000);
 
-  const showVolume = ref(false);
   const balanceChartEl = ref(null);
   let balanceChart = null;
 
   const setBalanceChartEl = (el) => {
     balanceChartEl.value = el;
-  };
-
-  const setShowVolume = (value) => {
-    showVolume.value = value;
-    renderBalanceChart();
   };
 
   const latestBalance = computed(() => {
@@ -96,7 +89,6 @@ export const createBalanceViewState = ({
     }
 
     const valuePoints = valueHistory.value.value_points || [];
-    const volumePoints = valueHistory.value.volume_points || [];
     const inconsistencies = valueHistory.value.inconsistencies || [];
 
     if (valuePoints.length === 0) {
@@ -164,14 +156,6 @@ export const createBalanceViewState = ({
         },
       ]));
 
-    // Prepare data for volume bars (optional)
-    const volumeData = showVolume.value
-      ? volumePoints.map(p => {
-          const inflow = p.inflow_cents || 0;
-          const outflow = p.outflow_cents || 0;
-          return { inflow, outflow };
-        })
-      : [];
 
     // Build series - stepped line chart for date-granularity data
     const series = [
@@ -183,10 +167,10 @@ export const createBalanceViewState = ({
         connectNulls: false,
         // Show symbols ONLY on anchor dates (FAT dots)
         showSymbol: true,
-        symbol: (value, params) => {
+        symbol: (_value, params) => {
           return params.data?.isAnchor ? 'circle' : 'none';
         },
-        symbolSize: (value, params) => {
+        symbolSize: (_value, params) => {
           return params.data?.isAnchor ? 12 : 0;
         },
         itemStyle: {
@@ -225,57 +209,19 @@ export const createBalanceViewState = ({
       },
     ];
 
-    // Add volume bars if enabled
-    if (showVolume.value && volumePoints.length > 0) {
-      const inflowData = volumePoints.map(p => [p.date, p.inflow_cents || 0]);
-      const outflowData = volumePoints.map(p => [p.date, -(p.outflow_cents || 0)]);
-
-      series.push({
-        name: 'Inflow',
-        type: 'bar',
-        data: inflowData,
-        stack: 'volume',
-        itemStyle: { color: 'rgba(76, 175, 80, 0.6)' },
-        yAxisIndex: 1,
-      });
-
-      series.push({
-        name: 'Outflow',
-        type: 'bar',
-        data: outflowData,
-        stack: 'volume',
-        itemStyle: { color: 'rgba(244, 67, 54, 0.6)' },
-        yAxisIndex: 1,
-      });
-    }
-
     const yAxis = [
       {
         type: 'value',
         name: 'Balance',
         position: 'left',
         axisLabel: {
-          formatter: (value) => formatCurrency(value),
+          formatter: (val) => formatCurrency(val),
         },
         splitLine: {
           lineStyle: { color: 'rgba(132, 91, 49, 0.16)' },
         },
       },
     ];
-
-    if (showVolume.value) {
-      yAxis.push({
-        type: 'value',
-        name: 'Volume',
-        position: 'right',
-        axisLabel: {
-          formatter: (value) => formatCurrency(Math.abs(value)),
-        },
-        splitLine: {
-          show: false,
-        },
-      });
-    }
 
     balanceChart.setOption(
       {
@@ -362,7 +308,7 @@ export const createBalanceViewState = ({
         },
         grid: {
           left: 80,
-          right: showVolume.value ? 80 : 24,
+          right: 24,
           top: 48,
           bottom: 52,
           containLabel: false,
@@ -393,11 +339,9 @@ export const createBalanceViewState = ({
   return {
     valueHistory,
     loading,
-    showVolume,
     latestBalance,
     resetValueHistory,
     setBalanceChartEl,
-    setShowVolume,
     loadValueHistory,
     renderBalanceChart,
   };

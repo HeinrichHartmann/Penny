@@ -1,13 +1,16 @@
 import { SelectorHeader } from '../components/SelectorHeader.js';
+import { TransactionsView } from './TransactionsView.js';
 import { formatCurrency } from '../utils/format.js';
 
 export const BalanceView = {
   name: 'BalanceView',
   components: {
     SelectorHeader,
+    TransactionsView,
   },
   props: {
     model: { type: Object, required: true },
+    transactionsModel: { type: Object, required: false },
   },
   setup() {
     return {
@@ -30,17 +33,6 @@ export const BalanceView = {
             <span class="sub" v-if="model.latestBalance !== null">
               Current Balance: {{ formatCurrency(model.latestBalance) }}
             </span>
-          </div>
-          <div class="btn-group wrap">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
-              <input
-                type="checkbox"
-                :checked="model.showVolume"
-                @change="model.setShowVolume($event.target.checked)"
-                style="cursor: pointer;"
-              >
-              <span>Show Transaction Volume</span>
-            </label>
           </div>
         </div>
         <div :ref="model.setBalanceChartEl" style="width:100%; height:520px;"></div>
@@ -85,36 +77,7 @@ export const BalanceView = {
         </table>
       </div>
 
-      <div v-if="model.valueHistory && model.valueHistory.value_points && model.valueHistory.value_points.length > 0" class="panel" style="margin-top: 20px;">
-        <div class="txn-header">
-          Transactions
-          <span class="sub">{{ model.valueHistory.value_points.length }} transactions</span>
-        </div>
-        <div class="txn-table-wrap" style="max-height: 400px; overflow-y: auto;">
-          <table>
-            <thead>
-              <tr>
-                <th style="width:90px">Date</th>
-                <th>Description</th>
-                <th class="text-right" style="width:100px">Amount</th>
-                <th class="text-right" style="width:120px">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(tx, index) in model.valueHistory.value_points" :key="tx.fingerprint || index">
-                <td>{{ tx.date }}</td>
-                <td style="font-size: 0.85rem;">{{ tx.payee }}</td>
-                <td class="text-right" :style="{ color: tx.amount_cents >= 0 ? 'var(--income-color)' : '#c1121f' }">
-                  {{ formatCurrency(tx.amount_cents) }}
-                </td>
-                <td class="text-right" :style="{ fontWeight: tx.is_snapshot ? 'bold' : 'normal' }">
-                  {{ formatCurrency(tx.total_balance) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <transactions-view v-if="transactionsModel" :model="transactionsModel" style="margin-top: 20px;"></transactions-view>
     </div>
   `,
 };
