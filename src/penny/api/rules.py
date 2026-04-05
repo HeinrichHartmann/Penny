@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import LoadedRulesConfig
 from penny.transactions import apply_classifications, list_transactions
-from penny.vault import ensure_rules_snapshot, update_rules
+from penny.vault import ensure_rules_snapshot
+from penny.vault.rules import update_rules_and_apply
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
@@ -159,9 +160,9 @@ def run_rules_path(rules_path: Path) -> dict:
 
 @router.put("")
 async def save_rules(update: RulesUpdate):
-    """Save the rules file content and create vault log entry."""
+    """Save rules, apply them synchronously, and return when projection is updated."""
     try:
-        rules_path = update_rules(update.content)
+        rules_path = update_rules_and_apply(update.content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save rules file: {e}") from e
 
@@ -176,6 +177,10 @@ async def run_rules():
     """Run classification rules on all transactions.
 
     Returns stats and any errors encountered during rule loading/execution.
+
+    This is intentionally a projection recomputation endpoint. It does not append
+    anything to the vault because we audit changes to rules logic, not every
+    derived classification pass.
     """
     rules_path = get_rules_path()
 

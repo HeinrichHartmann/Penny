@@ -2,8 +2,10 @@ import asyncio
 
 import pytest
 from click.testing import CliRunner
+from fastapi.testclient import TestClient
 
 from penny.api.rules import RulesUpdate, get_rules_path, run_rules, save_rules
+from penny.server import app
 from penny.classify import ClassificationDecision
 from penny.cli import main
 from penny.db import init_db
@@ -116,6 +118,68 @@ def salary(transaction):
     }
     assert replayed["Example Employer"] == "Income:Salary"
     assert replayed["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
+
+
+def test_save_rules_reclassifies_transactions_synchronously(fixture_dir):
+    runner = CliRunner()
+    _import_fixture(runner, fixture_dir)
+
+    result_save = asyncio.run(
+        save_rules(
+            RulesUpdate(
+                content="""
+from penny.classify import contains, rule
+
+DEFAULT_CATEGORY = "NeedsReview"
+
+@rule("Income:Salary", name="salary")
+def salary(transaction):
+    return contains(transaction.payee, "Employer")
+""".strip()
+                + "\n"
+            )
+        )
+    )
+
+    assert result_save["status"] == "saved"
+
+    transactions = list_transactions(limit=None, neutralize=False)
+    categories = {transaction.payee: transaction.category for transaction in transactions}
+
+    assert categories["Example Employer"] == "Income:Salary"
+    assert categories["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
+    assert categories["AMAZON PAYMENTS EUROPE S.C.A."] == "NeedsReview"
+
+
+def test_import_rules_api_reclassifies_transactions_synchronously(fixture_dir):
+    runner = CliRunner()
+    _import_fixture(runner, fixture_dir)
+
+    rules_content = """
+from penny.classify import contains, rule
+
+DEFAULT_CATEGORY = "NeedsReview"
+
+@rule("Income:Salary", name="salary")
+def salary(transaction):
+    return contains(transaction.payee, "Employer")
+""".strip() + "\n"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/import",
+            files={"file": ("rules.py", rules_content.encode("utf-8"), "text/x-python")},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["type"] == "rules"
+
+    transactions = list_transactions(limit=None, neutralize=False)
+    categories = {transaction.payee: transaction.category for transaction in transactions}
+
+    assert categories["Example Employer"] == "Income:Salary"
+    assert categories["HOTEL EXAMPLE BERLIN"] == "NeedsReview"
+    assert categories["AMAZON PAYMENTS EUROPE S.C.A."] == "NeedsReview"
 
 
 def test_apply_classifications_requires_complete_pass(fixture_dir):

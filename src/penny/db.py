@@ -9,6 +9,14 @@ from pathlib import Path
 from penny.config import default_db_path
 
 
+# Table ownership model:
+# - `transactions` is a projection table. API handlers must not mutate it directly.
+#   It is updated only by vault apply/replay flows and runtime classification passes.
+# - `accounts` is mixed ownership. User-editable metadata may change through sanctioned
+#   mutation APIs, while derived state should still be treated as projection-backed.
+# - `account_identifiers` and `subaccounts` are vault-owned structural tables.
+
+
 class Database:
     """Database connection manager.
 
@@ -56,6 +64,8 @@ class Database:
         with self.transaction() as conn:
             conn.executescript(
                 """
+                -- Mixed-ownership table. User-facing account metadata may be updated
+                -- through sanctioned mutation APIs; derived fields remain projection-backed.
                 CREATE TABLE IF NOT EXISTS accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bank TEXT NOT NULL,
@@ -70,6 +80,7 @@ class Database:
                     hidden INTEGER DEFAULT 0
                 );
 
+                -- Vault-owned structural tables. These are updated through vault apply flows.
                 CREATE TABLE IF NOT EXISTS account_identifiers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     account_id INTEGER NOT NULL REFERENCES accounts(id),
@@ -86,6 +97,9 @@ class Database:
                     UNIQUE(account_id, type)
                 );
 
+                -- Projection table. Do not mutate directly from API handlers.
+                -- This table is populated by vault apply/replay flows and runtime
+                -- reclassification against the active rules snapshot.
                 CREATE TABLE IF NOT EXISTS transactions (
                     fingerprint TEXT PRIMARY KEY,
                     account_id INTEGER NOT NULL REFERENCES accounts(id),

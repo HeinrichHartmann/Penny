@@ -97,12 +97,12 @@ async def _import_csv(filename: str, content_bytes: bytes):
 
 async def _import_rules(filename: str, content_bytes: bytes):
     """Import classification rules from .py file."""
-    from penny.vault.rules import update_rules
+    from penny.vault.rules import update_rules_and_apply
 
     content = content_bytes.decode("utf-8")
 
     try:
-        path = update_rules(content)
+        path = update_rules_and_apply(content)
     except Exception as e:
         raise HTTPException(
             status_code=400,
@@ -459,5 +459,3 @@ async def rebuild_database():
         "entries_processed": result.entries_processed,
         "entries_by_type": result.entries_by_type,
     }
-
-
