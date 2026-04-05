@@ -43,6 +43,7 @@ async def get_rules():
         "directory": str(rules_path.parent),
         "exists": True,
         "content": content,
+        "latest_run": preview_rules_path(rules_path),
     }
 
 
@@ -50,8 +51,8 @@ class RulesUpdate(BaseModel):
     content: str
 
 
-def run_rules_path(rules_path: Path) -> dict:
-    """Run classification for a concrete rules snapshot path."""
+def _evaluate_rules_path(rules_path: Path, *, persist: bool) -> dict:
+    """Evaluate rules for a concrete rules snapshot path."""
     logs: list[dict] = []
     start_time = datetime.now()
 
@@ -93,15 +94,16 @@ def run_rules_path(rules_path: Path) -> dict:
 
     result = run_classification_pass(transactions, config)
 
-    try:
-        apply_classifications(result.decisions)
-    except Exception as e:
-        log("error", f"Failed to persist classifications: {e}", traceback=traceback.format_exc())
-        return {
-            "status": "error",
-            "logs": logs,
-            "stats": None,
-        }
+    if persist:
+        try:
+            apply_classifications(result.decisions)
+        except Exception as e:
+            log("error", f"Failed to persist classifications: {e}", traceback=traceback.format_exc())
+            return {
+                "status": "error",
+                "logs": logs,
+                "stats": None,
+            }
 
     if result.errors:
         log("warning", f"{len(result.errors)} errors during classification")
@@ -141,6 +143,16 @@ def run_rules_path(rules_path: Path) -> dict:
             "elapsed_seconds": elapsed,
         },
     }
+
+
+def preview_rules_path(rules_path: Path) -> dict:
+    """Return the current rules evaluation result without persisting changes."""
+    return _evaluate_rules_path(rules_path, persist=False)
+
+
+def run_rules_path(rules_path: Path) -> dict:
+    """Run classification and persist the resulting assignments."""
+    return _evaluate_rules_path(rules_path, persist=True)
 
 
 @router.put("")
