@@ -389,32 +389,44 @@ createApp({
       preserveRulesDraft = false,
     } = {}) => {
       pendingRehydration = pendingRehydration.then(async () => {
-        const oldMaxDate = meta.max_date;
-        await refreshMeta();
+        isHydratingFromUrl = true;
+        try {
+          const oldMaxDate = meta.max_date;
+          await refreshMeta();
 
-        if (updateDateRange && meta.max_date) {
-          if (!oldMaxDate) {
-            const defaultRange = computeDefaultDateRange(meta.max_date);
-            filters.from = defaultRange.from;
-            filters.to = defaultRange.to;
-          } else if (meta.max_date > oldMaxDate && filters.to && filters.to < meta.max_date) {
-            filters.to = meta.max_date;
+          if (updateDateRange && meta.max_date) {
+            if (!oldMaxDate) {
+              const defaultRange = computeDefaultDateRange(meta.max_date);
+              filters.from = defaultRange.from;
+              filters.to = defaultRange.to;
+            } else if (meta.max_date > oldMaxDate && filters.to && filters.to < meta.max_date) {
+              filters.to = meta.max_date;
+            }
           }
+
+          const visibleAccountIds = meta.accounts.map((account) => account.id);
+          const selectedVisibleAccountIds = filters.accounts.filter((id) =>
+            visibleAccountIds.includes(id)
+          );
+          filters.accounts = selectedVisibleAccountIds.length > 0
+            ? selectedVisibleAccountIds
+            : [...visibleAccountIds];
+
+          clearDerivedViewData();
+
+          // ADR-013: batch selector/meta updates so watchers do not reload against
+          // half-updated query context during a full app rehydrate.
+          await nextTick();
+
+          await Promise.all([
+            loadSharedServerState({ preserveRulesDraft }),
+            loadCategoryOptions(),
+          ]);
+        } finally {
+          isHydratingFromUrl = false;
         }
 
-        const visibleAccountIds = meta.accounts.map((account) => account.id);
-        const selectedVisibleAccountIds = filters.accounts.filter((id) =>
-          visibleAccountIds.includes(id)
-        );
-        filters.accounts = selectedVisibleAccountIds.length > 0
-          ? selectedVisibleAccountIds
-          : [...visibleAccountIds];
-
-        clearDerivedViewData();
-        await Promise.all([
-          loadSharedServerState({ preserveRulesDraft }),
-          loadCategoryOptions(),
-        ]);
+        syncUrl();
         await loadCurrentViewData({ resetTransactionsPage: true });
         appDataVersion.value += 1;
       });

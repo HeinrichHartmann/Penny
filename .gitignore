@@ -32,4 +32,5 @@ penny.db
 .direnv/
 /rules.py
 REVIEW/
+TASK.md
 TASKS.md

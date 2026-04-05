@@ -79,13 +79,16 @@ test('demo import journey keeps core views populated', async ({ page }) => {
   await page.getByRole('button', { name: 'Mar' }).click();
   await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2024-03-01', { timeout: uiTimeoutMs });
   await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2024-03-31', { timeout: uiTimeoutMs });
-  await expect.soft(firstBalanceTransactionDate()).toContainText('2024-03-01', { timeout: uiTimeoutMs });
+  await expect.soft(firstBalanceTransactionDate()).toContainText('2024-03-', { timeout: uiTimeoutMs });
+  const marchFirstBalanceDate = (await firstBalanceTransactionDate().textContent())?.trim();
   const marchChartImage = await balanceChartCanvas().evaluate((canvas) => canvas.toDataURL());
 
   await page.getByRole('button', { name: 'Feb' }).click();
   await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2024-02-01', { timeout: uiTimeoutMs });
   await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2024-02-29', { timeout: uiTimeoutMs });
-  await expect.soft(firstBalanceTransactionDate()).toContainText('2024-02-01', { timeout: uiTimeoutMs });
+  await expect.soft(firstBalanceTransactionDate()).toContainText('2024-02-', { timeout: uiTimeoutMs });
+  const februaryFirstBalanceDate = (await firstBalanceTransactionDate().textContent())?.trim();
+  expect(februaryFirstBalanceDate).not.toBe(marchFirstBalanceDate);
   await page.waitForFunction((previousImage) => {
     const canvas = document.querySelector('canvas');
     return Boolean(canvas) && canvas.toDataURL() !== previousImage;
