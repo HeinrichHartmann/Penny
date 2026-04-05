@@ -29,3 +29,4 @@ demo.db
 .direnv/
 /rules.py
 REVIEW/
+TASKS.md
