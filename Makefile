@@ -1,4 +1,4 @@
-.PHONY: dev serve serve-api dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test lint lint-fix format frontend-install frontend-build frontend-dev
+.PHONY: dev serve serve-api serve-fresh dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test lint lint-fix format frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
 dev: sync frontend-build
@@ -14,6 +14,20 @@ serve: sync frontend-install
 # Run just the API/backend server for Vite-based development
 serve-api: sync
 	uv run python -c "from penny.server import run_server; run_server(port=8001)"
+
+# Run server with clean database in /tmp/Penny-$port
+serve-fresh: sync frontend-build
+	@PORT=$$((8000 + RANDOM % 4000)); \
+	VAULT_DIR="/tmp/Penny-$$PORT"; \
+	URL="http://127.0.0.1:$$PORT"; \
+	echo "Starting fresh Penny instance:"; \
+	echo "  Port:      $$PORT"; \
+	echo "  Vault dir: $$VAULT_DIR"; \
+	echo "  URL:       $$URL"; \
+	echo ""; \
+	trap 'echo ""; echo "Cleaning up $$VAULT_DIR..."; rm -rf "$$VAULT_DIR"' EXIT INT TERM; \
+	(sleep 1 && echo "Opening browser..." && open "$$URL") & \
+	PENNY_VAULT_DIR="$$VAULT_DIR" uv run python -c "from penny.server import run_server; run_server(port=$$PORT)"
 
 # Install frontend dependencies locally
 frontend-install:
@@ -120,6 +134,7 @@ help:
 	@echo "  make dev       - Run Toga GUI in development mode"
 	@echo "  make serve     - Run Vite + backend with hot reload and open browser"
 	@echo "  make serve-api - Run just the backend API server on http://127.0.0.1:8001"
+	@echo "  make serve-fresh - Run server with clean database on random port (8000-12000)"
 	@echo "  make dev-web   - Alias for make serve"
 	@echo "  make install   - Install the standalone penny CLI tool from this checkout"
 	@echo "  make dev-install - Install development dependencies for working on the repo"

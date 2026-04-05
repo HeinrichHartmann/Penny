@@ -86,8 +86,10 @@ async def list_imports():
     """List all past imports with metadata from vault manifests.
 
     Returns:
-        List of import records with timestamp, filename, parser, and transaction counts.
+        List of import records including CSV imports and rules updates.
     """
+    from penny.vault.manifests import RulesManifest
+
     config = VaultConfig()
     log = LogManager(config)
 
@@ -99,24 +101,37 @@ async def list_imports():
             # Skip entries with invalid manifests
             continue
 
-        # Only include ingest entries
+        # Handle rules updates
+        if isinstance(manifest, RulesManifest):
+            imports.append(
+                {
+                    "sequence": entry.sequence,
+                    "timestamp": manifest.timestamp,
+                    "filenames": ["rules.py"],
+                    "parser": "rules",
+                    "status": "applied",
+                    "account_id": None,
+                    "account_label": None,
+                    "enabled": True,
+                    "warning": None,
+                    "type": "rules",
+                }
+            )
+            continue
+
+        # Only include ingest entries for CSV imports
         if not isinstance(manifest, IngestManifest):
             continue
 
         # Get account info if available
-        # We need to look up the account from the transactions table
-        # since the manifest doesn't store account_id
         account_label = None
         account_id = None
 
-        # Try to get account info from the database based on the parser/bank
-        # This is a heuristic - the actual account is determined during apply
         try:
             from penny.api.helpers import get_db
 
             conn = get_db()
             cursor = conn.cursor()
-            # Find the most likely account based on the bank name from parser
             row = cursor.execute(
                 """
                 SELECT a.id, a.display_name, a.bank
@@ -146,6 +161,7 @@ async def list_imports():
                 "account_label": account_label,
                 "enabled": getattr(manifest, "enabled", True),
                 "warning": getattr(manifest, "warning", None),
+                "type": "ingest",
             }
         )
 

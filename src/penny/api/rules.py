@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from penny.classify import load_rules_config, run_classification_pass
 from penny.classify.engine import LoadedRulesConfig
 from penny.transactions import apply_classifications, list_transactions
-from penny.vault import ensure_rules_snapshot, save_rules_snapshot
+from penny.vault import ensure_rules_snapshot, update_rules
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
@@ -145,9 +145,9 @@ def run_rules_path(rules_path: Path) -> dict:
 
 @router.put("")
 async def save_rules(update: RulesUpdate):
-    """Save the rules file content."""
+    """Save the rules file content and create vault log entry."""
     try:
-        rules_path = save_rules_snapshot(update.content)
+        rules_path = update_rules(update.content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save rules file: {e}") from e
 

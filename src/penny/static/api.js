@@ -218,6 +218,25 @@ export const uploadCsv = async (file) => {
 };
 
 /**
+ * Upload a rules file.
+ * @param {File} file
+ * @returns {Promise<object>}
+ */
+export const uploadRules = async (file) => {
+  const content = await file.text();
+  const resp = await fetch('/api/rules', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.detail || 'Rules upload failed');
+  }
+  return resp.json();
+};
+
+/**
  * Fetch account value history.
  * @param {object} filters
  * @returns {Promise<object>}

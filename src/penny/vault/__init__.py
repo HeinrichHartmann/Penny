@@ -15,6 +15,7 @@ from penny.vault.manifests import (
 )
 from penny.vault.mutations import MutationLog, MutationRow
 from penny.vault.replay import ReplayEngine, ReplayResult, apply_pending_mutations, replay_vault
+from penny.vault.rules import update_rules
 from penny.vault.rules_store import (
     default_rules_template,
     ensure_rules_snapshot,
@@ -70,6 +71,7 @@ __all__ = [
     "ensure_rules_snapshot",
     "latest_rules_path",
     "save_rules_snapshot",
+    "update_rules",
     # Write surface
     "create_account",
     "update_account",

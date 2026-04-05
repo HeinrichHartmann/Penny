@@ -1,6 +1,6 @@
 import { reactive } from 'vue/dist/vue.esm-bundler.js';
 
-export const createImportViewState = ({ uploadCsv, afterUpload }) => {
+export const createImportViewState = ({ uploadCsv, uploadRules, afterUpload }) => {
   const importState = reactive({
     isDragging: false,
     isUploading: false,
@@ -16,13 +16,26 @@ export const createImportViewState = ({ uploadCsv, afterUpload }) => {
     try {
       const results = [];
       for (const file of files) {
-        const result = await uploadCsv(file);
-        results.push(result);
+        // Check if this is a rules file
+        if (file.name.endsWith('rules.py')) {
+          const result = await uploadRules(file);
+          // Format the result to match the import result structure
+          results.push({
+            filename: file.name,
+            parser: 'rules',
+            status: result.status,
+            path: result.path,
+            type: 'rules',
+          });
+        } else {
+          const result = await uploadCsv(file);
+          results.push(result);
+        }
       }
 
       importState.lastResult = results.length === 1 ? results[0] : results;
       if (afterUpload) {
-        await afterUpload();
+        await afterUpload(importState.lastResult);
       }
     } catch (error) {
       importState.error = error.message;

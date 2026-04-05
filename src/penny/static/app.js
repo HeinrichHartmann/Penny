@@ -220,9 +220,33 @@ createApp({
       meta.max_date = m.max_date;
     };
 
-    const handleImportComplete = async () => {
+    const handleImportComplete = async (importResult) => {
+      const oldMaxDate = meta.max_date;
       await refreshMeta();
       await loadCategoryOptions();
+
+      // If a new account was created, add it to the filter
+      // Handle both single result and array of results (multi-file import)
+      const results = Array.isArray(importResult) ? importResult : [importResult];
+      for (const result of results) {
+        if (result?.account?.is_new && result?.account?.id) {
+          const accountId = result.account.id;
+          if (!filters.accounts.includes(accountId)) {
+            filters.accounts.push(accountId);
+          }
+        }
+      }
+
+      // Update date range if new transactions extended the range
+      if (meta.max_date && oldMaxDate && meta.max_date > oldMaxDate) {
+        // If currently filtered to a specific date range, extend it to include new data
+        if (filters.to && filters.to < meta.max_date) {
+          filters.to = meta.max_date;
+        }
+      }
+
+      // Reload the current view to show the imported data
+      await loadCurrentViewData({ resetTransactionsPage: true });
     };
 
     // ── Account Toggle ───────────────────────────────────────────────────────
