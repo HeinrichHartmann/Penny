@@ -12,6 +12,7 @@ export const createRulesViewState = ({ fetchRules, saveRules, runRules }) => {
     running: false,
     error: null,
     saveMessage: null,
+    lastRunAt: null,
     logs: [],
     stats: null,
   });
@@ -26,6 +27,7 @@ export const createRulesViewState = ({ fetchRules, saveRules, runRules }) => {
       rulesState.exists = data.exists;
       rulesState.content = data.content || '';
       rulesState.originalContent = data.content || '';
+      rulesState.lastRunAt = data.latest_run?.started_at || null;
       rulesState.logs = data.latest_run?.logs || [];
       rulesState.stats = data.latest_run?.stats || null;
       if (data.latest_run?.status === 'error') {
@@ -44,12 +46,15 @@ export const createRulesViewState = ({ fetchRules, saveRules, runRules }) => {
     rulesState.stats = null;
     try {
       const result = await runRules();
+      rulesState.lastRunAt = result.started_at || null;
       rulesState.logs = result.logs || [];
       rulesState.stats = result.stats;
       rulesState.error = result.status === 'error' ? 'Classification failed - see logs below' : null;
+      return result.status !== 'error';
     } catch (error) {
       rulesState.error = error.message;
       rulesState.logs = [{ level: 'error', message: error.message }];
+      return false;
     } finally {
       rulesState.running = false;
     }
@@ -64,8 +69,10 @@ export const createRulesViewState = ({ fetchRules, saveRules, runRules }) => {
       rulesState.originalContent = rulesState.content;
       rulesState.saveMessage = 'Saved successfully';
       await runClassification();
+      return true;
     } catch (error) {
       rulesState.error = error.message;
+      return false;
     } finally {
       rulesState.saving = false;
     }

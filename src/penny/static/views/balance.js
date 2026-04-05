@@ -38,6 +38,11 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
     return points[points.length - 1].total_balance;
   });
 
+  const resetValueHistory = () => {
+    valueHistory.value = null;
+    loading.value = false;
+  };
+
   const loadValueHistory = async () => {
     if (!filters.accounts || filters.accounts.length === 0) {
       valueHistory.value = null;
@@ -332,6 +337,7 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
     loading,
     showVolume,
     latestBalance,
+    resetValueHistory,
     setBalanceChartEl,
     setShowVolume,
     loadValueHistory,

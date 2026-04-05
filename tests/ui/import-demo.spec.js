@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 
 test('demo import journey keeps core views populated', async ({ page }) => {
   const uiTimeoutMs = 1_000;
+  const firstTransactionDate = () => page.locator('tbody tr').first().locator('td').first();
+  const firstBalanceTransactionDate = () => page.locator('table').nth(1).locator('tbody tr').first().locator('td').first();
+  const balanceChartCanvas = () => page.locator('canvas').first();
 
   await page.goto('/');
 
@@ -23,13 +26,38 @@ test('demo import journey keeps core views populated', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Rules' }).click();
   await expect(page.getByRole('heading', { name: 'Classification Rules' })).toBeVisible();
+  await expect.soft(page.getByText(/Last run:/)).toBeVisible({ timeout: uiTimeoutMs });
   await expect.soft(page.getByText('Matched', { exact: true })).toBeVisible({ timeout: uiTimeoutMs });
   await expect.soft(page.getByText('Unmatched', { exact: true })).toBeVisible({ timeout: uiTimeoutMs });
   await expect.soft(page.getByText('Save rules or click "Run Classification" to see results')).toHaveCount(0, { timeout: uiTimeoutMs });
 
   await page.getByRole('button', { name: 'Transactions' }).click();
   await expect(page.getByRole('heading', { name: 'Transactions', exact: true })).toBeVisible();
+  await expect.soft(page.getByRole('button', { name: '2024' })).toBeVisible({ timeout: uiTimeoutMs });
+  await expect.soft(page.getByRole('button', { name: '2023' })).toBeVisible({ timeout: uiTimeoutMs });
+  await expect.soft(page.getByRole('button', { name: '2022' })).toBeVisible({ timeout: uiTimeoutMs });
+
+  await page.getByRole('button', { name: '2024' }).click();
+  await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2024-01-01', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2024-12-31', { timeout: uiTimeoutMs });
+  await expect.soft(firstTransactionDate()).toContainText('2024-03-29', { timeout: uiTimeoutMs });
+
+  await page.getByRole('button', { name: '2023' }).click();
+  await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2023-01-01', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2023-12-31', { timeout: uiTimeoutMs });
+  await expect.soft(firstTransactionDate()).toContainText('2023-12-29', { timeout: uiTimeoutMs });
+
+  await page.getByRole('button', { name: '2022' }).click();
+  await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2022-01-01', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2022-12-31', { timeout: uiTimeoutMs });
+  await expect.soft(firstTransactionDate()).toContainText('2022-12-29', { timeout: uiTimeoutMs });
+
+  await page.getByRole('button', { name: 'All', exact: true }).first().click();
+  await page.getByPlaceholder('Search description').fill('Sparen');
   await expect.soft(page.locator('tbody tr').first()).toBeVisible({ timeout: uiTimeoutMs });
+  await expect.soft(page.getByText('Showing 1-24 of 24')).toBeVisible({ timeout: uiTimeoutMs });
+  await expect.soft(page.locator('tbody tr').nth(9)).toContainText('2023-06-29', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('tbody tr').nth(9).locator('td').nth(2)).toContainText('Sparen', { timeout: uiTimeoutMs });
 
   await page.getByRole('button', { name: 'Report' }).click();
   await expect(page.getByRole('heading', { name: 'Report', exact: true })).toBeVisible();
@@ -41,4 +69,25 @@ test('demo import journey keeps core views populated', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Account Balance History' })).toBeVisible();
   await expect.soft(page.getByText('No balance data available for the selected accounts and date range.')).toHaveCount(0, { timeout: uiTimeoutMs });
   await expect.soft(page.getByText('Recorded Balance Snapshots')).toBeVisible({ timeout: uiTimeoutMs });
+
+  await expect.soft(balanceChartCanvas()).toBeVisible({ timeout: uiTimeoutMs });
+
+  await page.getByRole('button', { name: '2024' }).click();
+  await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2024-01-01', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2024-12-31', { timeout: uiTimeoutMs });
+
+  await page.getByRole('button', { name: 'Mar' }).click();
+  await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2024-03-01', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2024-03-31', { timeout: uiTimeoutMs });
+  await expect.soft(firstBalanceTransactionDate()).toContainText('2024-03-01', { timeout: uiTimeoutMs });
+  const marchChartImage = await balanceChartCanvas().evaluate((canvas) => canvas.toDataURL());
+
+  await page.getByRole('button', { name: 'Feb' }).click();
+  await expect.soft(page.locator('input[type="date"]').first()).toHaveValue('2024-02-01', { timeout: uiTimeoutMs });
+  await expect.soft(page.locator('input[type="date"]').nth(1)).toHaveValue('2024-02-29', { timeout: uiTimeoutMs });
+  await expect.soft(firstBalanceTransactionDate()).toContainText('2024-02-01', { timeout: uiTimeoutMs });
+  await page.waitForFunction((previousImage) => {
+    const canvas = document.querySelector('canvas');
+    return Boolean(canvas) && canvas.toDataURL() !== previousImage;
+  }, marchChartImage);
 });

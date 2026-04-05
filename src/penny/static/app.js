@@ -6,6 +6,7 @@ import { computed, createApp, nextTick, onMounted, reactive, ref, watch } from '
 import {
   createDateHelpers,
   computeDefaultDateRange,
+  computeYearButtons,
 } from './utils/date.js';
 import { categoryColor, ensureCategoryColors } from './utils/color.js';
 import {
@@ -52,7 +53,7 @@ createApp({
     let isHydratingFromUrl = true;
 
     // ── State ────────────────────────────────────────────────────────────────
-    const view = ref('import');
+    const view = ref(initialUrlState.view || 'import');
     const meta = reactive({ accounts: [], min_date: '', max_date: '' });
     const filters = reactive({
       from: '',
@@ -77,6 +78,7 @@ createApp({
     const reportText = ref('');
     const searchQuery = ref(initialUrlState.q || '');
     const monthRangeAnchor = ref(null);
+    const appDataVersion = ref(0);
 
     // Chart element refs
     const treemapEl = ref(null);
@@ -219,42 +221,63 @@ createApp({
       meta.accounts = m.accounts;
       meta.min_date = m.min_date;
       meta.max_date = m.max_date;
+      yearButtons.value = m.min_date && m.max_date
+        ? computeYearButtons(m.min_date, m.max_date)
+        : [];
     };
 
-    const handleImportComplete = async (importResult) => {
-      const oldMaxDate = meta.max_date;
-      await refreshMeta();
-      await loadCategoryOptions();
+    let balanceViewState = null;
 
-      // If a new account was created, add it to the filter
-      // Handle both single result and array of results (multi-file import)
-      const results = Array.isArray(importResult) ? importResult : [importResult];
-      for (const result of results) {
-        if (result?.account?.is_new && result?.account?.id) {
-          const accountId = result.account.id;
-          if (!filters.accounts.includes(accountId)) {
-            filters.accounts.push(accountId);
-          }
-        }
-      }
+    const clearDerivedViewData = () => {
+      summary.value = null;
+      tree.value = null;
+      pivot.value = null;
+      cashflow.value = null;
+      breakout.value = null;
+      transactions.value = null;
+      reportText.value = '';
+      balanceViewState?.resetValueHistory();
+      resetTransactionPagination();
+    };
 
-      // Update date range to show imported data
-      if (meta.max_date) {
-        if (!oldMaxDate) {
-          // First import - reset filters to show last month of imported data
-          const defaultRange = computeDefaultDateRange(meta.max_date);
-          filters.from = defaultRange.from;
-          filters.to = defaultRange.to;
-        } else if (meta.max_date > oldMaxDate) {
-          // Subsequent import - extend range to include new data
-          if (filters.to && filters.to < meta.max_date) {
+    let pendingRehydration = Promise.resolve();
+    const rehydrateAppState = ({ updateDateRange = false } = {}) => {
+      pendingRehydration = pendingRehydration.then(async () => {
+        const oldMaxDate = meta.max_date;
+        await refreshMeta();
+
+        if (updateDateRange && meta.max_date) {
+          if (!oldMaxDate) {
+            const defaultRange = computeDefaultDateRange(meta.max_date);
+            filters.from = defaultRange.from;
+            filters.to = defaultRange.to;
+          } else if (meta.max_date > oldMaxDate && filters.to && filters.to < meta.max_date) {
             filters.to = meta.max_date;
           }
         }
-      }
 
-      // Reload the current view to show the imported data
-      await loadCurrentViewData({ resetTransactionsPage: true });
+        const visibleAccountIds = meta.accounts.map((account) => account.id);
+        const selectedVisibleAccountIds = filters.accounts.filter((id) =>
+          visibleAccountIds.includes(id)
+        );
+        filters.accounts = selectedVisibleAccountIds.length > 0
+          ? selectedVisibleAccountIds
+          : [...visibleAccountIds];
+
+        clearDerivedViewData();
+        await loadCategoryOptions();
+        appDataVersion.value += 1;
+      });
+
+      return pendingRehydration;
+    };
+
+    let pendingImportRefresh = Promise.resolve();
+    const handleImportComplete = (importResult) => {
+      pendingImportRefresh = pendingImportRefresh.then(async () => {
+        await rehydrateAppState({ updateDateRange: true });
+      });
+      return pendingImportRefresh;
     };
 
     // ── Account Toggle ───────────────────────────────────────────────────────
@@ -392,7 +415,7 @@ createApp({
       setBreakoutEl,
     });
 
-    const balanceViewState = createBalanceViewState({
+    balanceViewState = createBalanceViewState({
       fetchAccountValueHistory,
       filters,
       onDateRangeChange: (from, to) => {
@@ -456,6 +479,7 @@ createApp({
 
     // ── Expose ───────────────────────────────────────────────────────────────
     return {
+      appDataVersion,
       view,
       filters,
       transactionsViewModel,
@@ -464,6 +488,7 @@ createApp({
       toggleAccount,
       handleImportComplete,
       refreshMeta,
+      rehydrateAppState,
     };
   },
 }).mount('#app');

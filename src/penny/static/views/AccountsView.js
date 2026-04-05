@@ -8,7 +8,7 @@ export const AccountsView = {
   props: {
     filters: { type: Object, required: true },
     toggleAccount: { type: Function, required: true },
-    refreshMeta: { type: Function, required: true },
+    rehydrateApp: { type: Function, required: true },
   },
   setup(props) {
     const {
@@ -33,7 +33,7 @@ export const AccountsView = {
       updateAccount,
       recordBalanceSnapshot,
       deleteAccount,
-      refreshMeta: props.refreshMeta,
+      rehydrateApp: props.rehydrateApp,
     });
 
     onMounted(async () => {

@@ -22,6 +22,28 @@ export const createSelectorState = ({
   const selectorCategory = ref(selectedCategory.value);
   const categorySelectValue = ref('');
   const availableCategories = ref([]);
+  let searchReloadTimer = null;
+  let filterReloadTimer = null;
+
+  const reloadCurrentView = async ({ resetPage = true } = {}) => {
+    await loadCategoryOptions();
+    if (view.value === 'transactions') {
+      await loadTransactionsForCurrentView({ resetPage });
+      return;
+    }
+    if (view.value === 'report') {
+      await loadAll();
+    }
+  };
+
+  const scheduleFilterReload = ({ resetPage = true, delayMs = 0 } = {}) => {
+    if (filterReloadTimer) {
+      clearTimeout(filterReloadTimer);
+    }
+    filterReloadTimer = setTimeout(async () => {
+      await reloadCurrentView({ resetPage });
+    }, delayMs);
+  };
 
   const selectedMatchesCategory = (category) => {
     if (!selectedCategory.value || !category) return false;
@@ -113,15 +135,30 @@ export const createSelectorState = ({
   const selectorActions = {
     updateFrom: (value) => {
       filters.from = value;
+      scheduleFilterReload({ resetPage: true, delayMs: 150 });
     },
     updateTo: (value) => {
       filters.to = value;
+      scheduleFilterReload({ resetPage: true, delayMs: 150 });
     },
     updateCategorySelectValue: (value) => {
       categorySelectValue.value = value;
     },
     updateSearchQuery: (value) => {
       searchQuery.value = value;
+      if (searchReloadTimer) {
+        clearTimeout(searchReloadTimer);
+      }
+      searchReloadTimer = setTimeout(async () => {
+        await loadCategoryOptions();
+        if (view.value === 'transactions') {
+          await loadTransactionsForCurrentView({ resetPage: true });
+          return;
+        }
+        if (view.value === 'report') {
+          await loadAll();
+        }
+      }, 150);
     },
     setYear,
     setAll,
@@ -129,10 +166,33 @@ export const createSelectorState = ({
     setYearAllMonths,
     isActiveYear,
     isActiveMonth,
-    toggleAccount,
+    toggleAccount: (accountId) => {
+      toggleAccount(accountId);
+      scheduleFilterReload({ resetPage: true });
+    },
     applyCategorySelection,
     clearSelection,
     previewCategorySelection,
+  };
+
+  selectorActions.setYear = (year) => {
+    setYear(year);
+    scheduleFilterReload({ resetPage: true });
+  };
+
+  selectorActions.setAll = () => {
+    setAll();
+    scheduleFilterReload({ resetPage: true });
+  };
+
+  selectorActions.setMonth = (event, month) => {
+    setMonth(event, month);
+    scheduleFilterReload({ resetPage: true });
+  };
+
+  selectorActions.setYearAllMonths = () => {
+    setYearAllMonths();
+    scheduleFilterReload({ resetPage: true });
   };
 
   watch(selectorCategory, () => {

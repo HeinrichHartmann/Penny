@@ -14,34 +14,46 @@
     <main class="main-content">
 
     <!-- Import View -->
-    <import-view v-if="view === 'import'" @imported="handleImportComplete"></import-view>
+    <import-view
+      v-if="view === 'import'"
+      :key="`import-${appDataVersion}`"
+      @imported="handleImportComplete"
+    ></import-view>
 
     <!-- Accounts View -->
     <accounts-view
       v-if="view === 'accounts'"
+      :key="`accounts-${appDataVersion}`"
       :filters="filters"
       :toggle-account="toggleAccount"
-      :refresh-meta="refreshMeta"
+      :rehydrate-app="rehydrateAppState"
     ></accounts-view>
 
     <!-- Transactions View -->
     <transactions-view
       v-if="view === 'transactions'"
+      :key="`transactions-${appDataVersion}`"
       :model="transactionsViewModel"
     ></transactions-view>
 
     <!-- Rules View -->
-    <rules-view v-if="view === 'rules'"></rules-view>
+    <rules-view
+      v-if="view === 'rules'"
+      :key="`rules-${appDataVersion}`"
+      :rehydrate-app="rehydrateAppState"
+    ></rules-view>
 
     <!-- Report View -->
     <report-view
       v-if="view === 'report'"
+      :key="`report-${appDataVersion}`"
       :model="reportViewModel"
     ></report-view>
 
     <!-- Balance View -->
     <balance-view
       v-if="view === 'balance'"
+      :key="`balance-${appDataVersion}`"
       :model="balanceViewModel"
     ></balance-view>
 

@@ -18,7 +18,6 @@ export const ImportView = {
       uploadRules,
       afterUpload: async (result) => {
         emit('imported', result);
-        await loadImportHistory();
       },
     });
 
@@ -46,6 +45,7 @@ export const ImportView = {
         const result = await toggleImportEnabled(imp.sequence);
         // Update local state
         imp.enabled = result.enabled;
+        emit('imported', result);
       } catch (error) {
         console.error('Failed to toggle import:', error);
         alert('Failed to toggle import: ' + error.message);
@@ -59,9 +59,8 @@ export const ImportView = {
       rebuilding.value = true;
       rebuildResult.value = null;
       try {
-        await rebuildDatabase();
-        // Full page reload to refresh all app state
-        window.location.reload();
+        rebuildResult.value = await rebuildDatabase();
+        emit('imported', rebuildResult.value);
       } catch (error) {
         console.error('Failed to rebuild database:', error);
         alert('Failed to rebuild database: ' + error.message);
@@ -89,13 +88,7 @@ export const ImportView = {
       importingDemo.value = true;
       try {
         const { results } = await importDemoData();
-
-        // Emit each result to trigger app refresh
-        for (const result of results) {
-          emit('imported', result);
-        }
-
-        await loadImportHistory();
+        emit('imported', results);
       } catch (error) {
         console.error('Failed to import demo data:', error);
         alert('Failed to import demo data: ' + error.message);

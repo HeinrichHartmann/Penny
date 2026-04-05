@@ -45,12 +45,6 @@ export const setupAppLifecycle = ({
     }
   });
 
-  watch(searchQuery, () => {
-    if (isHydrating()) return;
-    loadCategoryOptions();
-    loadCurrentViewData({ resetTransactionsPage: true });
-  });
-
   watch(
     () => [
       view.value,

@@ -5,7 +5,10 @@ import { createRulesViewState } from './rules.js';
 
 export const RulesView = {
   name: 'RulesView',
-  setup() {
+  props: {
+    rehydrateApp: { type: Function, required: true },
+  },
+  setup(props) {
     const {
       rulesState,
       loadRules,
@@ -23,12 +26,43 @@ export const RulesView = {
       await loadRules();
     });
 
+    const saveRulesAndRehydrate = async () => {
+      const changedState = await saveRulesContent();
+      if (changedState) {
+        await props.rehydrateApp();
+      }
+    };
+
+    const runClassificationAndRehydrate = async () => {
+      const changedState = await runClassification();
+      if (changedState) {
+        await props.rehydrateApp();
+      }
+    };
+
+    const formatDateTime = (timestamp) => {
+      if (!timestamp) return '';
+      try {
+        return new Date(timestamp).toLocaleString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+      } catch {
+        return timestamp;
+      }
+    };
+
     return {
       rulesState,
-      saveRulesContent,
-      runClassification,
+      saveRulesContent: saveRulesAndRehydrate,
+      runClassification: runClassificationAndRehydrate,
       reloadRules,
       rulesHasChanges,
+      formatDateTime,
     };
   },
   template: `
@@ -98,7 +132,12 @@ export const RulesView = {
 
       <div class="panel" style="margin-top: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="font-size: 1rem; margin: 0;">Classification Log</h3>
+          <div>
+            <h3 style="font-size: 1rem; margin: 0;">Classification Log</h3>
+            <div v-if="rulesState.lastRunAt" style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">
+              Last run: {{ formatDateTime(rulesState.lastRunAt) }}
+            </div>
+          </div>
           <button
             @click="runClassification"
             :disabled="rulesState.running"

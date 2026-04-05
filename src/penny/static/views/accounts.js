@@ -1,6 +1,12 @@
 import { ref } from 'vue/dist/vue.esm-bundler.js';
 
-export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBalanceSnapshot, deleteAccount, refreshMeta }) => {
+export const createAccountsViewState = ({
+  fetchAccounts,
+  updateAccount,
+  recordBalanceSnapshot,
+  deleteAccount,
+  rehydrateApp,
+}) => {
   const accountsList = ref([]);
   const accountsLoading = ref(false);
   const includeHidden = ref(false);
@@ -64,9 +70,9 @@ export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBa
         updates.notes = editingAccountData.value.notes || null;
       }
 
-      await updateAccount(accountId, updates);
-      await Promise.all([loadAccounts(), refreshMeta()]);
       cancelEditingAccount();
+      await updateAccount(accountId, updates);
+      await rehydrateApp();
     } catch (error) {
       console.error('Failed to update account:', error);
       alert('Failed to update account: ' + error.message);
@@ -106,8 +112,8 @@ export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBa
         note: balanceData.value.note || null,
       });
 
-      await Promise.all([loadAccounts(), refreshMeta()]);
       cancelRecordingBalance();
+      await rehydrateApp();
     } catch (error) {
       console.error('Failed to record balance:', error);
       alert('Failed to record balance: ' + error.message);
@@ -120,7 +126,7 @@ export const createAccountsViewState = ({ fetchAccounts, updateAccount, recordBa
     }
     try {
       await deleteAccount(accountId);
-      await Promise.all([loadAccounts(), refreshMeta()]);
+      await rehydrateApp();
     } catch (error) {
       console.error('Failed to hide account:', error);
       alert('Failed to hide account: ' + error.message);

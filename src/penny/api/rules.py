@@ -130,6 +130,8 @@ def _evaluate_rules_path(rules_path: Path, *, persist: bool) -> dict:
 
     return {
         "status": "success",
+        "started_at": start_time.isoformat(),
+        "completed_at": datetime.now().isoformat(),
         "logs": logs,
         "stats": {
             "rules_count": len(config.ruleset.rules),
@@ -181,6 +183,8 @@ async def run_rules():
     if not rules_path.exists():
         return {
             "status": "error",
+            "started_at": datetime.now().isoformat(),
+            "completed_at": datetime.now().isoformat(),
             "logs": [
                 {
                     "level": "error",
