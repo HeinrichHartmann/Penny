@@ -422,7 +422,7 @@ export const createApi = ({
       ? `&category=${encodeURIComponent(selectedCategory.value)}`
       : '';
     const tabParam =
-      view.value === 'transactions' || tab.value === 'cashflow' || tab.value === 'breakout' || tab.value === 'report'
+      view.value === 'transactions' || view.value === 'balance' || tab.value === 'cashflow' || tab.value === 'breakout' || tab.value === 'report'
         ? ''
         : `&tab=${tab.value}`;
     const qParam = searchQuery.value

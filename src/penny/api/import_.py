@@ -265,14 +265,44 @@ async def list_imports():
         if entry.entry_type == "balance":
             snapshots = entry.record.get("snapshots", [])
             account_ids = set(s["account_id"] for s in snapshots)
+
+            # Build detailed label with balance and account info
+            if len(snapshots) == 1:
+                snap = snapshots[0]
+                balance_eur = snap["balance_cents"] / 100
+                snap_date = snap.get("snapshot_date", "?")
+
+                # Get account name
+                account_name = None
+                try:
+                    from penny.api.helpers import get_db
+
+                    conn = get_db()
+                    row = conn.execute(
+                        "SELECT display_name, bank FROM accounts WHERE id = ?",
+                        (snap["account_id"],),
+                    ).fetchone()
+                    conn.close()
+                    if row:
+                        account_name = row[0] or f"{row[1]} #{snap['account_id']}"
+                except Exception:
+                    pass
+
+                if account_name:
+                    account_label = f"{account_name}: {balance_eur:,.2f}€ @ {snap_date}"
+                else:
+                    account_label = f"Account #{snap['account_id']}: {balance_eur:,.2f}€ @ {snap_date}"
+            else:
+                account_label = f"{len(snapshots)} snapshot(s) for {len(account_ids)} account(s)"
+
             imports.append({
                 "sequence": entry.sequence,
                 "timestamp": entry.timestamp,
                 "filenames": [entry.record.get("filename", "balance-anchors.tsv")],
                 "parser": "balance_anchors",
                 "status": "applied",
-                "account_id": None,
-                "account_label": f"{len(snapshots)} snapshot(s) for {len(account_ids)} account(s)",
+                "account_id": snapshots[0]["account_id"] if len(snapshots) == 1 else None,
+                "account_label": account_label,
                 "enabled": entry.enabled,
                 "warning": None,
                 "type": "balance_anchors",

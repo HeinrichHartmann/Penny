@@ -90,6 +90,9 @@ export const createBalanceViewState = ({
 
     const valuePoints = valueHistory.value.value_points || [];
     const inconsistencies = valueHistory.value.inconsistencies || [];
+    const dates = valueHistory.value.dates || [];
+    const accountColumns = valueHistory.value.account_columns || {};
+    const accountNames = valueHistory.value.account_names || {};
 
     if (valuePoints.length === 0) {
       balanceChart.clear();
@@ -98,74 +101,193 @@ export const createBalanceViewState = ({
 
     // Data is already aggregated to one point per day from backend
     // Tie deltas to the same date-indexed points as the main balance line.
-    // This keeps the inconsistency bar anchored to the rendered balance point.
     const deltaByDate = {};
     inconsistencies.forEach(inc => {
       deltaByDate[inc.date] = inc;
     });
-    const chartPoints = valuePoints.map(point => ({
-      date: point.date,
-      totalBalance: point.total_balance,
-      isAnchor: point.is_anchor || false,
-      inconsistency: deltaByDate[point.date] || null,
-    }));
     const chartPointByDate = {};
-    chartPoints.forEach(point => {
-      chartPointByDate[point.date] = point;
+    valuePoints.forEach(point => {
+      chartPointByDate[point.date] = {
+        date: point.date,
+        totalBalance: point.total_balance,
+        isAnchor: point.is_anchor || false,
+        inconsistency: deltaByDate[point.date] || null,
+      };
     });
-    const balanceData = [];
-    chartPoints.forEach(point => {
-      if (point.isAnchor && point.inconsistency) {
-        balanceData.push({
-          value: [point.date, point.inconsistency.projected_balance],
-          isAnchor: false,
-        });
-        balanceData.push({
-          value: [point.date, null],
-          isAnchor: false,
-          isBreak: true,
-        });
-        balanceData.push({
-          value: [point.date, point.inconsistency.anchor_balance],
-          isAnchor: true,
-        });
-        return;
-      }
 
-      balanceData.push({
-        value: [point.date, point.totalBalance],
-        isAnchor: point.isAnchor,
+    // Build stacked series from account columns
+    const accountIds = Object.keys(accountColumns).sort((a, b) => parseInt(a) - parseInt(b));
+    const series = [];
+
+    // Consistent color mapping based on account ID (hash-based)
+    const getAccountColor = (accId) => {
+      const colors = [
+        { fill: 'rgba(76, 175, 80, 0.6)', line: 'rgba(76, 175, 80, 0.9)' },    // green
+        { fill: 'rgba(33, 150, 243, 0.6)', line: 'rgba(33, 150, 243, 0.9)' },  // blue
+        { fill: 'rgba(156, 39, 176, 0.6)', line: 'rgba(156, 39, 176, 0.9)' },  // purple
+        { fill: 'rgba(255, 152, 0, 0.6)', line: 'rgba(255, 152, 0, 0.9)' },    // orange
+        { fill: 'rgba(0, 188, 212, 0.6)', line: 'rgba(0, 188, 212, 0.9)' },    // cyan
+        { fill: 'rgba(233, 30, 99, 0.6)', line: 'rgba(233, 30, 99, 0.9)' },    // pink
+        { fill: 'rgba(139, 195, 74, 0.6)', line: 'rgba(139, 195, 74, 0.9)' },  // light green
+        { fill: 'rgba(63, 81, 181, 0.6)', line: 'rgba(63, 81, 181, 0.9)' },    // indigo
+      ];
+      // Use account ID to get consistent color index
+      const index = parseInt(accId) % colors.length;
+      return colors[index];
+    };
+
+    if (accountIds.length > 1 && dates.length > 0) {
+      // Multiple accounts: use ECharts built-in stacking
+      // Each series provides individual account values, ECharts stacks them automatically
+      const anchorDates = new Set(valuePoints.filter(p => p.is_anchor).map(p => p.date));
+
+      accountIds.forEach((accId) => {
+        const accBalances = accountColumns[accId] || [];
+        const color = getAccountColor(accId);
+        const name = accountNames[accId] || `Account #${accId}`;
+
+        // Build data points with individual account values (not cumulative)
+        const seriesData = dates.map((date, i) => [date, accBalances[i] || 0]);
+
+        series.push({
+          name: name,
+          type: 'line',
+          stack: 'balance',
+          stackStrategy: 'all',
+          data: seriesData,
+          step: 'end',
+          showSymbol: false,
+          lineStyle: {
+            width: 1,
+            color: color.line,
+          },
+          areaStyle: {
+            color: color.fill,
+          },
+        });
       });
-    });
-    const deltaBarData = chartPoints
-      .filter(point => point.isAnchor && point.inconsistency)
-      .map(point => ([
-        {
-          xAxis: dayStartTimestamp(point.date),
-          yAxis: Math.min(
-            point.inconsistency.projected_balance,
-            point.inconsistency.anchor_balance
-          ),
-        },
-        {
-          xAxis: nextDayTimestamp(point.date),
-          yAxis: Math.max(
-            point.inconsistency.projected_balance,
-            point.inconsistency.anchor_balance
-          ),
-        },
-      ]));
 
+      // Add a separate "Total" line on top (thicker, with anchor markers)
+      // This uses value_points which already has total_balance summed
+      const totalData = dates.map((date) => {
+        const point = valuePoints.find(p => p.date === date);
+        return {
+          value: [date, point?.total_balance || 0],
+          isAnchor: anchorDates.has(date),
+        };
+      });
+      series.push({
+        name: 'Total',
+        type: 'line',
+        data: totalData,
+        step: 'end',
+        showSymbol: true,
+        symbol: (_value, params) => {
+          return params.data?.isAnchor ? 'circle' : 'none';
+        },
+        symbolSize: (_value, params) => {
+          return params.data?.isAnchor ? 12 : 0;
+        },
+        itemStyle: {
+          color: '#845b31',
+          borderColor: '#fff',
+          borderWidth: 2,
+        },
+        lineStyle: {
+          width: 2.5,
+          color: '#845b31',
+        },
+        areaStyle: null, // No fill for total line
+        z: 100,
+      });
+    } else if (accountIds.length === 1 && dates.length > 0) {
+      // Single account with column data: use consistent color
+      const accId = accountIds[0];
+      const color = getAccountColor(accId);
+      const name = accountNames[accId] || `Account #${accId}`;
+      const accBalances = accountColumns[accId] || [];
 
-    // Build series - stepped line chart for date-granularity data
-    const series = [
-      {
+      const anchorDates = new Set(valuePoints.filter(p => p.is_anchor).map(p => p.date));
+      const balanceData = dates.map((date, i) => ({
+        value: [date, accBalances[i] || 0],
+        isAnchor: anchorDates.has(date),
+      }));
+
+      series.push({
+        name: name,
+        type: 'line',
+        data: balanceData,
+        step: 'end',
+        showSymbol: true,
+        symbol: (_value, params) => {
+          return params.data?.isAnchor ? 'circle' : 'none';
+        },
+        symbolSize: (_value, params) => {
+          return params.data?.isAnchor ? 12 : 0;
+        },
+        itemStyle: {
+          color: color.line,
+          borderColor: '#fff',
+          borderWidth: 2,
+        },
+        lineStyle: {
+          width: 1.5,
+          color: color.line,
+        },
+        areaStyle: {
+          color: color.fill,
+        },
+      });
+    } else {
+      // Legacy fallback: use original value_points
+      const balanceData = [];
+      valuePoints.forEach(point => {
+        const chartPoint = chartPointByDate[point.date];
+        if (chartPoint?.isAnchor && chartPoint?.inconsistency) {
+          balanceData.push({
+            value: [point.date, chartPoint.inconsistency.projected_balance],
+            isAnchor: false,
+          });
+          balanceData.push({
+            value: [point.date, null],
+            isAnchor: false,
+            isBreak: true,
+          });
+          balanceData.push({
+            value: [point.date, chartPoint.inconsistency.anchor_balance],
+            isAnchor: true,
+          });
+          return;
+        }
+
+        balanceData.push({
+          value: [point.date, point.total_balance],
+          isAnchor: chartPoint?.isAnchor || false,
+        });
+      });
+
+      const deltaBarData = valuePoints
+        .filter(point => chartPointByDate[point.date]?.inconsistency)
+        .map(point => {
+          const inc = chartPointByDate[point.date].inconsistency;
+          return [
+            {
+              xAxis: dayStartTimestamp(point.date),
+              yAxis: Math.min(inc.projected_balance, inc.anchor_balance),
+            },
+            {
+              xAxis: nextDayTimestamp(point.date),
+              yAxis: Math.max(inc.projected_balance, inc.anchor_balance),
+            },
+          ];
+        });
+
+      series.push({
         name: 'Account Balance',
         type: 'line',
         data: balanceData,
         step: 'end',
         connectNulls: false,
-        // Show symbols ONLY on anchor dates (FAT dots)
         showSymbol: true,
         symbol: (_value, params) => {
           return params.data?.isAnchor ? 'circle' : 'none';
@@ -206,8 +328,8 @@ export const createBalanceViewState = ({
           data: deltaBarData,
         } : undefined,
         yAxisIndex: 0,
-      },
-    ];
+      });
+    }
 
     const yAxis = [
       {

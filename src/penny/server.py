@@ -55,11 +55,22 @@ async def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000):
+def run_server(host: str = "127.0.0.1", port: int = 8000, reload: bool = False):
     """Run the uvicorn server."""
     import uvicorn
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    if reload:
+        # Use string path for reload support
+        uvicorn.run(
+            "penny.server:app",
+            host=host,
+            port=port,
+            log_level="info",
+            reload=True,
+            reload_dirs=["src/penny"],
+        )
+    else:
+        uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

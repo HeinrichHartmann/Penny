@@ -7,13 +7,13 @@ dev: sync frontend-build
 # Run frontend development server with backend proxy (default web workflow)
 serve: sync frontend-install
 	@backend_pid=; \
-	uv run python -c "from penny.server import run_server; run_server(port=8001)" & backend_pid=$$!; \
+	uv run python -c "from penny.server import run_server; run_server(port=8001, reload=True)" & backend_pid=$$!; \
 	trap 'kill $$backend_pid' EXIT INT TERM; \
 	npm run dev
 
 # Run just the API/backend server for Vite-based development
 serve-api: sync
-	uv run python -c "from penny.server import run_server; run_server(port=8001)"
+	uv run python -c "from penny.server import run_server; run_server(port=8001, reload=True)"
 
 # Run server with clean database in /tmp/Penny-$port
 serve-fresh: sync frontend-build

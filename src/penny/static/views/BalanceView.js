@@ -1,12 +1,12 @@
 import { SelectorHeader } from '../components/SelectorHeader.js';
-import { TransactionsView } from './TransactionsView.js';
+import { TransactionsList } from './TransactionsList.js';
 import { formatCurrency } from '../utils/format.js';
 
 export const BalanceView = {
   name: 'BalanceView',
   components: {
     SelectorHeader,
-    TransactionsView,
+    TransactionsList,
   },
   props: {
     model: { type: Object, required: true },
@@ -77,7 +77,7 @@ export const BalanceView = {
         </table>
       </div>
 
-      <transactions-view v-if="transactionsModel" :model="transactionsModel" style="margin-top: 20px;"></transactions-view>
+      <transactions-list v-if="transactionsModel" :model="transactionsModel" style="margin-top: 20px;"></transactions-list>
     </div>
   `,
 };
