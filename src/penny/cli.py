@@ -36,7 +36,6 @@ from penny.transactions import (
 from penny.transfers import link_transfers
 from penny.vault import (
     IngestRequest,
-    LogManager,
     MutationLog,
     VaultConfig,
     ensure_vault_initialized,
@@ -44,6 +43,7 @@ from penny.vault import (
     replay_vault,
     save_rules_snapshot,
 )
+from penny.vault.ledger import Ledger
 from penny.vault import (
     ingest_csv as ingest_vault_csv,
 )
@@ -287,7 +287,7 @@ def vault_init():
     """Initialize the portable Penny directory."""
     config = VaultConfig()
     created = ensure_vault_initialized(config)
-    imports = LogManager(config)
+    ledger = Ledger(config.path)
 
     click.echo(f"Vault: {config.path}")
     if created:
@@ -296,15 +296,17 @@ def vault_init():
         click.echo("Rules snapshots: 0")
         click.echo("Mutations: 0")
     else:
+        entries = ledger.read_entries()
+        ingest_count = sum(1 for e in entries if e.entry_type == "ingest")
         click.echo("Status: already initialized")
-        click.echo(f"Imports: {imports.count()}")
+        click.echo(f"Imports: {ingest_count}")
 
 
 @vault.command("status")
 def vault_status():
     """Show vault and projection status."""
     config = VaultConfig()
-    imports = LogManager(config)
+    ledger = Ledger(config.path)
     mutations = MutationLog(config)
     latest_rules = latest_rules_path(config)
 
@@ -318,7 +320,10 @@ def vault_status():
         click.echo("Mutations: 0")
         return
 
-    click.echo(f"Imports: {imports.count()}")
+    # Count ingest entries in ledger
+    entries = ledger.read_entries()
+    ingest_count = sum(1 for e in entries if e.entry_type == "ingest")
+    click.echo(f"Imports: {ingest_count}")
     click.echo(f"Rules snapshots: {len(list(config.rules_dir.glob('*_rules.py')))}")
     click.echo(f"Mutations: {len(mutations.list_rows())}")
     if latest_rules is not None:
@@ -379,8 +384,8 @@ def db_drop():
 def log_list():
     """List archived ingest log entries."""
     config = VaultConfig()
-    manager = LogManager(config)
-    entries = manager.list_entries()
+    ledger = Ledger(config.path)
+    entries = ledger.read_entries()
 
     if not entries:
         click.echo("No log entries found.")
@@ -388,14 +393,13 @@ def log_list():
 
     click.echo("Seq    Timestamp             Type    Parser      Files  Contents")
     for entry in entries:
-        manifest = entry.read_manifest()
-        parser = getattr(manifest, "parser", "-")
-        files = getattr(manifest, "csv_files", [])
-        type_name = getattr(manifest, "type", "-")
+        parser = entry.record.get("parser", "-")
+        files = entry.record.get("csv_files", [])
+        type_name = entry.entry_type
         contents = ", ".join(files) if files else "-"
         click.echo(
             f"{entry.sequence:<6} "
-            f"{manifest.timestamp:<20} "
+            f"{entry.timestamp:<20} "
             f"{type_name:<7} "
             f"{parser:<11} "
             f"{len(files):<5} "

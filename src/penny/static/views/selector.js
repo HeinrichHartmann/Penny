@@ -6,6 +6,7 @@ export const createSelectorState = ({
   yearButtons,
   monthShortcutYear,
   selectedCategory,
+  categoryOptions,
   searchQuery,
   toggleAccount,
   setYear,
@@ -14,14 +15,11 @@ export const createSelectorState = ({
   setYearAllMonths,
   isActiveYear,
   isActiveMonth,
-  view,
-  loadTransactionsForCurrentView,
-  loadAll,
-  fetchCategoryOptions,
 }) => {
+  // ADR-013: selector interactions only mutate root-owned app state.
+  // Data loading happens in app.js via root watchers and rehydration.
   const selectorCategory = ref(selectedCategory.value);
   const categorySelectValue = ref('');
-  const availableCategories = ref([]);
 
   const selectedMatchesCategory = (category) => {
     if (!selectedCategory.value || !category) return false;
@@ -44,7 +42,7 @@ export const createSelectorState = ({
     const options = new Map();
     const prefix = selectorCategory.value ? `${selectorCategory.value}/` : '';
 
-    for (const category of availableCategories.value) {
+    for (const category of categoryOptions.value) {
       if (!category) continue;
       if (selectorCategory.value && !category.startsWith(prefix)) continue;
 
@@ -71,27 +69,13 @@ export const createSelectorState = ({
     );
   });
 
-  const loadCategoryOptions = async () => {
-    const result = await fetchCategoryOptions(filters, searchQuery.value);
-    availableCategories.value = result.categories || [];
-  };
-
-  const applyCategorySelection = async (category) => {
+  const applyCategorySelection = (category) => {
     selectorCategory.value = category;
     selectedCategory.value = category;
-
-    if (view.value === 'transactions') {
-      await loadTransactionsForCurrentView({ resetPage: true });
-      return;
-    }
-
-    if (view.value === 'report') {
-      await loadAll();
-    }
   };
 
   const clearSelection = () => {
-    void applyCategorySelection(null);
+    applyCategorySelection(null);
   };
 
   const previewCategorySelection = (category) => {
@@ -135,6 +119,10 @@ export const createSelectorState = ({
     previewCategorySelection,
   };
 
+  watch(selectedCategory, (value) => {
+    selectorCategory.value = value;
+  });
+
   watch(selectorCategory, () => {
     categorySelectValue.value = '';
   });
@@ -145,7 +133,6 @@ export const createSelectorState = ({
     selectedMatchesCategory,
     categoryBreadcrumbs,
     nextCategoryOptions,
-    loadCategoryOptions,
     applyCategorySelection,
     clearSelection,
     previewCategorySelection,

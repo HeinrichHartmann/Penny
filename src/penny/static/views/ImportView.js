@@ -1,72 +1,21 @@
-import { onMounted, ref } from 'vue/dist/vue.esm-bundler.js';
-
-import { uploadCsv, uploadRules, fetchImportHistory, toggleImportEnabled, rebuildDatabase } from '../api.js';
 import { createImportViewState } from './import.js';
 
 export const ImportView = {
   name: 'ImportView',
-  emits: ['imported'],
-  setup(props, { emit }) {
+  props: {
+    model: { type: Object, required: true },
+    actions: { type: Object, required: true },
+  },
+  setup(props) {
     const {
-      importState,
+      dragState,
       handleDragOver,
       handleDragLeave,
       handleDrop,
       handleFileSelect,
     } = createImportViewState({
-      uploadCsv,
-      uploadRules,
-      afterUpload: async (result) => {
-        emit('imported', result);
-        await loadImportHistory();
-      },
+      uploadSelectedFiles: props.actions.uploadSelectedFiles,
     });
-
-    const importHistory = ref([]);
-    const historyLoading = ref(false);
-    const rebuilding = ref(false);
-    const rebuildResult = ref(null);
-
-    const loadImportHistory = async () => {
-      historyLoading.value = true;
-      try {
-        const data = await fetchImportHistory();
-        importHistory.value = data.imports || [];
-      } catch (error) {
-        console.error('Failed to load import history:', error);
-        importHistory.value = [];
-      } finally {
-        historyLoading.value = false;
-      }
-    };
-
-    const handleToggleEnabled = async (imp) => {
-      try {
-        const result = await toggleImportEnabled(imp.sequence);
-        // Update local state
-        imp.enabled = result.enabled;
-      } catch (error) {
-        console.error('Failed to toggle import:', error);
-        alert('Failed to toggle import: ' + error.message);
-      }
-    };
-
-    const handleRebuild = async () => {
-      if (!confirm('Rebuild the database from vault log? This will clear and recreate all data.')) {
-        return;
-      }
-      rebuilding.value = true;
-      rebuildResult.value = null;
-      try {
-        await rebuildDatabase();
-        // Full page reload to refresh all app state
-        window.location.reload();
-      } catch (error) {
-        console.error('Failed to rebuild database:', error);
-        alert('Failed to rebuild database: ' + error.message);
-        rebuilding.value = false;
-      }
-    };
 
     const formatDate = (timestamp) => {
       if (!timestamp) return '';
@@ -84,23 +33,13 @@ export const ImportView = {
       }
     };
 
-    onMounted(async () => {
-      await loadImportHistory();
-    });
-
     return {
-      importState,
+      dragState,
       handleDragOver,
       handleDragLeave,
       handleDrop,
       handleFileSelect,
-      importHistory,
-      historyLoading,
       formatDate,
-      handleToggleEnabled,
-      handleRebuild,
-      rebuilding,
-      rebuildResult,
     };
   },
   template: `
@@ -112,95 +51,102 @@ export const ImportView = {
         :style="{
           padding: '60px 40px',
           textAlign: 'center',
-          border: importState.isDragging ? '2px dashed var(--accent)' : '2px dashed transparent',
-          background: importState.isDragging ? 'rgba(132, 91, 49, 0.05)' : 'var(--panel-bg)',
+          border: dragState.isDragging ? '2px dashed var(--accent)' : '2px dashed transparent',
+          background: dragState.isDragging ? 'rgba(132, 91, 49, 0.05)' : 'var(--panel-bg)',
           transition: 'all 0.2s'
         }"
         @dragover="handleDragOver"
         @dragleave="handleDragLeave"
         @drop="handleDrop"
       >
-        <div v-if="importState.isUploading" style="font-size: 1.2rem; color: var(--accent);">
+        <div v-if="model.isUploading" style="font-size: 1.2rem; color: var(--accent);">
           Importing...
         </div>
         <template v-else>
           <div style="font-size: 3rem; margin-bottom: 16px; opacity: 0.4;">
-            {{ importState.isDragging ? '📥' : '📂' }}
+            {{ dragState.isDragging ? '📥' : '📂' }}
           </div>
           <p style="color: var(--muted); margin-bottom: 12px;">
-            Drag & drop CSV files from your bank
+            Drag & drop CSV files, rules.py, or balance-anchors.tsv
           </p>
           <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 16px;">
-            Supports: Comdirect, Sparkasse, and more
+            CSV: Comdirect, Sparkasse | TSV: Balance snapshots
           </p>
           <label style="display: inline-block; padding: 8px 16px; background: var(--accent); color: white; border-radius: 4px; cursor: pointer;">
             Choose Files
-            <input type="file" accept=".csv,.py" multiple @change="handleFileSelect" style="display: none;">
+            <input type="file" accept=".csv,.py,.tsv" multiple @change="handleFileSelect" style="display: none;">
           </label>
         </template>
       </div>
 
-      <div v-if="importState.error" class="panel" style="margin-top: 16px; padding: 16px; background: #fee; border-left: 3px solid #c00;">
-        <strong style="color: #c00;">Import Error:</strong> {{ importState.error }}
+      <div v-if="model.error" class="panel" style="margin-top: 16px; padding: 16px; background: #fee; border-left: 3px solid #c00;">
+        <strong style="color: #c00;">Import Error:</strong> {{ model.error }}
       </div>
 
-      <div v-if="importState.lastResult" class="panel" style="margin-top: 16px; padding: 20px;">
+      <div v-if="model.lastResult" class="panel" style="margin-top: 16px; padding: 20px;">
         <h3 style="margin-bottom: 12px; color: var(--accent);">
-          {{ importState.lastResult.type === 'rules' ? 'Rules Updated' : 'Import Successful' }}
+          {{ model.lastResult.type === 'rules' ? 'Rules Updated' : 'Import Successful' }}
         </h3>
         <div style="display: grid; gap: 8px; font-size: 0.9rem;">
-          <div><strong>File:</strong> {{ importState.lastResult.filename }}</div>
-          <template v-if="importState.lastResult.type === 'rules'">
+          <div><strong>File:</strong> {{ model.lastResult.filename }}</div>
+          <template v-if="model.lastResult.type === 'rules'">
             <div><strong>Type:</strong> Classification Rules</div>
-            <div><strong>Status:</strong> {{ importState.lastResult.status }}</div>
+            <div><strong>Status:</strong> {{ model.lastResult.status }}</div>
             <div style="margin-top: 8px; color: var(--muted); font-size: 0.85rem;">
               Rules file has been saved. Go to the Rules page to review and run classifications.
             </div>
           </template>
           <template v-else>
-            <div><strong>Parser:</strong> {{ importState.lastResult.parser }}</div>
-            <div><strong>Account:</strong> {{ importState.lastResult.account?.label }}</div>
-            <div v-if="importState.lastResult.account?.is_new" style="color: var(--accent);">
+            <div><strong>Parser:</strong> {{ model.lastResult.parser }}</div>
+            <div><strong>Account:</strong> {{ model.lastResult.account?.label }}</div>
+            <div v-if="model.lastResult.account?.is_new" style="color: var(--accent);">
               (New account created)
             </div>
             <div style="margin-top: 8px;">
               <strong>Transactions:</strong>
-              {{ importState.lastResult.transactions?.new }} new,
-              {{ importState.lastResult.transactions?.duplicates }} duplicates skipped
+              {{ model.lastResult.transactions?.new }} new,
+              {{ model.lastResult.transactions?.duplicates }} duplicates skipped
             </div>
           </template>
         </div>
       </div>
 
-      <!-- Import History Section -->
       <div style="margin-top: 32px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <h3 style="font-size: 1.1rem; color: var(--muted); margin: 0;">Import History</h3>
           <button
-            @click="handleRebuild"
-            :disabled="rebuilding"
+            @click="actions.rebuildProjection"
+            :disabled="model.rebuilding"
             style="padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem;"
-            :style="{ opacity: rebuilding ? 0.6 : 1 }"
+            :style="{ opacity: model.rebuilding ? 0.6 : 1 }"
           >
-            {{ rebuilding ? 'Rebuilding...' : 'Rebuild Database' }}
+            {{ model.rebuilding ? 'Rebuilding...' : 'Rebuild Database' }}
           </button>
         </div>
 
-        <div v-if="rebuildResult" class="panel" style="margin-bottom: 16px; padding: 16px; background: #d4edda; border-left: 3px solid #155724;">
+        <div v-if="model.rebuildResult" class="panel" style="margin-bottom: 16px; padding: 16px; background: #d4edda; border-left: 3px solid #155724;">
           <strong style="color: #155724;">Database Rebuilt:</strong>
-          {{ rebuildResult.entries_processed }} entries processed
+          {{ model.rebuildResult.entries_processed }} entries processed
         </div>
 
-        <div v-if="historyLoading" class="panel" style="padding: 40px; text-align: center;">
+        <div v-if="model.historyLoading" class="panel" style="padding: 40px; text-align: center;">
           <p style="color: var(--muted);">Loading import history...</p>
         </div>
 
-        <div v-else-if="importHistory.length === 0" class="panel" style="padding: 40px; text-align: center;">
-          <p style="color: var(--muted);">No imports yet. Upload a CSV file to get started.</p>
+        <div v-else-if="model.history.length === 0" class="panel" style="padding: 40px; text-align: center;">
+          <p style="color: var(--muted); margin-bottom: 20px;">No imports yet. Upload a CSV file to get started.</p>
+          <button
+            @click="actions.importDemo"
+            :disabled="model.importingDemo"
+            style="padding: 12px 24px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem;"
+            :style="{ opacity: model.importingDemo ? 0.6 : 1 }"
+          >
+            {{ model.importingDemo ? 'Importing Demo Data...' : 'Import Demo Data' }}
+          </button>
         </div>
 
         <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
-          <div v-for="imp in importHistory" :key="imp.sequence" class="panel" style="padding: 20px;" :style="{ opacity: imp.enabled ? 1 : 0.5 }">
+          <div v-for="imp in model.history" :key="imp.sequence" class="panel" style="padding: 20px;" :style="{ opacity: imp.enabled ? 1 : 0.5 }">
             <div style="display: flex; align-items: flex-start; gap: 16px;">
               <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
                 <div :style="{
@@ -220,7 +166,7 @@ export const ImportView = {
                   <input
                     type="checkbox"
                     :checked="imp.enabled"
-                    @change="handleToggleEnabled(imp)"
+                    @change="actions.toggleImportEntryEnabled(imp.sequence)"
                     style="cursor: pointer;"
                   >
                   Enabled
@@ -236,24 +182,10 @@ export const ImportView = {
                 <div v-if="imp.warning" style="font-size: 0.8rem; color: #856404; background: #fff3cd; padding: 4px 8px; border-radius: 4px; margin-bottom: 8px;">
                   {{ imp.warning }}
                 </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.75rem;">
-                  <span style="padding: 2px 8px; background: #e8dcc8; border-radius: 4px;">
-                    {{ imp.parser }}
-                  </span>
-                  <span v-if="imp.account_label" style="padding: 2px 8px; background: #e8dcc8; border-radius: 4px;">
-                    {{ imp.account_label }}
-                  </span>
-                  <span :style="{
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    background: imp.status === 'applied' ? '#d4edda' : '#f8d7da',
-                    color: imp.status === 'applied' ? '#155724' : '#721c24'
-                  }">
-                    {{ imp.status === 'applied' ? 'Applied' : 'Failed' }}
-                  </span>
-                  <span v-if="!imp.enabled" style="padding: 2px 8px; background: #f8d7da; color: #721c24; border-radius: 4px;">
-                    Disabled
-                  </span>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.8rem;">
+                  <span style="color: var(--muted);">Type: <strong style="color: var(--text);">{{ imp.type }}</strong></span>
+                  <span v-if="imp.parser" style="color: var(--muted);">Parser: <strong style="color: var(--text);">{{ imp.parser }}</strong></span>
+                  <span v-if="imp.account_label" style="color: var(--muted);">Account: <strong style="color: var(--text);">{{ imp.account_label }}</strong></span>
                 </div>
               </div>
             </div>

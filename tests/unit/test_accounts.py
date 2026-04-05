@@ -1,6 +1,3 @@
-import pytest
-from click.testing import CliRunner
-
 from penny.accounts import (
     add_account,
     find_account_by_bank_account_number,
@@ -8,7 +5,6 @@ from penny.accounts import (
     list_accounts,
     remove_account,
 )
-from penny.cli import main
 from penny.vault import MutationLog, VaultConfig
 
 
@@ -63,29 +59,3 @@ def test_account_writes_append_mutations(db):
 
     rows = MutationLog(VaultConfig()).list_rows()
     assert [row.type for row in rows] == ["account_created", "account_hidden"]
-
-
-@pytest.mark.integration
-def test_accounts_cli_add_list_remove():
-    runner = CliRunner()
-
-    result = runner.invoke(main, ["accounts", "add", "comdirect", "--account-number", "9788862492"])
-    assert result.exit_code == 0
-    assert "Created account #1: comdirect" in result.output
-
-    result = runner.invoke(main, ["accounts", "list"])
-    assert result.exit_code == 0
-    assert "comdirect" in result.output
-    assert "active" in result.output
-
-    result = runner.invoke(main, ["accounts", "remove", "1"])
-    assert result.exit_code == 0
-    assert "Removed account #1" in result.output
-
-    result = runner.invoke(main, ["accounts", "list"])
-    assert result.exit_code == 0
-    assert "No accounts found." in result.output
-
-    result = runner.invoke(main, ["accounts", "list", "--all"])
-    assert result.exit_code == 0
-    assert "hidden" in result.output

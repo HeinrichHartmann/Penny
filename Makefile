@@ -1,4 +1,4 @@
-.PHONY: dev serve serve-api serve-fresh dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test lint lint-fix format frontend-install frontend-build frontend-dev
+.PHONY: dev serve serve-api serve-fresh dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test test-no-ui test-ui lint lint-fix format frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
 dev: sync frontend-build
@@ -109,9 +109,18 @@ clean:
 	rm -rf *.egg-info
 	@echo "Cleaned build artifacts"
 
-# Run tests
-test: dev-install
+# Run Playwright UI smoke tests
+test-ui: dev-install frontend-build
+	npm run test:ui
+
+# Run Python tests only
+test-no-ui: dev-install
 	uv run python -m pytest tests/ -v
+
+# Run tests
+test: dev-install frontend-build
+	uv run python -m pytest tests/ -v
+	npm run test:ui
 
 # Lint code (check only)
 lint: dev-install
@@ -150,7 +159,9 @@ help:
 	@echo "  make release-dry-run - Validate the release command without publishing"
 	@echo "  make app-open  - Open the built .app"
 	@echo "  make update    - Update existing build (faster)"
-	@echo "  make test      - Run the test suite"
+	@echo "  make test      - Run Python tests and Playwright UI tests"
+	@echo "  make test-no-ui - Run Python tests only"
+	@echo "  make test-ui   - Run Playwright UI tests"
 	@echo "  make clean     - Remove build artifacts"
 	@echo ""
 	@echo "Examples:"

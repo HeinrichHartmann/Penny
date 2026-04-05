@@ -1,14 +1,15 @@
-"""Ingest service - write CSV imports to vault log and apply."""
+"""Ingest service - write CSV imports to vault and apply."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from penny.vault.apply import IngestResult, apply_ingest
 from penny.vault.config import VaultConfig
-from penny.vault.log import LogManager
-from penny.vault.manifests import IngestManifest
+from penny.vault.ledger import Ledger, LedgerEntry
 
 if TYPE_CHECKING:
     pass
@@ -31,18 +32,18 @@ def ingest_csv(
     request: IngestRequest,
     config: VaultConfig | None = None,
 ) -> IngestResult:
-    """Ingest a CSV file through the vault log.
+    """Ingest a CSV file through the vault.
 
     Flow:
     1. Detect parser from filename/content
-    2. Create log entry directory with CSV file
-    3. Write manifest
-    4. Apply entry (parse, store transactions)
-    5. Return result
+    2. Write files to transactions/{seq}_{timestamp}/
+    3. Write manifest.json
+    4. Append to history.tsv
+    5. Apply entry (parse, store transactions)
 
     Args:
         request: The ingest request with filename and content
-        config: Optional vault config (uses default if not provided)
+        config: Optional vault config
 
     Returns:
         IngestResult with account and transaction details
@@ -52,7 +53,11 @@ def ingest_csv(
     if config is None:
         config = VaultConfig()
 
-    log = LogManager(config)
+    # Ensure vault is initialized
+    if not config.is_initialized():
+        config.initialize()
+
+    ledger = Ledger(config.path)
 
     # Decode content if bytes
     if isinstance(request.content, bytes):
@@ -71,25 +76,37 @@ def ingest_csv(
     except DetectionError:
         raise
 
-    # Create manifest
-    manifest = IngestManifest(
-        csv_files=[request.filename],
-        parser=parser.bank,
-        parser_version=f"{parser.bank}@1",  # TODO: get from parser
-        app_version=APP_VERSION,
-        status="applied",
+    # Get sequence and timestamp
+    sequence = ledger.next_sequence()
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Create transaction directory
+    tx_dir = config.path / "transactions" / f"{sequence:04d}_{timestamp}"
+    tx_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write CSV file
+    csv_path = tx_dir / request.filename
+    csv_path.write_bytes(content_bytes)
+
+    # Create ledger entry (record contains all manifest data)
+    entry = LedgerEntry(
+        sequence=sequence,
+        entry_type="ingest",
+        enabled=True,
+        timestamp=timestamp,
+        record={
+            "csv_files": [request.filename],
+            "parser": parser.bank,
+            "parser_version": f"{parser.bank}@1",
+            "app_version": APP_VERSION,
+        },
     )
 
-    # Write to vault log
-    # We need to write the content to a temp file first, then copy
-    entry = log.append_with_content(
-        entry_type=f"ingest_{parser.bank}",
-        manifest=manifest,
-        content={request.filename: content_bytes},
-    )
+    # Append to history.tsv
+    ledger.append_entry(entry)
 
     # Apply the entry (parse and store)
-    result = apply_ingest(entry)
+    result = apply_ingest(entry, config)
 
     return result
 
@@ -98,7 +115,7 @@ def ingest_csv_files(
     files: list[tuple[str, str | bytes]],
     config: VaultConfig | None = None,
 ) -> IngestResult:
-    """Ingest multiple CSV files as a single log entry.
+    """Ingest multiple CSV files as a single entry.
 
     Args:
         files: List of (filename, content) tuples
@@ -115,7 +132,11 @@ def ingest_csv_files(
     if config is None:
         config = VaultConfig()
 
-    log = LogManager(config)
+    # Ensure vault is initialized
+    if not config.is_initialized():
+        config.initialize()
+
+    ledger = Ledger(config.path)
 
     # Process all files - they should all be for the same parser/account
     content_dict: dict[str, bytes] = {}
@@ -147,23 +168,37 @@ def ingest_csv_files(
     if parser is None:
         raise ValueError("No files to ingest")
 
-    # Create manifest
-    manifest = IngestManifest(
-        csv_files=filenames,
-        parser=parser.bank,
-        parser_version=f"{parser.bank}@1",
-        app_version=APP_VERSION,
-        status="applied",
+    # Get sequence and timestamp
+    sequence = ledger.next_sequence()
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Create transaction directory
+    tx_dir = config.path / "transactions" / f"{sequence:04d}_{timestamp}"
+    tx_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write CSV files
+    for filename, content_bytes in content_dict.items():
+        csv_path = tx_dir / filename
+        csv_path.write_bytes(content_bytes)
+
+    # Create ledger entry (record contains all manifest data)
+    entry = LedgerEntry(
+        sequence=sequence,
+        entry_type="ingest",
+        enabled=True,
+        timestamp=timestamp,
+        record={
+            "csv_files": filenames,
+            "parser": parser.bank,
+            "parser_version": f"{parser.bank}@1",
+            "app_version": APP_VERSION,
+        },
     )
 
-    # Write to vault log
-    entry = log.append_with_content(
-        entry_type=f"ingest_{parser.bank}",
-        manifest=manifest,
-        content=content_dict,
-    )
+    # Append to history.tsv
+    ledger.append_entry(entry)
 
     # Apply the entry
-    result = apply_ingest(entry)
+    result = apply_ingest(entry, config)
 
     return result

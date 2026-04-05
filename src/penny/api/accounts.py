@@ -18,8 +18,8 @@ from penny.accounts import (
     list_accounts as list_all_accounts,
 )
 from penny.api.helpers import get_db
-from penny.vault import LogManager, VaultConfig
-from penny.vault.manifests import AccountUpdatedManifest, BalanceSnapshotManifest
+from penny.vault.config import VaultConfig
+from penny.vault.ledger import Ledger
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -33,7 +33,29 @@ class BalanceSnapshotRequest(BaseModel):
     note: str | None = None
 
 
-def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
+def _load_balance_snapshot_counts() -> dict[int, int]:
+    """Return enabled balance snapshot counts per account from the vault ledger."""
+    config = VaultConfig()
+    if not config.is_initialized():
+        return {}
+
+    counts: dict[int, int] = {}
+    for entry in Ledger(config.path).read_entries():
+        if entry.entry_type != "balance" or not entry.enabled:
+            continue
+        for snapshot in entry.record.get("snapshots", []):
+            account_id = snapshot.get("account_id")
+            if account_id is None:
+                continue
+            counts[account_id] = counts.get(account_id, 0) + 1
+    return counts
+
+
+def _account_to_dict(
+    account: Account,
+    transaction_count: int = 0,
+    balance_snapshot_count: int = 0,
+) -> dict:
     """Convert Account model to JSON-serializable dict."""
     return {
         "id": account.id,
@@ -44,6 +66,7 @@ def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
         "notes": account.notes,
         "balance_cents": account.balance_cents,
         "balance_date": account.balance_date.isoformat() if account.balance_date else None,
+        "balance_snapshot_count": balance_snapshot_count,
         "subaccounts": list(account.subaccounts.keys()),
         "transaction_count": transaction_count,
         "label": account.display_name or f"{account.bank} #{account.id}",
@@ -55,6 +78,7 @@ def _account_to_dict(account: Account, transaction_count: int = 0) -> dict:
 async def list_accounts(include_hidden: bool = Query(False)):
     """List all bank accounts."""
     accounts = list_all_accounts(include_hidden=include_hidden)
+    balance_snapshot_counts = _load_balance_snapshot_counts()
 
     # Get transaction counts per account
     conn = get_db()
@@ -68,7 +92,14 @@ async def list_accounts(include_hidden: bool = Query(False)):
     conn.close()
 
     return {
-        "accounts": [_account_to_dict(account, counts.get(account.id, 0)) for account in accounts]
+        "accounts": [
+            _account_to_dict(
+                account,
+                counts.get(account.id, 0),
+                balance_snapshot_counts.get(account.id, 0),
+            )
+            for account in accounts
+        ]
     }
 
 
@@ -88,7 +119,8 @@ async def get_account(account_id: int):
     ).fetchone()[0]
     conn.close()
 
-    return _account_to_dict(account, count)
+    balance_snapshot_counts = _load_balance_snapshot_counts()
+    return _account_to_dict(account, count, balance_snapshot_counts.get(account_id, 0))
 
 
 @router.patch("/{account_id}")
@@ -119,18 +151,6 @@ async def update_account(
         updated = update_account_metadata(account_id, **changes)
         if updated is None:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-
-        # Create vault log entry for account update
-        config = VaultConfig()
-        manifest = AccountUpdatedManifest(
-            account_id=account_id,
-            fields=changes,
-        )
-        LogManager(config).append(
-            entry_type="account_updated",
-            manifest=manifest,  # type: ignore
-            content_files=None,
-        )
 
     # Return updated account
     return await get_account(account_id)
@@ -168,21 +188,6 @@ async def record_balance_snapshot(account_id: int, request: BalanceSnapshotReque
 
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
-
-    # Create vault log entry for balance snapshot
-    config = VaultConfig()
-    manifest = BalanceSnapshotManifest(
-        account_id=account_id,
-        subaccount_type=request.subaccount_type,
-        snapshot_date=request.balance_date,
-        balance_cents=request.balance_cents,
-        note=request.note,
-    )
-    LogManager(config).append(
-        entry_type="balance_snapshot",
-        manifest=manifest,  # type: ignore
-        content_files=None,
-    )
 
     # Return updated account
     return await get_account(account_id)

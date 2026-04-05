@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import date
 
+import pandas as pd
 from fastapi import APIRouter, Query
 from fastapi.responses import PlainTextResponse
 
@@ -13,6 +14,7 @@ from penny.api.helpers import (
     roll_up_top_buckets,
     sort_period_keys,
 )
+from penny.balance_projection import build_balance_series
 from penny.db import connect
 from penny.reports import generate_report_text
 from penny.sql import (
@@ -24,8 +26,8 @@ from penny.sql import (
     tree_query,
 )
 from penny.transactions import TransactionFilter, list_transactions
-from penny.vault import LogManager, VaultConfig
-from penny.vault.manifests import BalanceSnapshotManifest
+from penny.vault.config import VaultConfig
+from penny.vault.ledger import Ledger
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -111,8 +113,8 @@ async def meta():
 
     return {
         "accounts": accounts,
-        "min_date": date_range[0] if date_range[0] else "2024-01-01",
-        "max_date": date_range[1] if date_range[1] else "2026-12-31",
+        "min_date": date_range[0],
+        "max_date": date_range[1],
     }
 
 
@@ -488,14 +490,17 @@ async def account_value_history(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
 ):
-    """Return account value history and transaction volume over time.
+    """Return account balance history with anchor-based projection.
 
-    Reconstructs historical account value from:
-    1. Balance snapshots recorded in the vault
-    2. Transaction history from the database
-
-    Returns time-series data for visualization.
+    Math model:
+    1. Get RAW (unneutralized) transactions for full history per account.
+    2. Bucket them to a daily saldo (net change per day).
+    3. Sort anchors by date and keep only the last-added anchor per day.
+    4. Walk anchors backward to detect deltas and fill dates before the first anchor.
+    5. Walk anchors forward to build the displayed balance series, resetting to each
+       anchor when it is reached.
     """
+    # Parse and validate accounts
     account_ids = _parse_account_ids(accounts)
     if not account_ids:
         return {"error": "No accounts specified"}
@@ -505,153 +510,151 @@ async def account_value_history(
             "account_ids": [],
             "balance_snapshots": [],
             "value_points": [],
-            "volume_points": [],
+            "inconsistencies": [],
         }
 
-    # Get all balance snapshots from the vault log
+    # Get all balance snapshots for these accounts (from vault ledger)
     config = VaultConfig()
-    log_manager = LogManager(config)
-    balance_snapshots = []
+    if not config.is_initialized():
+        config.initialize()
+    ledger = Ledger(config.path)
+    all_snapshots = []
 
-    for entry in log_manager.iter_entries():
-        manifest = entry.read_manifest()
-        if isinstance(manifest, BalanceSnapshotManifest):
-            if manifest.account_id in account_ids:
-                balance_snapshots.append(
-                    {
-                        "account_id": manifest.account_id,
-                        "date": manifest.snapshot_date,
-                        "balance_cents": manifest.balance_cents,
-                        "subaccount_type": manifest.subaccount_type,
-                        "note": manifest.note,
-                    }
-                )
+    for entry in ledger.read_entries():
+        if entry.entry_type == "balance":
+            # Balance entries have snapshots list in record
+            for snapshot in entry.record.get("snapshots", []):
+                if snapshot["account_id"] in account_ids:
+                    all_snapshots.append(
+                        {
+                            "account_id": snapshot["account_id"],
+                            "date": snapshot["snapshot_date"],
+                            "balance_cents": snapshot["balance_cents"],
+                        }
+                    )
 
-    # Sort balance snapshots by date
-    balance_snapshots.sort(key=lambda x: x["date"])
+    # Sort snapshots by account and date
+    all_snapshots.sort(key=lambda x: (x["account_id"], x["date"]))
+    visible_snapshots = all_snapshots
+    if from_date or to_date:
+        from_date_str = from_date or ""
+        to_date_str = to_date or "9999-12-31"
+        visible_snapshots = [
+            snapshot
+            for snapshot in all_snapshots
+            if from_date_str <= snapshot["date"] <= to_date_str
+        ]
 
-    # Get all transactions for these accounts
-    conn = connect()
-    cursor = conn.cursor()
+    # Get RAW transactions for FULL history (no neutralization, no date filter)
+    filters = TransactionFilter(
+        account_ids=account_ids,
+        # NO from_date/to_date - we need the full history!
+    )
 
-    account_id_placeholders = ",".join("?" * len(account_ids))
-    base_query = f"""
-        SELECT date, account_id, subaccount_type, amount_cents
-        FROM transactions
-        WHERE account_id IN ({account_id_placeholders})
-    """
+    transactions = list_transactions(
+        filters=filters,
+        limit=None,
+        neutralize=False,  # RAW transactions only
+    )
 
-    params = list(account_ids)
+    if not transactions:
+        return {
+            "account_ids": list(account_ids),
+            "balance_snapshots": visible_snapshots,
+            "value_points": [],
+            "inconsistencies": [],
+        }
 
-    if from_date:
-        base_query += " AND date >= ?"
-        params.append(from_date)
+    # Build DataFrame and aggregate to DAILY saldo per account
+    tx_data = [
+        {
+            "date": tx.date.isoformat(),
+            "account_id": tx.account_id,
+            "amount_cents": tx.amount_cents,
+        }
+        for tx in transactions
+    ]
+    df = pd.DataFrame(tx_data)
 
-    if to_date:
-        base_query += " AND date <= ?"
-        params.append(to_date)
+    # Group by account and date, sum amounts to get daily saldo
+    daily_saldo = df.groupby(["account_id", "date"])["amount_cents"].sum().reset_index()
+    daily_saldo.columns = ["account_id", "date", "saldo"]
 
-    base_query += " ORDER BY date"
+    # Create per-account balance histories
+    account_balances = {}  # {account_id: {date: balance}}
+    inconsistencies = []
 
-    transactions = cursor.execute(base_query, params).fetchall()
-    conn.close()
+    for acc_id in account_ids:
+        # Get snapshots for this account
+        acc_snapshots = [s for s in all_snapshots if s["account_id"] == acc_id]
+        acc_snapshots.sort(key=lambda x: x["date"])
 
-    # Build time series data
-    # Group transactions by date
-    txn_by_date = defaultdict(lambda: {"total_cents": 0, "count": 0})
+        # Get daily saldo for this account
+        acc_saldo = daily_saldo[daily_saldo["account_id"] == acc_id].copy()
+        acc_saldo = acc_saldo.set_index("date")["saldo"].to_dict()
 
-    for row in transactions:
-        txn_date = row[0]
-        amount = row[3]
-        txn_by_date[txn_date]["total_cents"] += amount
-        txn_by_date[txn_date]["count"] += 1
+        # Get full date range for this account
+        acc_df = df[df["account_id"] == acc_id]
+        if acc_df.empty:
+            continue
 
-    # Build account value time series
-    # Strategy: Start from the most recent balance snapshot and work backwards/forwards
-    value_points = []
+        min_date = acc_df["date"].min()
+        max_date = acc_df["date"].max()
 
-    if balance_snapshots:
-        # Use the most recent snapshot as anchor
-        latest_snapshot = balance_snapshots[-1]
-        anchor_date = latest_snapshot["date"]
-        anchor_balance = latest_snapshot["balance_cents"]
+        # Create full date range (as series)
+        date_range = pd.date_range(start=min_date, end=max_date, freq="D")
+        date_strs = [d.strftime("%Y-%m-%d") for d in date_range]
 
-        # Calculate balance at each date by adding/subtracting transactions
-        all_dates = sorted(
-            set(txn["date"] for txn in transactions) | {s["date"] for s in balance_snapshots}
+        if not acc_snapshots:
+            # No anchors - can't compute balances
+            continue
+
+        balances, backward_deltas, _normalized_anchors = build_balance_series(
+            date_strs,
+            acc_saldo,
+            acc_snapshots,
         )
 
-        # Filter dates if needed
-        if from_date:
-            all_dates = [d for d in all_dates if d >= from_date]
-        if to_date:
-            all_dates = [d for d in all_dates if d <= to_date]
+        inconsistencies.extend(
+            {"account_id": acc_id, **delta}
+            for delta in backward_deltas
+        )
+        account_balances[acc_id] = balances
 
-        # Build cumulative transaction totals from anchor date
-        cumulative_before_anchor = 0
-        cumulative_after_anchor = 0
+    # Combine all accounts into total balance per day
+    # Get union of all dates
+    all_dates = set()
+    for balances in account_balances.values():
+        all_dates.update(balances.keys())
 
-        for txn_date in sorted(txn_by_date.keys()):
-            if txn_date < anchor_date:
-                cumulative_before_anchor += txn_by_date[txn_date]["total_cents"]
-            elif txn_date > anchor_date:
-                cumulative_after_anchor += txn_by_date[txn_date]["total_cents"]
+    all_dates = sorted(all_dates)
 
-        # Calculate balance at each date
-        for d in all_dates:
-            if d == anchor_date:
-                balance = anchor_balance
-            elif d < anchor_date:
-                # Subtract transactions between this date and anchor
-                txns_between = sum(
-                    txn_by_date[td]["total_cents"]
-                    for td in txn_by_date.keys()
-                    if d < td <= anchor_date
-                )
-                balance = anchor_balance - txns_between
-            else:  # d > anchor_date
-                # Add transactions between anchor and this date
-                txns_between = sum(
-                    txn_by_date[td]["total_cents"]
-                    for td in txn_by_date.keys()
-                    if anchor_date < td <= d
-                )
-                balance = anchor_balance + txns_between
+    # Calculate total balance per day
+    value_points = []
+    anchor_dates = {s["date"] for s in all_snapshots}
 
-            value_points.append(
-                {
-                    "date": d,
-                    "balance_cents": balance,
-                    "is_snapshot": d in [s["date"] for s in balance_snapshots],
-                }
-            )
-    else:
-        # No balance snapshots - just show cumulative transaction flow
-        cumulative = 0
-        for d in sorted(txn_by_date.keys()):
-            cumulative += txn_by_date[d]["total_cents"]
-            value_points.append(
-                {
-                    "date": d,
-                    "balance_cents": cumulative,
-                    "is_snapshot": False,
-                }
-            )
+    for date_str in all_dates:
+        total_balance = sum(
+            account_balances.get(acc_id, {}).get(date_str, 0) for acc_id in account_ids
+        )
 
-    # Build transaction volume data
-    volume_points = [
-        {
-            "date": d,
-            "transaction_count": txn_by_date[d]["count"],
-            "inflow_cents": sum(row[3] for row in transactions if row[0] == d and row[3] > 0),
-            "outflow_cents": abs(sum(row[3] for row in transactions if row[0] == d and row[3] < 0)),
-        }
-        for d in sorted(txn_by_date.keys())
-    ]
+        value_points.append(
+            {
+                "date": date_str,
+                "total_balance": total_balance,
+                "is_anchor": date_str in anchor_dates,
+            }
+        )
+
+    # Filter to requested date range (for display only - math uses full range)
+    if from_date or to_date:
+        from_date_str = from_date if from_date else value_points[0]["date"]
+        to_date_str = to_date if to_date else value_points[-1]["date"]
+        value_points = [vp for vp in value_points if from_date_str <= vp["date"] <= to_date_str]
 
     return {
         "account_ids": list(account_ids),
-        "balance_snapshots": balance_snapshots,
+        "balance_snapshots": visible_snapshots,
         "value_points": value_points,
-        "volume_points": volume_points,
+        "inconsistencies": inconsistencies,
     }

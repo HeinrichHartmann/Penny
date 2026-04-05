@@ -199,6 +199,37 @@ export const rebuildDatabase = async () => {
 };
 
 /**
+ * Import demo data by fetching demo files and uploading them through normal import.
+ * @returns {Promise<{ results: object[] }>}
+ */
+export const importDemoData = async () => {
+  // 1. Get list of demo files
+  const listResp = await fetch('/api/demo-files');
+  if (!listResp.ok) {
+    throw new Error('Failed to fetch demo files list');
+  }
+  const { files } = await listResp.json();
+
+  // 2. Download and upload each file
+  const results = [];
+  for (const fileInfo of files) {
+    // Download the file
+    const fileResp = await fetch(`/api/demo-files/${fileInfo.filename}`);
+    if (!fileResp.ok) {
+      throw new Error(`Failed to download ${fileInfo.filename}`);
+    }
+    const blob = await fileResp.blob();
+    const file = new File([blob], fileInfo.filename);
+
+    // Upload through normal import endpoint
+    const result = await uploadCsv(file);
+    results.push(result);
+  }
+
+  return { results };
+};
+
+/**
  * Upload a CSV file for import.
  * @param {File} file
  * @returns {Promise<object>}

@@ -28,13 +28,13 @@ def should_load_demo_data(config: VaultConfig | None = None) -> bool:
     if config is None:
         config = VaultConfig()
 
-    # Check if any imports exist
-    if not config.imports_dir.exists():
+    # Check if transactions directory exists
+    if not config.transactions_dir.exists():
         return False
 
-    # Check if imports directory is empty
-    import_entries = list(config.imports_dir.iterdir())
-    if len(import_entries) > 0:
+    # Check if transactions directory is empty
+    tx_entries = list(config.transactions_dir.iterdir())
+    if len(tx_entries) > 0:
         return False
 
     # Check if there are any mutations in the mutation log
@@ -87,4 +87,77 @@ def bootstrap_demo_data(config: VaultConfig | None = None) -> bool:
 
     update_account_metadata(result.account_id, display_name="Demo Account")
 
+    # Add balance snapshots to demonstrate anchor-based projection
+    _add_demo_balance_snapshots(config, result.account_id)
+
     return True
+
+
+def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
+    """Add demo balance snapshots with intentional deviations.
+
+    These snapshots demonstrate:
+    1. Balance anchor backward/forward projection
+    2. Inconsistency detection when projections don't match actual snapshots
+
+    Demo data spans: April 2022 - March 2024 (~2 years)
+    """
+    from datetime import UTC, datetime
+
+    from penny.vault.ledger import Ledger, LedgerEntry
+
+    ledger = Ledger(config.path)
+    sequence = ledger.next_sequence()
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Define balance snapshots with strategic deviations
+    # Note: These are intentionally offset to create inconsistencies
+    # demonstrating the anchor-based projection and delta detection
+    snapshots = [
+        # October 2022 - 6 months in (accurate baseline)
+        {
+            "date": "2022-10-15",
+            "balance_cents": 10000000,  # +€100,000
+            "note": "Q4 2022 baseline",
+        },
+        # April 2023 - 1 year in (OFF BY +€250)
+        {
+            "date": "2023-04-15",
+            "balance_cents": -10000000,  # -€100,000
+            "note": "Mid-year - missing transactions",
+        },
+        # October 2023 - 18 months in (OFF BY -€180)
+        {
+            "date": "2023-10-15",
+            "balance_cents": 10000000,  # +€100,000
+            "note": "Fall - unrecorded spending",
+        },
+        # February 2024 - near end (OFF BY +€320)
+        {
+            "date": "2024-02-01",
+            "balance_cents": -10000000,  # -€100,000
+            "note": "Winter - data gap",
+        },
+    ]
+
+    balance_records = []
+    for snapshot in snapshots:
+        balance_records.append({
+            "account_id": account_id,
+            "account_iban": None,
+            "snapshot_date": snapshot["date"],
+            "balance_cents": snapshot["balance_cents"],
+            "note": snapshot["note"],
+        })
+
+    entry = LedgerEntry(
+        sequence=sequence,
+        entry_type="balance",
+        enabled=True,
+        timestamp=timestamp,
+        record={
+            "filename": "demo_snapshots",
+            "snapshots": balance_records,
+        },
+    )
+    ledger.append_entry(entry)

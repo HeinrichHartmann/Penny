@@ -79,5 +79,7 @@ known-first-party = ["penny"]
 
 [tool.pytest.ini_options]
 markers = [
-    "integration: end-to-end or file-backed tests that exercise the real app interface",
+    "unit: single-process tests that prefer in-memory state and direct Python APIs",
+    "e2e: end-to-end tests that exercise CLI, REST, startup, or real file-backed runtime behavior",
+    "integration: transitional alias for root-level mixed tests that still require a fresh file-backed runtime",
 ]

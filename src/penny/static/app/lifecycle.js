@@ -5,10 +5,11 @@ export const setupAppLifecycle = ({
   setHydrating,
   initialUrlState,
   initializeAppState,
-  fetchMeta,
+  refreshMeta,
   meta,
   filters,
   yearButtons,
+  loadSharedServerState,
   loadCategoryOptions,
   loadCurrentViewData,
   loadAll,
@@ -26,9 +27,19 @@ export const setupAppLifecycle = ({
   breakoutShowExpenses,
   currentTransactionPage,
 }) => {
+  // ADR-013: app.js is the only frontend REST boundary. Root watchers reload
+  // server-backed state after filter/search changes; views only render props.
   watch(
-    () => [filters.from, filters.to, filters.accounts.join(','), filters.neutralize],
+    () => [
+      filters.from,
+      filters.to,
+      filters.accounts.join(','),
+      filters.neutralize,
+      selectedCategory.value,
+      searchQuery.value,
+    ],
     () => {
+      if (isHydrating()) return;
       loadCategoryOptions();
       loadCurrentViewData({ resetTransactionsPage: true });
     }
@@ -40,15 +51,8 @@ export const setupAppLifecycle = ({
   });
 
   watch(view, async () => {
-    if (view.value !== 'accounts') {
-      loadCurrentViewData();
-    }
-  });
-
-  watch(searchQuery, () => {
     if (isHydrating()) return;
-    loadCategoryOptions();
-    loadCurrentViewData({ resetTransactionsPage: true });
+    await loadCurrentViewData();
   });
 
   watch(
@@ -87,13 +91,15 @@ export const setupAppLifecycle = ({
 
   onMounted(async () => {
     await initializeAppState({
-      fetchMeta,
+      metaState: await refreshMeta(),
       initialUrlState,
       meta,
       filters,
       yearButtons,
     });
+
     setHydrating(false);
+    await loadSharedServerState();
     await loadCategoryOptions();
     syncUrl();
     await loadCurrentViewData();

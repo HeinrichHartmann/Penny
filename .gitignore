@@ -4,6 +4,8 @@ dist/
 .briefcase/
 node_modules/
 src/penny/static/dist/
+test-results/
+tests/ui/.playwright/
 
 # Python
 __pycache__/
@@ -26,7 +28,9 @@ logs/
 # Environment
 .env
 demo.db
+penny.db
 .direnv/
 /rules.py
 REVIEW/
+TASK.md
 TASKS.md

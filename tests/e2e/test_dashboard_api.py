@@ -34,7 +34,7 @@ def make_transaction(
     )
 
 
-def test_transactions_endpoint_uses_domain_filters(db):
+def test_transactions_endpoint_uses_domain_filters():
     add_account("testbank")
     add_account("testbank")
     store_transactions(
@@ -72,7 +72,7 @@ def test_transactions_endpoint_uses_domain_filters(db):
     assert [transaction["merchant"] for transaction in payload["transactions"]] == ["Spotify"]
 
 
-def test_hidden_account_transactions_are_excluded_from_dashboard(db):
+def test_hidden_account_transactions_are_excluded_from_dashboard():
     account = add_account("testbank")
     store_transactions(
         [

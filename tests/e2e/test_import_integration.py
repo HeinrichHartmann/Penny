@@ -6,7 +6,7 @@ from click.testing import CliRunner
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
-from penny.api.import_ import import_csv as import_csv_api
+from penny.api.import_ import import_file as import_file_api
 from penny.cli import main
 from penny.transactions import count_transactions, list_transactions
 from penny.vault import save_rules_snapshot
@@ -81,7 +81,7 @@ def test_api_import_fails_loudly_when_rules_are_invalid(fixture_dir):
 
     with pytest.raises(HTTPException, match="rules evaluation failed") as exc_info:
         asyncio.run(
-            import_csv_api(
+            import_file_api(
                 UploadFile(
                     file=BytesIO(csv_path.read_bytes()),
                     filename=csv_path.name,

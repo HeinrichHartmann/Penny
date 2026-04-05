@@ -123,6 +123,22 @@ make app-open
 
 Output will be in `dist/`.
 
+### Tests
+
+The suite is being organized around two modes:
+- `tests/unit/` for single-process tests with an in-memory database
+- `tests/e2e/` for CLI, API, startup, replay, and file-backed runtime tests
+
+The detailed policy lives in [tests/testing_strategy.md](/Users/hhartmann/Projects/Finance/src/Penny/tests/testing_strategy.md).
+
+Common commands:
+
+```bash
+uv run python -m pytest tests/unit -q
+uv run python -m pytest tests/e2e -q
+uv run python -m pytest tests -q
+```
+
 ### Publish a GitHub Release
 
 ```bash
