@@ -30,7 +30,7 @@ def make_transaction(
     reference: str | None = None,
 ) -> Transaction:
     """Create a test transaction with computed fingerprint."""
-    fp = generate_fingerprint(account_id, tx_date, amount_cents, payee, reference)
+    fp = generate_fingerprint(account_id, subaccount_type, tx_date, amount_cents, payee, reference)
     return Transaction(
         fingerprint=fp,
         account_id=account_id,

@@ -199,7 +199,9 @@ class ComdirectBank(BankModule):
             memo = extract_memo(posting_text) or transaction_type
             reference = extract_reference(posting_text)
 
-        fingerprint = generate_fingerprint(account_id, date_value, amount_cents, payee, reference)
+        fingerprint = generate_fingerprint(
+            account_id, subaccount, date_value, amount_cents, payee, reference
+        )
 
         return Transaction(
             fingerprint=fingerprint,

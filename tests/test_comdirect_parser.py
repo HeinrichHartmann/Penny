@@ -33,6 +33,29 @@ def test_parse_comdirect_multi_section(fixture_dir):
 
 
 def test_fingerprint_deduplication():
-    fp1 = generate_fingerprint(1, date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
-    fp2 = generate_fingerprint(1, date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
+    fp1 = generate_fingerprint(1, "giro", date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
+    fp2 = generate_fingerprint(1, "giro", date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
     assert fp1 == fp2
+
+
+def test_fingerprint_subaccount_isolation():
+    """Verify that different subaccounts produce different fingerprints.
+
+    This test ensures Bug #2 is fixed: transactions with the same
+    date/amount/payee but different subaccount_type should NOT collide.
+    """
+    # Same account, date, amount, payee, reference - but different subaccounts
+    fp_giro = generate_fingerprint(1, "giro", date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
+    fp_visa = generate_fingerprint(1, "visa", date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
+    fp_tagesgeld = generate_fingerprint(
+        1, "tagesgeld", date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229"
+    )
+
+    # All three should be different
+    assert fp_giro != fp_visa
+    assert fp_giro != fp_tagesgeld
+    assert fp_visa != fp_tagesgeld
+
+    # Same subaccount should still produce same fingerprint
+    fp_giro2 = generate_fingerprint(1, "giro", date(2026, 2, 27), -3799, "AMAZON", "9L2C28W229")
+    assert fp_giro == fp_giro2
