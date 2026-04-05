@@ -488,18 +488,19 @@ async def account_value_history(
     accounts: str = Query(...),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    neutralize: bool = Query(True),
 ):
-    """Return account balance history with one point per transaction.
+    """Return account balance history with correct anchor-based projection.
 
-    Filters: accounts (required), from/to dates, neutralize.
-    Does NOT support category/search/tab filters - balance is an account concept.
+    CORRECT LOGIC (2026-04-05):
+    1. Get RAW (unneutralized) transactions for FULL history per account
+    2. Bucket by day to get daily saldo (net change per day)
+    3. Project from balance anchors:
+       - Anchors project BACKWARDS in time
+       - LAST anchor projects FORWARD to present
+    4. Detect inconsistencies between projections
+    5. Return daily balance with anchor markers
 
-    Logic:
-    1. Get all transactions for accounts in date range
-    2. For EACH account: compute cumsum and offset from its latest snapshot
-    3. Sort all transactions by date
-    4. At each point, sum balances across all accounts
+    ALL MATH DONE IN BACKEND.
     """
     # Parse and validate accounts
     account_ids = _parse_account_ids(accounts)
@@ -511,6 +512,7 @@ async def account_value_history(
             "account_ids": [],
             "balance_snapshots": [],
             "value_points": [],
+            "inconsistencies": [],
         }
 
     # Get all balance snapshots for these accounts (from vault log)
@@ -530,27 +532,19 @@ async def account_value_history(
                     }
                 )
 
-    # Sort snapshots by date
+    # Sort snapshots by account and date
     all_snapshots.sort(key=lambda x: (x["account_id"], x["date"]))
 
-    # Find latest snapshot per account
-    latest_snapshot_per_account: dict[int, dict] = {}
-    for snap in all_snapshots:
-        acc_id = snap["account_id"]
-        # Later snapshots overwrite earlier ones (list is sorted by date)
-        latest_snapshot_per_account[acc_id] = snap
-
-    # Get transactions - ONLY filter by accounts, dates, neutralize
+    # Get RAW transactions for FULL history (no neutralization, no date filter)
     filters = TransactionFilter(
-        from_date=_parse_date(from_date),
-        to_date=_parse_date(to_date),
         account_ids=account_ids,
+        # NO from_date/to_date - we need the full history!
     )
 
     transactions = list_transactions(
         filters=filters,
         limit=None,
-        neutralize=neutralize,
+        neutralize=False,  # RAW transactions only
     )
 
     if not transactions:
@@ -558,88 +552,150 @@ async def account_value_history(
             "account_ids": list(account_ids),
             "balance_snapshots": all_snapshots,
             "value_points": [],
+            "inconsistencies": [],
         }
 
-    # Build DataFrame with account_id
-    df = pd.DataFrame(
-        [
-            {
-                "date": tx.date.isoformat(),
-                "account_id": tx.account_id,
-                "amount_cents": tx.amount_cents,
-                "fingerprint": tx.fingerprint,
-                "payee": tx.payee,
-            }
-            for tx in transactions
-        ]
-    )
+    # Build DataFrame and aggregate to DAILY saldo per account
+    tx_data = [
+        {
+            "date": tx.date.isoformat(),
+            "account_id": tx.account_id,
+            "amount_cents": tx.amount_cents,
+        }
+        for tx in transactions
+    ]
+    df = pd.DataFrame(tx_data)
 
-    # Compute per-account cumsum
-    df = df.sort_values(["account_id", "date", "fingerprint"]).reset_index(drop=True)
-    df["account_cumsum"] = df.groupby("account_id")["amount_cents"].cumsum()
+    # Group by account and date, sum amounts to get daily saldo
+    daily_saldo = df.groupby(["account_id", "date"])["amount_cents"].sum().reset_index()
+    daily_saldo.columns = ["account_id", "date", "saldo"]
 
-    # Compute per-account offset from latest snapshot
-    def get_offset(acc_id: int) -> int:
-        if acc_id not in latest_snapshot_per_account:
-            return 0
-        snap = latest_snapshot_per_account[acc_id]
-        snap_date = snap["date"]
-        snap_balance = snap["balance_cents"]
+    # Create per-account balance histories
+    account_balances = {}  # {account_id: {date: balance}}
+    inconsistencies = []
 
-        # Find cumsum at or before snapshot date for this account
+    for acc_id in account_ids:
+        # Get snapshots for this account
+        acc_snapshots = [s for s in all_snapshots if s["account_id"] == acc_id]
+        acc_snapshots.sort(key=lambda x: x["date"])
+
+        # Get daily saldo for this account
+        acc_saldo = daily_saldo[daily_saldo["account_id"] == acc_id].copy()
+        acc_saldo = acc_saldo.set_index("date")["saldo"].to_dict()
+
+        # Get full date range for this account
         acc_df = df[df["account_id"] == acc_id]
-        txns_up_to = acc_df[acc_df["date"] <= snap_date]
-        if not txns_up_to.empty:
-            cumsum_at_snap = int(txns_up_to["account_cumsum"].iloc[-1])
-            return snap_balance - cumsum_at_snap
-        else:
-            # All transactions after snapshot - offset is snapshot balance
-            return snap_balance
+        if acc_df.empty:
+            continue
 
-    offsets = {acc_id: get_offset(acc_id) for acc_id in account_ids}
+        min_date = acc_df["date"].min()
+        max_date = acc_df["date"].max()
 
-    # Apply per-account offset to get account balance
-    df["account_balance"] = df.apply(
-        lambda row: row["account_cumsum"] + offsets.get(row["account_id"], 0),
-        axis=1,
-    )
+        # Create full date range (as series)
+        date_range = pd.date_range(start=min_date, end=max_date, freq="D")
+        date_strs = [d.strftime("%Y-%m-%d") for d in date_range]
 
-    # Now sort by date globally and compute running total balance across all accounts
-    df = df.sort_values(["date", "fingerprint"]).reset_index(drop=True)
+        # Initialize balance dict
+        balances = {}
 
-    # Track running balance per account, sum for total
-    running_balances: dict[int, int] = {acc_id: offsets.get(acc_id, 0) for acc_id in account_ids}
-    total_balances = []
+        if not acc_snapshots:
+            # No anchors - can't compute balances
+            continue
 
-    for _, row in df.iterrows():
-        acc_id = row["account_id"]
-        running_balances[acc_id] = int(row["account_balance"])
-        total_balances.append(sum(running_balances.values()))
+        # Sort anchors by date
+        anchors = sorted(acc_snapshots, key=lambda x: x["date"])
 
-    df["total_balance"] = total_balances
+        # Project from each anchor
+        for i, anchor in enumerate(anchors):
+            anchor_date = anchor["date"]
+            anchor_balance = anchor["balance_cents"]
 
-    # Mark snapshot dates
-    snapshot_dates = {s["date"] for s in all_snapshots}
-    df["is_snapshot"] = df["date"].isin(snapshot_dates)
+            is_last_anchor = i == len(anchors) - 1
 
-    # Aggregate to one point per day (end-of-day balance)
-    # Keep the last row for each date (which has the final balance for that day)
-    daily_df = df.groupby("date").last().reset_index()
+            if is_last_anchor:
+                # Last anchor projects FORWARD to end of data
+                current_balance = anchor_balance
+                balances[anchor_date] = current_balance
 
-    # Build value_points - one per day
+                for date_str in date_strs:
+                    if date_str > anchor_date:
+                        current_balance += acc_saldo.get(date_str, 0)
+                        balances[date_str] = current_balance
+            else:
+                # Project BACKWARD from this anchor
+                current_balance = anchor_balance
+                balances[anchor_date] = current_balance
+
+                # Get dates before this anchor
+                prev_dates = [d for d in date_strs if d < anchor_date]
+                # Reverse to go backward in time
+                for date_str in reversed(prev_dates):
+                    # Subtract the saldo of the NEXT day (date_str + 1)
+                    next_date_idx = date_strs.index(date_str) + 1
+                    if next_date_idx < len(date_strs):
+                        next_date = date_strs[next_date_idx]
+                        current_balance -= acc_saldo.get(next_date, 0)
+                        balances[date_str] = current_balance
+
+                # Check for inconsistency with next anchor
+                if i < len(anchors) - 1:
+                    next_anchor = anchors[i + 1]
+                    next_anchor_date = next_anchor["date"]
+
+                    # The backward projection should reach next_anchor_date
+                    # Compare with forward projection from previous segments
+                    if next_anchor_date in balances:
+                        projected_balance = balances[next_anchor_date]
+                        actual_balance = next_anchor["balance_cents"]
+                        delta = actual_balance - projected_balance
+
+                        if abs(delta) > 1:  # Allow 1 cent rounding
+                            inconsistencies.append(
+                                {
+                                    "account_id": acc_id,
+                                    "date": next_anchor_date,
+                                    "projected_balance": projected_balance,
+                                    "anchor_balance": actual_balance,
+                                    "delta_cents": delta,
+                                }
+                            )
+
+        account_balances[acc_id] = balances
+
+    # Combine all accounts into total balance per day
+    # Get union of all dates
+    all_dates = set()
+    for balances in account_balances.values():
+        all_dates.update(balances.keys())
+
+    all_dates = sorted(all_dates)
+
+    # Calculate total balance per day
     value_points = []
-    for _, row in daily_df.iterrows():
+    anchor_dates = {s["date"] for s in all_snapshots}
+
+    for date_str in all_dates:
+        total_balance = sum(
+            account_balances.get(acc_id, {}).get(date_str, 0) for acc_id in account_ids
+        )
+
         value_points.append(
             {
-                "date": row["date"],
-                "total_balance": int(row["total_balance"]),
-                "is_snapshot": bool(row["is_snapshot"]),
+                "date": date_str,
+                "total_balance": total_balance,
+                "is_anchor": date_str in anchor_dates,
             }
         )
+
+    # Filter to requested date range (for display only - math uses full range)
+    if from_date or to_date:
+        from_date_str = from_date if from_date else value_points[0]["date"]
+        to_date_str = to_date if to_date else value_points[-1]["date"]
+        value_points = [vp for vp in value_points if from_date_str <= vp["date"] <= to_date_str]
 
     return {
         "account_ids": list(account_ids),
         "balance_snapshots": all_snapshots,
-        "offsets": offsets,  # For debugging
         "value_points": value_points,
+        "inconsistencies": inconsistencies,
     }

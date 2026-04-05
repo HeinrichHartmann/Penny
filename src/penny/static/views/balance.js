@@ -115,6 +115,9 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
     // Data is already aggregated to one point per day from backend
     const balanceData = valuePoints.map(p => [p.date, p.total_balance]);
 
+    // Track which points are anchors (for FAT dots)
+    const anchorFlags = valuePoints.map(p => p.is_anchor || false);
+
     // Prepare data for volume bars (optional)
     const volumeData = showVolume.value
       ? volumePoints.map(p => {
@@ -131,9 +134,18 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
         type: 'line',
         data: balanceData,
         step: 'end',
-        showSymbol: false,
+        // Show symbols ONLY on anchor dates (FAT dots)
+        showSymbol: true,
+        symbol: (value, params) => {
+          return anchorFlags[params.dataIndex] ? 'circle' : 'none';
+        },
+        symbolSize: (value, params) => {
+          return anchorFlags[params.dataIndex] ? 12 : 0;
+        },
         itemStyle: {
           color: '#845b31',
+          borderColor: '#fff',
+          borderWidth: 2,
         },
         lineStyle: {
           width: 1.5,
@@ -219,7 +231,15 @@ export const createBalanceViewState = ({ fetchAccountValueHistory, filters, onDa
           formatter: (params) => {
             // With time axis, value is [date, amount]
             const date = params[0].value[0];
-            let result = `${date}<br/>`;
+            const dataIndex = params[0].dataIndex;
+            const isAnchor = anchorFlags[dataIndex];
+
+            let result = `${date}`;
+            if (isAnchor) {
+              result += ' 📍'; // Pin emoji for anchor
+            }
+            result += '<br/>';
+
             params.forEach(p => {
               const amount = Array.isArray(p.value) ? p.value[1] : p.value;
               if (p.seriesName === 'Account Balance') {
