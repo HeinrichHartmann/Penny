@@ -14,9 +14,16 @@ export const initializeAppState = async ({
 
   yearButtons.value = computeYearButtons(m.min_date, m.max_date);
 
-  const defaultRange = computeDefaultDateRange(m.max_date);
-  filters.from = initialUrlState.from || defaultRange.from;
-  filters.to = initialUrlState.to || defaultRange.to;
+  // Only set date range if we have data
+  if (m.max_date) {
+    const defaultRange = computeDefaultDateRange(m.max_date);
+    filters.from = initialUrlState.from || defaultRange.from;
+    filters.to = initialUrlState.to || defaultRange.to;
+  } else {
+    // No data yet - leave filters empty (will be set on first import)
+    filters.from = initialUrlState.from || '';
+    filters.to = initialUrlState.to || '';
+  }
 
   const allAccountIds = m.accounts.map((acc) => acc.id);
   // Enable all accounts by default (Issue #9)

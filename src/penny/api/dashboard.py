@@ -112,8 +112,8 @@ async def meta():
 
     return {
         "accounts": accounts,
-        "min_date": date_range[0] if date_range[0] else "2024-01-01",
-        "max_date": date_range[1] if date_range[1] else "2026-12-31",
+        "min_date": date_range[0],
+        "max_date": date_range[1],
     }
 
 
