@@ -104,6 +104,7 @@ class TransactionFilter:
 
 def generate_fingerprint(
     account_id: int,
+    subaccount_type: str,
     tx_date: date,
     amount_cents: int,
     payee: str,
@@ -111,9 +112,9 @@ def generate_fingerprint(
 ) -> str:
     """Generate a stable transaction fingerprint."""
     if reference:
-        key = f"{account_id}:{reference}"
+        key = f"{account_id}:{subaccount_type}:{reference}"
     else:
-        key = f"{account_id}:{tx_date.isoformat()}:{amount_cents}:{payee[:50]}"
+        key = f"{account_id}:{subaccount_type}:{tx_date.isoformat()}:{amount_cents}:{payee[:50]}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
