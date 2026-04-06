@@ -58,7 +58,8 @@ class LedgerEntry:
     def get_directory(self, vault_path: Path) -> Path | None:
         """Get storage directory for this entry. Returns None for inline entries."""
         if self.entry_type == "ingest":
-            return vault_path / "transactions" / f"{self.sequence:04d}_{self.timestamp}"
+            # CSVs stored flat in transactions/ with PI prefix
+            return vault_path / "transactions"
         elif self.entry_type == "rules":
             return vault_path / "rules"
         elif self.entry_type == "balance":
@@ -71,7 +72,7 @@ class LedgerEntry:
     def get_file_path(self, vault_path: Path) -> Path | None:
         """Get primary file path for this entry. Returns None for inline entries."""
         if self.entry_type == "ingest":
-            # For ingest, return directory (contains multiple files)
+            # For ingest, return directory (CSVs have PI prefix)
             return self.get_directory(vault_path)
         elif self.entry_type == "rules":
             return vault_path / "rules" / f"{self.sequence:04d}_{self.timestamp}_rules.py"
@@ -81,6 +82,25 @@ class LedgerEntry:
             return None  # Mutations are inline in record, no external files
         else:
             raise ValueError(f"Unknown entry type: {self.entry_type}")
+
+    def get_csv_path(self, vault_path: Path, original_filename: str) -> Path:
+        """Get the actual file path for an imported CSV.
+
+        CSV files are stored with a PI{seq}_ prefix in transactions/.
+        The original_filename is stored in the record without prefix.
+        """
+        if self.entry_type != "ingest":
+            raise ValueError(f"get_csv_path only valid for ingest entries, got {self.entry_type}")
+        prefixed_name = f"PI{self.sequence:04d}_{original_filename}"
+        return vault_path / "transactions" / prefixed_name
+
+    @staticmethod
+    def strip_pi_prefix(filename: str) -> str:
+        """Strip PI\\d+_ prefix from filename if present."""
+        import re
+
+        match = re.match(r"^PI\d+_(.+)$", filename)
+        return match.group(1) if match else filename
 
 
 class Ledger:

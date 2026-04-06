@@ -53,10 +53,10 @@ class TestVaultIngest:
         assert entry.record["parser"] == "comdirect"
         assert entry.record["csv_files"] == [csv_path.name]
 
-        # Check CSV was copied to transactions directory
-        tx_dir = entry.get_directory(vault_config.path)
-        copied_csv = tx_dir / csv_path.name
+        # Check CSV was copied to transactions directory with PI prefix
+        copied_csv = entry.get_csv_path(vault_config.path, csv_path.name)
         assert copied_csv.exists()
+        assert copied_csv.name == f"PI{entry.sequence:04d}_{csv_path.name}"
         assert copied_csv.read_text() == content
 
     def test_ingest_deduplicates_on_reimport(self, vault_config, fixture_dir):

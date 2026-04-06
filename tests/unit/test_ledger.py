@@ -68,7 +68,7 @@ class TestLedgerEntry:
 
     def test_get_file_paths(self, tmp_path):
         """Test file path generation."""
-        # Ingest entry
+        # Ingest entry - CSVs stored flat with PI prefix
         ingest = LedgerEntry(
             sequence=1,
             entry_type="ingest",
@@ -76,14 +76,9 @@ class TestLedgerEntry:
             timestamp="2024-04-05T10:00:00Z",
             record={"parser": "sparkasse", "csv_files": ["file.CSV"]},
         )
-        assert (
-            ingest.get_file_path(tmp_path)
-            == tmp_path / "transactions" / "0001_2024-04-05T10:00:00Z"
-        )
-        assert (
-            ingest.get_directory(tmp_path)
-            == tmp_path / "transactions" / "0001_2024-04-05T10:00:00Z"
-        )
+        assert ingest.get_directory(tmp_path) == tmp_path / "transactions"
+        assert ingest.get_file_path(tmp_path) == tmp_path / "transactions"
+        assert ingest.get_csv_path(tmp_path, "file.CSV") == tmp_path / "transactions" / "PI0001_file.CSV"
 
         # Rules entry
         rules = LedgerEntry(

@@ -54,9 +54,6 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
     if entry.entry_type != "ingest":
         raise ValueError(f"Expected ingest entry, got {entry.entry_type}")
 
-    # Get transaction directory
-    tx_dir = entry.get_directory(config.path)
-
     # Get manifest data from entry record
     manifest_data = entry.record
 
@@ -71,7 +68,8 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
 
     with transaction() as conn:
         for csv_filename in csv_files:
-            csv_path = tx_dir / csv_filename
+            # CSV files stored with PI prefix, but we use original filename for parsing
+            csv_path = entry.get_csv_path(config.path, csv_filename)
             content = read_file_with_encoding(csv_path)
 
             parser = match_file(csv_filename, content, csv_type=manifest_data["parser"])

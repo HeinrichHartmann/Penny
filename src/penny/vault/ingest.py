@@ -79,12 +79,13 @@ def ingest_csv(
     sequence = ledger.next_sequence()
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Create transaction directory
-    tx_dir = config.path / "transactions" / f"{sequence:04d}_{timestamp}"
+    # Ensure transactions directory exists
+    tx_dir = config.path / "transactions"
     tx_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write CSV file
-    csv_path = tx_dir / request.filename
+    # Write CSV file with PI prefix (e.g., PI0001_original.csv)
+    prefixed_filename = f"PI{sequence:04d}_{request.filename}"
+    csv_path = tx_dir / prefixed_filename
     csv_path.write_bytes(content_bytes)
 
     # Create ledger entry (record contains all manifest data)
@@ -171,13 +172,14 @@ def ingest_csv_files(
     sequence = ledger.next_sequence()
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Create transaction directory
-    tx_dir = config.path / "transactions" / f"{sequence:04d}_{timestamp}"
+    # Ensure transactions directory exists
+    tx_dir = config.path / "transactions"
     tx_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write CSV files
+    # Write CSV files with PI prefix (e.g., PI0001_original.csv)
     for filename, content_bytes in content_dict.items():
-        csv_path = tx_dir / filename
+        prefixed_filename = f"PI{sequence:04d}_{filename}"
+        csv_path = tx_dir / prefixed_filename
         csv_path.write_bytes(content_bytes)
 
     # Create ledger entry (record contains all manifest data)
