@@ -261,7 +261,14 @@ export const AccountsView = {
               </div>
               <div style="flex: 1; min-width: 0;">
                 <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
-                  <span>{{ acc.display_name || acc.bank + ' #' + acc.id }}</span>
+                  <span
+                    @click="startEditingAccount(acc)"
+                    style="cursor: pointer; padding: 2px 4px; margin: -2px -4px; border-radius: 4px; transition: background 0.2s;"
+                    @mouseover="$event.target.style.background = '#f5f0e8'"
+                    @mouseout="$event.target.style.background = 'transparent'"
+                    title="Click to edit account name">
+                    {{ acc.display_name || acc.bank + ' #' + acc.id }}
+                  </span>
                   <span v-if="acc.hidden" style="font-size: 0.7rem; padding: 2px 8px; background: var(--muted); color: white; border-radius: 4px;">ARCHIVED</span>
                 </div>
                 <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 4px;">

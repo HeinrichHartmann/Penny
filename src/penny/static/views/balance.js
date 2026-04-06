@@ -117,7 +117,17 @@ export const createBalanceViewState = ({
     });
 
     // Build stacked series from account columns
-    const accountIds = Object.keys(accountColumns).sort((a, b) => parseInt(a) - parseInt(b));
+    // Sort accounts by their most recent (latest) balance:
+    // - Most negative balances at the bottom (drawn first)
+    // - Most positive balances at the top (drawn last)
+    const accountIds = Object.keys(accountColumns).sort((a, b) => {
+      const balancesA = accountColumns[a] || [];
+      const balancesB = accountColumns[b] || [];
+      const latestA = balancesA.length > 0 ? balancesA[balancesA.length - 1] : 0;
+      const latestB = balancesB.length > 0 ? balancesB[balancesB.length - 1] : 0;
+      // Sort ascending: negative first, positive last
+      return latestA - latestB;
+    });
     const series = [];
 
     // Consistent color mapping based on account ID (hash-based)
