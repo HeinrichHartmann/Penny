@@ -5,7 +5,8 @@ from penny.accounts import (
     list_accounts,
     remove_account,
 )
-from penny.vault import MutationLog, VaultConfig
+from penny.vault import VaultConfig
+from penny.vault.ledger import Ledger
 
 
 def test_add_account_assigns_sequential_id(db):
@@ -57,5 +58,7 @@ def test_account_writes_append_mutations(db):
     account = add_account("comdirect", bank_account_number="9788862492")
     remove_account(account.id)
 
-    rows = MutationLog(VaultConfig()).list_rows()
-    assert [row.type for row in rows] == ["account_created", "account_hidden"]
+    config = VaultConfig()
+    entries = Ledger(config.path).read_entries()
+    mutation_entries = [e for e in entries if e.entry_type == "mutation"]
+    assert [e.record["mutation_type"] for e in mutation_entries] == ["account_created", "account_hidden"]

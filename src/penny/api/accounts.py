@@ -1,6 +1,6 @@
 """Accounts API router."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ from penny.accounts import (
 )
 from penny.api.helpers import get_db
 from penny.vault.config import VaultConfig
-from penny.vault.ledger import Ledger
+from penny.vault.ledger import Ledger, LedgerEntry
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -167,7 +167,13 @@ async def delete_account(account_id: int):
 
 @router.post("/{account_id}/balance")
 async def record_balance_snapshot(account_id: int, request: BalanceSnapshotRequest):
-    """Record a balance snapshot for an account."""
+    """Record a balance snapshot for an account.
+
+    Writes to the vault ledger (source of truth), appends to balances.tsv,
+    and updates the SQLite accounts table (cached balance for display).
+    """
+    from penny.vault.balance_file import BalanceRow, append_balance_row, format_account_key
+
     account = get_account_by_id(account_id)
 
     if account is None:
@@ -179,15 +185,56 @@ async def record_balance_snapshot(account_id: int, request: BalanceSnapshotReque
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid date format: {e}") from e
 
-    # Update the account balance
-    updated = update_account_balance(
+    # Write to vault ledger (source of truth)
+    config = VaultConfig()
+    if not config.is_initialized():
+        config.initialize()
+
+    # Build account key for balances.tsv
+    account_number = account.bank_account_numbers[0] if account.bank_account_numbers else ""
+    account_key = format_account_key(account.bank, account_number)
+
+    ledger = Ledger(config.path)
+    sequence = ledger.next_sequence()
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    balance_record = {
+        "account_id": account_id,
+        "account_key": account_key,  # bank/number format for matching
+        "snapshot_date": request.balance_date,
+        "balance_cents": request.balance_cents,
+        "note": request.note or "",
+    }
+
+    entry = LedgerEntry(
+        sequence=sequence,
+        entry_type="balance",
+        enabled=True,
+        timestamp=timestamp,
+        record={
+            "filename": f"ui_snapshot_{account_id}_{request.balance_date}",
+            "snapshots": [balance_record],
+        },
+    )
+    ledger.append_entry(entry)
+
+    # Append to balances.tsv (human-readable, importable)
+    append_balance_row(
+        BalanceRow(
+            account=account_key,
+            date=snapshot_date,
+            balance_cents=request.balance_cents,
+            note=request.note or "",
+        ),
+        config,
+    )
+
+    # Also update SQLite accounts table (cached balance for quick display)
+    update_account_balance(
         account_id,
         balance_cents=request.balance_cents,
         balance_date=snapshot_date,
     )
-
-    if updated is None:
-        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     # Return updated account
     return await get_account(account_id)

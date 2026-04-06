@@ -25,12 +25,33 @@ def project_backward_with_inconsistencies(
     """Project anchors backward and record deltas at anchor boundaries."""
     if not anchors:
         return {}, []
+    if not date_strs:
+        return {}, []
 
     remaining_anchors = list(anchors)
     next_anchor = remaining_anchors.pop() if remaining_anchors else None
     balances: dict[str, int] = {}
     deltas: list[dict] = []
     current_balance: int | None = None
+
+    # Handle anchors that are AFTER the date range - project backward from them
+    last_date = date_strs[-1]
+    while next_anchor and next_anchor["date"] > last_date:
+        if current_balance is not None:
+            # There's already a later anchor; check for inconsistency
+            anchor_balance = next_anchor["balance_cents"]
+            delta = anchor_balance - current_balance
+            if abs(delta) > 1:
+                deltas.append(
+                    {
+                        "date": next_anchor["date"],
+                        "projected_balance": current_balance,
+                        "anchor_balance": anchor_balance,
+                        "delta_cents": delta,
+                    }
+                )
+        current_balance = next_anchor["balance_cents"]
+        next_anchor = remaining_anchors.pop() if remaining_anchors else None
 
     for index in range(len(date_strs) - 1, -1, -1):
         date_str = date_strs[index]

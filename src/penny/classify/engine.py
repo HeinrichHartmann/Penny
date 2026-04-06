@@ -123,6 +123,7 @@ class LoadedRulesConfig:
 
     ruleset: LoadedRuleset
     default_category: str
+    module: ModuleType | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,7 @@ def load_rules_config(path: Path) -> LoadedRulesConfig:
         return LoadedRulesConfig(
             ruleset=collector.build(),
             default_category=getattr(module, "DEFAULT_CATEGORY", "uncategorized"),
+            module=module,
         )
     finally:
         _ACTIVE_COLLECTOR.reset(token)

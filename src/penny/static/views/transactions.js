@@ -2,7 +2,7 @@ import { computed, reactive, ref, watch } from 'vue/dist/vue.esm-bundler.js';
 
 import { formatCurrency, toMarkdownTable } from '../utils/format.js';
 
-const TRANSACTIONS_PER_PAGE = 100;
+const TRANSACTIONS_PER_PAGE = 30;
 
 export const createTransactionsViewState = ({ transactions, initialPage }) => {
   const transactionsCopyLabel = ref('MD');

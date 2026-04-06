@@ -206,14 +206,13 @@ class TestVaultMutations:
         """Account operations via mutations should be replayed."""
         from penny.accounts import add_account, get_account, update_account_metadata
         from penny.db import init_db
-        from penny.vault import MutationLog
 
         # Create initial database and account
         init_db()
         account = add_account("testbank", bank_account_number="123456")
         account_id = account.id
 
-        # Update account metadata (this writes to mutation log)
+        # Update account metadata (this writes to ledger as mutation entry)
         update_account_metadata(
             account_id,
             display_name="My Account",
@@ -227,17 +226,18 @@ class TestVaultMutations:
         assert updated is not None
         assert updated.display_name == "My Account"
 
-        # Check mutation log has entries
-        mutation_log = MutationLog(vault_config)
-        rows = mutation_log.list_rows()
-        assert len(rows) >= 2  # account_created + account_updated
+        # Check ledger has mutation entries
+        ledger = Ledger(vault_config.path)
+        entries = ledger.read_entries()
+        mutation_entries = [e for e in entries if e.entry_type == "mutation"]
+        assert len(mutation_entries) >= 2  # account_created + account_updated
 
         # Nuke DB and replay from vault
         init_db()
         replay_result = replay_vault(vault_config)
         # Mutations are replayed
-        assert "account_created" in replay_result.entries_by_type
-        assert "account_updated" in replay_result.entries_by_type
+        assert "mutation" in replay_result.entries_by_type
+        assert replay_result.entries_by_type["mutation"] >= 2
 
         # Verify account metadata was restored
         restored = get_account(account_id)

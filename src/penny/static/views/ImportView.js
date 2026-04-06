@@ -33,6 +33,26 @@ export const ImportView = {
       }
     };
 
+    const formatFilename = (imp) => {
+      // For ingest entries, show the CSV filenames
+      if (imp.filenames && imp.filenames.length > 0) {
+        return imp.filenames.join(', ');
+      }
+      return imp.filename || '—';
+    };
+
+    const formatBalanceDetails = (imp) => {
+      // Parse "4 snapshot(s) for 1 account(s)" into cleaner format
+      const label = imp.account_label || '';
+      const match = label.match(/(\d+) snapshot.*?(\d+) account/);
+      if (match) {
+        const snapshots = parseInt(match[1]);
+        const accounts = parseInt(match[2]);
+        return `${snapshots} snapshot${snapshots !== 1 ? 's' : ''}, ${accounts} account${accounts !== 1 ? 's' : ''}`;
+      }
+      return label;
+    };
+
     return {
       dragState,
       handleDragOver,
@@ -40,6 +60,8 @@ export const ImportView = {
       handleDrop,
       handleFileSelect,
       formatDate,
+      formatFilename,
+      formatBalanceDetails,
     };
   },
   template: `
@@ -145,51 +167,69 @@ export const ImportView = {
           </button>
         </div>
 
-        <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
-          <div v-for="imp in model.history" :key="imp.sequence" class="panel" style="padding: 20px;" :style="{ opacity: imp.enabled ? 1 : 0.5 }">
-            <div style="display: flex; align-items: flex-start; gap: 16px;">
-              <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                <div :style="{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '8px',
-                  background: imp.enabled ? 'linear-gradient(135deg, #845b31 0%, #6b4a29 100%)' : '#ccc',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '1.3rem',
-                  flexShrink: 0
-                }">
-                  {{ imp.status === 'applied' ? '✓' : '✗' }}
-                </div>
-                <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 0.75rem; color: var(--muted);">
+        <div class="panel" style="padding: 0; overflow: hidden;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+            <thead>
+              <tr style="background: var(--panel-bg); border-bottom: 1px solid var(--border);">
+                <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: var(--muted); width: 40px;"></th>
+                <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: var(--muted);">File</th>
+                <th style="padding: 12px 8px; text-align: left; font-weight: 600; color: var(--muted);">Type</th>
+                <th style="padding: 12px 8px; text-align: left; font-weight: 600; color: var(--muted);">Details</th>
+                <th style="padding: 12px 16px; text-align: right; font-weight: 600; color: var(--muted);">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="imp in model.history" :key="imp.sequence"
+                  style="border-bottom: 1px solid var(--border);"
+                  :style="{ opacity: imp.enabled ? 1 : 0.5 }">
+                <td style="padding: 12px 16px; text-align: center;">
                   <input
                     type="checkbox"
                     :checked="imp.enabled"
                     @change="actions.toggleImportEntryEnabled(imp.sequence)"
                     style="cursor: pointer;"
                   >
-                  Enabled
-                </label>
-              </div>
-              <div style="flex: 1; min-width: 0;">
-                <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; word-break: break-word;">
-                  {{ imp.filenames.join(', ') || 'Unknown file' }}
-                </div>
-                <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 8px;">
+                </td>
+                <td style="padding: 12px 16px;">
+                  <div style="font-weight: 500; word-break: break-word;">
+                    {{ formatFilename(imp) }}
+                  </div>
+                  <div v-if="imp.warning" style="font-size: 0.8rem; color: #856404; margin-top: 4px;">
+                    {{ imp.warning }}
+                  </div>
+                </td>
+                <td style="padding: 12px 8px;">
+                  <span :style="{
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.8rem',
+                    background: imp.type === 'ingest' ? 'rgba(132, 91, 49, 0.1)' :
+                               imp.type === 'rules' ? 'rgba(100, 100, 200, 0.1)' :
+                               'rgba(100, 200, 100, 0.1)',
+                    color: imp.type === 'ingest' ? 'var(--accent)' :
+                           imp.type === 'rules' ? '#5555aa' : '#339933'
+                  }">
+                    {{ imp.type === 'ingest' ? 'CSV' : imp.type === 'rules' ? 'Rules' : 'Balance' }}
+                  </span>
+                </td>
+                <td style="padding: 12px 8px; color: var(--muted); font-size: 0.85rem;">
+                  <template v-if="imp.type === 'ingest'">
+                    {{ imp.parser }} → {{ imp.account_label || 'Unknown' }}
+                  </template>
+                  <template v-else-if="imp.type === 'balance_anchors'">
+                    {{ formatBalanceDetails(imp) }}
+                  </template>
+                  <template v-else>
+                    Classification rules
+                  </template>
+                </td>
+                <td style="padding: 12px 16px; text-align: right; color: var(--muted); font-size: 0.85rem; white-space: nowrap;">
                   {{ formatDate(imp.timestamp) }}
-                </div>
-                <div v-if="imp.warning" style="font-size: 0.8rem; color: #856404; background: #fff3cd; padding: 4px 8px; border-radius: 4px; margin-bottom: 8px;">
-                  {{ imp.warning }}
-                </div>
-                <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.8rem;">
-                  <span style="color: var(--muted);">Type: <strong style="color: var(--text);">{{ imp.type }}</strong></span>
-                  <span v-if="imp.parser" style="color: var(--muted);">Parser: <strong style="color: var(--text);">{{ imp.parser }}</strong></span>
-                  <span v-if="imp.account_label" style="color: var(--muted);">Account: <strong style="color: var(--text);">{{ imp.account_label }}</strong></span>
-                </div>
-              </div>
-            </div>
-          </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

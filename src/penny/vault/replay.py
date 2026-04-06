@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from penny.config import default_db_path
 from penny.db import transaction
 from penny.runtime_rules import run_stored_rules
-from penny.vault.apply import apply_entry, apply_mutation
+from penny.vault.apply import apply_entry
 from penny.vault.config import VaultConfig
 from penny.vault.ledger import Ledger
-from penny.vault.mutations import MutationLog
 
 
 @dataclass
@@ -37,6 +36,8 @@ class ReplayEngine:
         """Replay all ledger entries and rebuild database.
 
         Clears existing database and rebuilds from vault ledger.
+        All entry types (ingest, rules, balance, mutation) are processed
+        in sequence order from history.tsv.
 
         Returns:
             ReplayResult with counts of entries processed.
@@ -55,19 +56,12 @@ class ReplayEngine:
         entries_processed = 0
         entries_by_type: dict[str, int] = {}
 
-        # Replay enabled entries from history.tsv
+        # Replay all enabled entries from history.tsv (includes mutations now)
         for entry in self.ledger.read_entries():
             if entry.enabled:
                 apply_entry(entry, self.config)
                 entries_processed += 1
                 entries_by_type[entry.entry_type] = entries_by_type.get(entry.entry_type, 0) + 1
-
-        _ensure_projection_state()
-        _set_last_applied_mutation_seq(0)
-        mutation_result = apply_pending_mutations(self.config)
-        entries_processed += mutation_result.entries_processed
-        for entry_type, count in mutation_result.entries_by_type.items():
-            entries_by_type[entry_type] = entries_by_type.get(entry_type, 0) + count
 
         _restore_runtime_classifications(self.config)
 
@@ -89,22 +83,24 @@ def _ensure_projection_state() -> None:
         )
 
 
-def _get_last_applied_mutation_seq() -> int:
+def _get_last_applied_seq() -> int:
+    """Get the last applied ledger sequence number."""
     _ensure_projection_state()
     with transaction() as conn:
         row = conn.execute(
-            "SELECT value FROM projection_state WHERE key = 'last_applied_mutation_seq'"
+            "SELECT value FROM projection_state WHERE key = 'last_applied_seq'"
         ).fetchone()
         return int(row["value"]) if row is not None else 0
 
 
-def _set_last_applied_mutation_seq(seq: int) -> None:
+def _set_last_applied_seq(seq: int) -> None:
+    """Set the last applied ledger sequence number."""
     _ensure_projection_state()
     with transaction() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO projection_state (key, value)
-            VALUES ('last_applied_mutation_seq', ?)
+            VALUES ('last_applied_seq', ?)
             """,
             (str(seq),),
         )
@@ -113,30 +109,32 @@ def _set_last_applied_mutation_seq(seq: int) -> None:
 def apply_pending_mutations(
     config: VaultConfig | None = None, *, upto_seq: int | None = None
 ) -> ReplayResult:
-    """Apply new mutations since last replay.
+    """Apply new ledger entries since last applied.
 
     Args:
         config: Vault configuration.
-        upto_seq: If provided, only apply mutations up to this sequence number.
+        upto_seq: If provided, only apply entries up to this sequence number.
     """
     if config is None:
         config = VaultConfig()
 
-    mutation_log = MutationLog(config)
-    last_applied = _get_last_applied_mutation_seq()
+    ledger = Ledger(config.path)
+    last_applied = _get_last_applied_seq()
 
     entries_processed = 0
     entries_by_type: dict[str, int] = {}
 
-    for row in mutation_log.list_rows():
-        if row.seq <= last_applied:
+    for entry in ledger.read_entries():
+        if entry.sequence <= last_applied:
             continue
-        if upto_seq is not None and row.seq > upto_seq:
+        if upto_seq is not None and entry.sequence > upto_seq:
             break
-        apply_mutation(row)
+        if not entry.enabled:
+            continue
+        apply_entry(entry, config)
         entries_processed += 1
-        entries_by_type[row.type] = entries_by_type.get(row.type, 0) + 1
-        _set_last_applied_mutation_seq(row.seq)
+        entries_by_type[entry.entry_type] = entries_by_type.get(entry.entry_type, 0) + 1
+        _set_last_applied_seq(entry.sequence)
 
     return ReplayResult(
         entries_processed=entries_processed,

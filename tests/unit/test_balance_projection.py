@@ -208,3 +208,37 @@ def test_build_balance_series_accepts_unsorted_anchor_input():
     ]
     assert balances["2024-01-04"] == 150
     assert deltas[0]["date"] == "2024-01-02"
+
+
+def test_backward_projection_handles_anchor_after_date_range():
+    """Anchor after transaction range should project backward into visible dates."""
+    balances, deltas = project_backward_with_inconsistencies(
+        ["2024-01-01", "2024-01-02"],  # Transactions end Jan 2
+        {"2024-01-01": 5, "2024-01-02": 10},
+        [{"date": "2024-01-03", "balance_cents": 100}],  # Anchor AFTER range
+    )
+
+    # From anchor at Jan 3 = 100, project backward:
+    # Jan 2 EOD = 100 (no saldo between Jan 2 EOD and Jan 3 anchor)
+    # Jan 1 EOD = 100 - saldo[Jan 2] = 100 - 10 = 90
+    assert balances == {
+        "2024-01-01": 90,
+        "2024-01-02": 100,
+    }
+    assert deltas == []
+
+
+def test_build_balance_series_handles_anchor_after_date_range():
+    """User adds 'current balance' for today when last transaction is yesterday."""
+    balances, deltas, normalized = build_balance_series(
+        ["2024-01-01", "2024-01-02"],  # Transactions end Jan 2
+        {"2024-01-01": 5, "2024-01-02": 10},
+        [{"date": "2024-01-03", "balance_cents": 100}],  # "Today's balance"
+    )
+
+    assert normalized == [{"date": "2024-01-03", "balance_cents": 100}]
+    assert balances == {
+        "2024-01-01": 90,
+        "2024-01-02": 100,
+    }
+    assert deltas == []

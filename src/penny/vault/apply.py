@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
@@ -10,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from penny.vault.ledger import LedgerEntry
 from penny.vault.config import VaultConfig
-from penny.vault.mutations import MutationRow
 
 if TYPE_CHECKING:
     from penny.transactions import Transaction
@@ -146,6 +144,8 @@ def apply_entry(entry: LedgerEntry, config: VaultConfig) -> None:
             _apply_balance(entry, config)
         case "rules":
             _apply_rules(entry, config)
+        case "mutation":
+            _apply_mutation_entry(entry, config)
         case _:
             raise ValueError(f"Unknown entry type: {entry.entry_type}")
 
@@ -155,12 +155,14 @@ def _apply_balance(entry: LedgerEntry, config: VaultConfig) -> None:
     from penny.accounts import update_account_balance
 
     record = entry.record
-    snapshot_date = date.fromisoformat(record["snapshot_date"])
-    update_account_balance(
-        record["account_id"],
-        balance_cents=record["balance_cents"],
-        balance_date=snapshot_date,
-    )
+    # Balance entries have a list of snapshots
+    for snapshot in record.get("snapshots", []):
+        snapshot_date = date.fromisoformat(snapshot["snapshot_date"])
+        update_account_balance(
+            snapshot["account_id"],
+            balance_cents=snapshot["balance_cents"],
+            balance_date=snapshot_date,
+        )
 
 
 def _apply_rules(entry: LedgerEntry, config: VaultConfig) -> None:
@@ -168,21 +170,41 @@ def _apply_rules(entry: LedgerEntry, config: VaultConfig) -> None:
     pass
 
 
-def apply_mutation(row: MutationRow) -> None:
-    """Apply a mutation row directly to the SQLite projection."""
+def _apply_mutation_entry(entry: LedgerEntry, config: VaultConfig) -> None:
+    """Apply a mutation entry from the ledger."""
+    record = entry.record
+    mutation_type = record["mutation_type"]
+    entity_id = record.get("entity_id", "")
+    payload = record.get("payload", {})
+
+    _apply_mutation_data(
+        mutation_type=mutation_type,
+        entity_id=entity_id,
+        payload=payload,
+        timestamp=entry.timestamp,
+    )
+
+
+def _apply_mutation_data(
+    *,
+    mutation_type: str,
+    entity_id: str,
+    payload: dict,
+    timestamp: str,
+) -> None:
+    """Apply mutation data to the SQLite projection."""
     from penny.accounts import (
         Subaccount,
         _create_account_direct,
         _soft_delete_account_direct,
         _update_account_metadata_direct,
+        _upsert_subaccounts_direct,
     )
     from penny.db import transaction
-    from penny.transactions import _apply_classifications_direct, _apply_groups_direct
-
-    payload = json.loads(row.payload_json)
+    from penny.transactions import _apply_groups_direct
 
     with transaction() as conn:
-        if row.type == "account_created":
+        if mutation_type == "account_created":
             _create_account_direct(
                 conn,
                 bank=payload["bank"],
@@ -201,33 +223,31 @@ def apply_mutation(row: MutationRow) -> None:
                     )
                     for item in payload.get("subaccounts", [])
                 },
-                created_at=row.timestamp,
-                updated_at=row.timestamp,
+                created_at=timestamp,
+                updated_at=timestamp,
             )
             return
 
-        if row.type == "account_updated":
+        if mutation_type == "account_updated":
             _update_account_metadata_direct(
                 conn,
-                int(row.entity_id),
-                updated_at=row.timestamp,
+                int(entity_id),
+                updated_at=timestamp,
                 **payload,
             )
             return
 
-        if row.type == "account_hidden":
-            _soft_delete_account_direct(conn, int(row.entity_id), updated_at=row.timestamp)
+        if mutation_type == "account_hidden":
+            _soft_delete_account_direct(conn, int(entity_id), updated_at=timestamp)
             return
 
-        if row.type == "subaccounts_upserted":
-            from penny.accounts import _upsert_subaccounts_direct
-
+        if mutation_type == "subaccounts_upserted":
             _upsert_subaccounts_direct(
-                conn, int(row.entity_id), payload.get("subaccount_types", [])
+                conn, int(entity_id), payload.get("subaccount_types", [])
             )
             return
 
-        if row.type == "transactions_stored":
+        if mutation_type == "transactions_stored":
             from penny.transactions import Transaction, _store_transactions_direct
 
             transactions = [
@@ -256,29 +276,15 @@ def apply_mutation(row: MutationRow) -> None:
                 conn,
                 transactions,
                 source_file=payload.get("source_file"),
-                imported_at=row.timestamp,
+                imported_at=timestamp,
             )
             return
 
-        if row.type == "classifications_applied":
-            from penny.classify.engine import ClassificationDecision
-
-            decisions = [
-                ClassificationDecision(
-                    fingerprint=item["fingerprint"],
-                    category=item["category"],
-                    rule_name=item["rule_name"],
-                )
-                for item in payload.get("decisions", [])
-            ]
-            _apply_classifications_direct(conn, decisions, classified_at=row.timestamp)
-            return
-
-        if row.type == "groups_applied":
+        if mutation_type == "groups_applied":
             _apply_groups_direct(conn, payload.get("groups", {}))
             return
 
-        if row.type == "rules_updated":
+        if mutation_type == "rules_updated":
             return
 
-        raise ValueError(f"Unknown mutation type: {row.type}")
+        raise ValueError(f"Unknown mutation type: {mutation_type}")

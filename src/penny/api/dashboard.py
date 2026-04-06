@@ -143,6 +143,7 @@ async def summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -151,7 +152,8 @@ async def summary(
     cursor = conn.cursor()
 
     sql, params = summary_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     transactions = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -181,6 +183,7 @@ async def tree(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -189,7 +192,8 @@ async def tree(
     cursor = conn.cursor()
 
     sql, params = tree_query(
-        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -235,6 +239,7 @@ async def pivot(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -243,7 +248,8 @@ async def pivot(
     cursor = conn.cursor()
 
     sql, params = pivot_query(
-        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -294,6 +300,7 @@ async def cashflow(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -302,7 +309,8 @@ async def cashflow(
     cursor = conn.cursor()
 
     sql, params = cashflow_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -357,6 +365,7 @@ async def breakout(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
 ):
@@ -365,7 +374,8 @@ async def breakout(
     cursor = conn.cursor()
 
     sql, params = breakout_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
+        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
     conn.close()
@@ -630,13 +640,18 @@ async def account_value_history(
     all_dates = sorted(all_dates)
 
     # Calculate total balance per day
+    # Track last known balance per account to carry forward for missing dates
     value_points = []
     anchor_dates = {s["date"] for s in all_snapshots}
+    last_known_per_account: dict[int, int] = {acc_id: 0 for acc_id in account_ids}
 
     for date_str in all_dates:
-        total_balance = sum(
-            account_balances.get(acc_id, {}).get(date_str, 0) for acc_id in account_ids
-        )
+        total_balance = 0
+        for acc_id in account_ids:
+            acc_balances = account_balances.get(acc_id, {})
+            if date_str in acc_balances:
+                last_known_per_account[acc_id] = acc_balances[date_str]
+            total_balance += last_known_per_account[acc_id]
 
         value_points.append(
             {
@@ -651,10 +666,43 @@ async def account_value_history(
         from_date_str = from_date if from_date else value_points[0]["date"]
         to_date_str = to_date if to_date else value_points[-1]["date"]
         value_points = [vp for vp in value_points if from_date_str <= vp["date"] <= to_date_str]
+        # Also filter all_dates for column data
+        all_dates = [d for d in all_dates if from_date_str <= d <= to_date_str]
+
+    # Build column-wise account balance arrays (for stacked chart)
+    # Each account gets an array of balances aligned with all_dates
+    # For dates beyond the account's transaction range, carry forward the last known balance
+    account_columns: dict[int, list[int]] = {}
+    for acc_id in account_ids:
+        acc_balances = account_balances.get(acc_id, {})
+        column = []
+        last_known_balance = 0
+        for d in all_dates:
+            if d in acc_balances:
+                last_known_balance = acc_balances[d]
+            column.append(last_known_balance)
+        account_columns[acc_id] = column
+
+    # Get account names for legend
+    account_names: dict[int, str] = {}
+    conn = connect()
+    for acc_id in account_ids:
+        row = conn.execute(
+            "SELECT display_name, bank FROM accounts WHERE id = ?", (acc_id,)
+        ).fetchone()
+        if row:
+            account_names[acc_id] = row[0] or f"{row[1]} #{acc_id}"
+        else:
+            account_names[acc_id] = f"Account #{acc_id}"
+    conn.close()
 
     return {
         "account_ids": list(account_ids),
         "balance_snapshots": visible_snapshots,
         "value_points": value_points,
         "inconsistencies": inconsistencies,
+        # Column-wise data for stacked chart
+        "dates": all_dates,
+        "account_columns": {str(k): v for k, v in account_columns.items()},
+        "account_names": {str(k): v for k, v in account_names.items()},
     }

@@ -571,7 +571,6 @@ createApp({
       valueHistory: balanceValueHistory,
       loading: balanceLoading,
       loadValueHistory: loadBalanceValueHistory,
-      filters,
       onDateRangeChange: (from, to) => {
         filters.from = from;
         filters.to = to;
