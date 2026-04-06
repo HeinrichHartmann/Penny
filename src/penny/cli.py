@@ -24,7 +24,6 @@ from penny.ingest import (
     get_supported_csv_types,
     match_source,
 )
-from penny.reports import generate_report_text
 from penny.runtime_rules import run_stored_rules
 from penny.server import run_server
 from penny.transactions import (
@@ -602,42 +601,271 @@ def transactions_list(
 
 
 @main.command("report")
-@click.option(
-    "--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)"
-)
-@click.option(
-    "--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)"
-)
+@click.argument("period", required=False)
 @click.option(
     "--account",
     "-a",
-    "account_ids",
+    "account_names",
     multiple=True,
-    type=int,
-    help="Filter by account ID (repeatable)",
+    help="Filter by account name (e.g., 'Shared', 'Private', 'HartmannIT')",
 )
 @click.option("--category", help="Filter by category prefix")
 @click.option("--query", "-q", help="Search booking text or payee")
 def report(
-    from_date: datetime | None,
-    to_date: datetime | None,
-    account_ids: tuple[int, ...],
+    period: str | None,
+    account_names: tuple[str, ...],
     category: str | None,
     query: str | None,
 ):
-    """Generate the plain text finance report."""
+    """Generate comprehensive financial report for a period.
 
-    click.echo(
-        generate_report_text(
-            _build_transaction_filter(
-                from_date=from_date,
-                to_date=to_date,
-                account_ids=account_ids,
-                category=category,
-                query=query,
-            )
-        )
+    PERIOD can be a year (e.g., 2025) or year-month (e.g., 2026-03).
+    If not specified, shows all time.
+
+    Examples:
+      penny report 2025
+      penny report 2026-03
+      penny report 2025 --account Shared --account Private
+    """
+    from collections import defaultdict
+
+    from penny.accounts import list_accounts
+    from penny.db import connect
+    from penny.transactions import list_transactions
+
+    # Parse period
+    from_date, to_date = _parse_period(period)
+
+    # Map account names to IDs
+    all_accounts = list_accounts(include_hidden=False)
+    account_lookup = {acc.display_name: acc for acc in all_accounts if acc.display_name}
+
+    selected_accounts = []
+    if account_names:
+        for name in account_names:
+            if name in account_lookup:
+                selected_accounts.append(account_lookup[name])
+            else:
+                click.echo(
+                    f"Warning: Account '{name}' not found. Available: {', '.join(account_lookup.keys())}",
+                    err=True,
+                )
+        if not selected_accounts:
+            click.echo("Error: No valid accounts found.", err=True)
+            return
+    else:
+        selected_accounts = all_accounts
+
+    account_ids = tuple(acc.id for acc in selected_accounts)
+
+    # Build filter
+    filters = _build_transaction_filter(
+        from_date=from_date,
+        to_date=to_date,
+        account_ids=account_ids,
+        category=category,
+        query=query,
     )
+
+    # === HEADER ===
+    period_label = _format_period_label(period, from_date, to_date)
+    account_label = ", ".join(acc.display_name or f"Account #{acc.id}" for acc in selected_accounts)
+
+    lines = [
+        "=" * 100,
+        " " * 35 + "PENNY FINANCIAL REPORT",
+        "=" * 100,
+        "",
+        f"Period:   {period_label}",
+        f"Accounts: {account_label}",
+        "",
+    ]
+
+    # === ASSET VALUES AT END OF PERIOD ===
+    lines.extend(["ASSET VALUES AT END OF PERIOD", "-" * 30, ""])
+
+    # Calculate balances properly using full balance projection
+    from datetime import date as date_cls
+
+    from penny.accounts import get_account_balance_at_date
+
+    target_date = to_date.date() if to_date else date_cls.today()
+    account_balances_at_date = {}  # {account_id: balance_cents}
+    conn = connect()
+
+    for acc in selected_accounts:
+        result = get_account_balance_at_date(acc.id, target_date)
+
+        if result:
+            balance_cents, balance_date = result
+            account_balances_at_date[acc.id] = balance_cents
+            balance = balance_cents / 100
+            lines.append(
+                f"  {acc.display_name or f'Account #{acc.id}':<30} {balance:>15,.2f}  (as of {balance_date})"
+            )
+        else:
+            lines.append(
+                f"  {acc.display_name or f'Account #{acc.id}':<30} {'N/A':>15}  (no balance data)"
+            )
+
+    total_assets = sum(account_balances_at_date.values()) / 100
+    lines.extend(["", f"  {'Total Assets':<30} {total_assets:>15,.2f}", ""])
+
+    # === INCOME BY CATEGORY (Pivot Table at depth 2) ===
+    lines.extend(["", "INCOME BY CATEGORY", "-" * 18, ""])
+    income_data = _get_pivot_data(conn, filters, tab="income", depth=2)
+    if income_data:
+        lines.append(f"  {'Category':<40} {'Count':>8} {'Total':>15} {'Share':>8}")
+        lines.append("  " + "-" * 75)
+        for cat, data in income_data[:15]:  # Top 15
+            lines.append(
+                f"  {cat:<40} {data['count']:>8} {data['total'] / 100:>15,.2f} {data['share'] * 100:>7.1f}%"
+            )
+        lines.append("")
+    else:
+        lines.append("  No income transactions found.")
+        lines.append("")
+
+    # === EXPENSES BY CATEGORY (Pivot Table at depth 2) ===
+    lines.extend(["", "EXPENSES BY CATEGORY", "-" * 20, ""])
+    expense_data = _get_pivot_data(conn, filters, tab="expense", depth=2)
+    if expense_data:
+        lines.append(f"  {'Category':<40} {'Count':>8} {'Total':>15} {'Share':>8}")
+        lines.append("  " + "-" * 75)
+        for cat, data in expense_data[:15]:  # Top 15
+            lines.append(
+                f"  {cat:<40} {data['count']:>8} {data['total'] / 100:>15,.2f} {data['share'] * 100:>7.1f}%"
+            )
+        lines.append("")
+    else:
+        lines.append("  No expense transactions found.")
+        lines.append("")
+
+    # === TOP 5 MERCHANTS PER DEPTH-1 CATEGORY ===
+    lines.extend(["", "TOP MERCHANTS BY CATEGORY", "-" * 25, ""])
+
+    # Get depth-1 expense categories
+    depth1_data = _get_pivot_data(conn, filters, tab="expense", depth=1)
+    transactions = list_transactions(filters=filters, limit=None, neutralize=False)
+
+    for cat_key, cat_data in depth1_data[:10]:  # Top 10 categories
+        # Get all transactions for this category
+        cat_txns = [
+            tx
+            for tx in transactions
+            if tx.category and tx.category.startswith(cat_key + "/") or tx.category == cat_key
+        ]
+        if not cat_txns:
+            continue
+
+        # Group by payee and sum
+        merchant_totals = defaultdict(int)
+        for tx in cat_txns:
+            if tx.amount_cents < 0:  # Only expenses
+                merchant_totals[tx.payee or "Unknown"] += abs(tx.amount_cents)
+
+        # Get top 5
+        top_merchants = sorted(merchant_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        if top_merchants:
+            lines.append(f"\n  {cat_key.upper()} (Total: {cat_data['total'] / 100:,.2f})")
+            for i, (merchant, amount) in enumerate(top_merchants, 1):
+                merchant_name = merchant[:50]
+                lines.append(f"    {i}. {merchant_name:<50} {amount / 100:>12,.2f}")
+
+    lines.append("")
+    lines.append("=" * 100)
+
+    conn.close()
+    click.echo("\n".join(lines))
+
+
+def _parse_period(period: str | None) -> tuple[datetime | None, datetime | None]:
+    """Parse period string like '2025' or '2026-03' into date range."""
+    if not period:
+        return None, None
+
+    from calendar import monthrange
+
+    if len(period) == 4 and period.isdigit():
+        # Year format: 2025
+        year = int(period)
+        from_date = datetime(year, 1, 1)
+        to_date = datetime(year, 12, 31)
+    elif len(period) == 7 and period[4] == "-":
+        # Year-month format: 2026-03
+        parts = period.split("-")
+        year = int(parts[0])
+        month = int(parts[1])
+        from_date = datetime(year, month, 1)
+        last_day = monthrange(year, month)[1]
+        to_date = datetime(year, month, last_day)
+    else:
+        raise click.BadParameter(
+            f"Invalid period format: '{period}'. Use YYYY (e.g., 2025) or YYYY-MM (e.g., 2026-03)"
+        )
+
+    return from_date, to_date
+
+
+def _format_period_label(
+    period: str | None, from_date: datetime | None, to_date: datetime | None
+) -> str:
+    """Format period label for display."""
+    if period:
+        return period
+    if from_date and to_date:
+        if from_date.date() == to_date.date():
+            return from_date.date().isoformat()
+        return f"{from_date.date().isoformat()} to {to_date.date().isoformat()}"
+    if from_date:
+        return f"From {from_date.date().isoformat()}"
+    if to_date:
+        return f"Until {to_date.date().isoformat()}"
+    return "All time"
+
+
+def _get_pivot_data(conn, filters, tab: str, depth: int) -> list[tuple[str, dict]]:
+    """Get pivot data for a given tab and depth."""
+    from collections import defaultdict
+
+    from penny.sql import pivot_query
+
+    sql, params = pivot_query(
+        tab=tab,
+        from_date=filters.from_date.isoformat() if filters.from_date else None,
+        to_date=filters.to_date.isoformat() if filters.to_date else None,
+        accounts=",".join(str(aid) for aid in filters.account_ids) if filters.account_ids else None,
+        category=filters.category_prefix,
+        q=filters.search_query,
+        neutralize=True,
+    )
+    rows = conn.execute(sql, params).fetchall()
+
+    if not rows:
+        return []
+
+    # Group by category at specified depth
+    cat_data = defaultdict(lambda: {"total": 0, "count": 0})
+
+    for row in rows:
+        cat = row[0] or "uncategorized"
+        amount = abs(row[1])
+
+        # Extract category at specified depth
+        parts = cat.split("/")
+        cat_key = "/".join(parts[:depth]) if len(parts) >= depth else cat
+
+        cat_data[cat_key]["total"] += amount
+        cat_data[cat_key]["count"] += 1
+
+    # Calculate shares
+    total_cents = sum(c["total"] for c in cat_data.values())
+    for data in cat_data.values():
+        data["share"] = data["total"] / total_cents if total_cents > 0 else 0
+
+    # Return sorted by total (descending)
+    return sorted(cat_data.items(), key=lambda x: x[1]["total"], reverse=True)
 
 
 @main.command("pivot")

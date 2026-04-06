@@ -492,3 +492,95 @@ def count_balance_anchors_by_account() -> dict[int, int]:
     with closing(connect()) as conn:
         rows = conn.execute(sql, params).fetchall()
         return {row["account_id"]: row["count"] for row in rows}
+
+
+def get_account_balance_at_date(account_id: int, target_date: date) -> tuple[int, str] | None:
+    """Get account balance at a specific date using full balance projection.
+
+    Returns (balance_cents, balance_date) or None if no anchors exist.
+    Balance date may be <= target_date depending on available data.
+
+    Uses the same logic as the balance view - builds complete history from
+    all anchors and transactions, then extracts the balance at target date.
+    """
+    import pandas as pd
+
+    from penny.balance_projection import build_balance_series
+    from penny.transactions import TransactionFilter, list_transactions
+
+    target_date_str = target_date.isoformat()
+
+    # Get all balance anchors for this account
+    with closing(connect()) as conn:
+        anchor_rows = conn.execute(
+            """
+            SELECT account_id, anchor_date, balance_cents
+            FROM balance_anchors
+            WHERE account_id = ?
+            ORDER BY anchor_date
+            """,
+            (account_id,),
+        ).fetchall()
+
+    acc_snapshots = [
+        {
+            "account_id": row["account_id"],
+            "date": row["anchor_date"],
+            "balance_cents": row["balance_cents"],
+        }
+        for row in anchor_rows
+    ]
+
+    if not acc_snapshots:
+        # No anchors - can't compute balance
+        return None
+
+    # Get all transactions for this account (no date filter)
+    acc_transactions = list_transactions(
+        filters=TransactionFilter(account_ids=frozenset({account_id})),
+        limit=None,
+        neutralize=False,
+    )
+
+    # Build daily saldo
+    if acc_transactions:
+        tx_data = [
+            {
+                "date": tx.date.isoformat(),
+                "amount_cents": tx.amount_cents,
+            }
+            for tx in acc_transactions
+        ]
+        df = pd.DataFrame(tx_data)
+        acc_saldo = df.groupby("date")["amount_cents"].sum().to_dict()
+    else:
+        acc_saldo = {}
+
+    # Get full date range
+    tx_dates = list(acc_saldo.keys()) if acc_saldo else []
+    anchor_dates_list = [s["date"] for s in acc_snapshots]
+    all_relevant_dates = tx_dates + anchor_dates_list + [target_date_str]
+
+    if not all_relevant_dates:
+        return None
+
+    min_date = min(all_relevant_dates)
+    max_date = max(all_relevant_dates)
+
+    # Create full date range
+    date_range = pd.date_range(start=min_date, end=max_date, freq="D") + pd.Timedelta(days=1)
+    date_strs = [d.strftime("%Y-%m-%d") for d in date_range]
+
+    # Build balance series
+    balances, _backward_deltas, _normalized_anchors = build_balance_series(
+        date_strs,
+        acc_saldo,
+        acc_snapshots,
+    )
+
+    # Find balance at target date (or closest before)
+    for d in sorted(balances.keys(), reverse=True):
+        if d <= target_date_str:
+            return (balances[d], d)
+
+    return None

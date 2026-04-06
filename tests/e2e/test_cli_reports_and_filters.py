@@ -84,11 +84,13 @@ def test_transactions_list_matches_api_filters(monkeypatch, tmp_path):
 def test_report_command_reuses_domain_report(monkeypatch, tmp_path):
     monkeypatch.setenv("PENNY_DATA_DIR", str(tmp_path))
     init_default_db()
-    add_account("testbank")
+    acc = add_account("testbank", display_name="Test Account")
     store_transactions(
         [
-            make_transaction(1, date(2024, 2, 3), -9900, "Spotify", category="subscriptions/music"),
-            make_transaction(1, date(2024, 2, 5), 250000, "Salary", category="income/salary"),
+            make_transaction(
+                acc.id, date(2024, 2, 3), -9900, "Spotify", category="subscriptions/music"
+            ),
+            make_transaction(acc.id, date(2024, 2, 5), 250000, "Salary", category="income/salary"),
         ]
     )
 
@@ -97,17 +99,14 @@ def test_report_command_reuses_domain_report(monkeypatch, tmp_path):
         main,
         [
             "report",
-            "--from",
-            "2024-02-01",
-            "--to",
-            "2024-02-29",
+            "2024-02",
             "--account",
-            "1",
+            "Test Account",
         ],
     )
 
     assert result.exit_code == 0
-    assert "PENNY FINANCE REPORT" in result.output
-    assert "Accounts: 1" in result.output
-    assert "2024-02-01 to 2024-02-29" in result.output
-    assert "income" in result.output
+    assert "PENNY FINANCIAL REPORT" in result.output
+    assert "Test Account" in result.output
+    assert "2024-02" in result.output
+    assert "income" in result.output.lower()
