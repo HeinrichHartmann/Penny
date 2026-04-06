@@ -57,11 +57,17 @@ class ReplayEngine:
         entries_by_type: dict[str, int] = {}
 
         # Replay all enabled entries from history.tsv (includes mutations now)
+        last_seq = 0
         for entry in self.ledger.read_entries():
             if entry.enabled:
                 apply_entry(entry, self.config)
                 entries_processed += 1
                 entries_by_type[entry.entry_type] = entries_by_type.get(entry.entry_type, 0) + 1
+                last_seq = entry.sequence
+
+        # Set the last applied sequence so incremental updates work correctly
+        if last_seq > 0:
+            _set_last_applied_seq(last_seq)
 
         _restore_runtime_classifications(self.config)
 
