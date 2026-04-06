@@ -260,7 +260,6 @@ def _apply_mutation_data(
         _upsert_subaccounts_direct,
     )
     from penny.db import transaction
-    from penny.transactions import _apply_groups_direct
 
     with transaction() as conn:
         if mutation_type == "account_created":
@@ -334,7 +333,8 @@ def _apply_mutation_data(
             return
 
         if mutation_type == "groups_applied":
-            _apply_groups_direct(conn, payload.get("groups", {}))
+            # Legacy: groups are now computed from rules, not stored in ledger
+            # Skip this mutation type during replay for backwards compatibility
             return
 
         if mutation_type == "rules_updated":

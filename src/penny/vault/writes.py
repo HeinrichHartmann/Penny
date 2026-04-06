@@ -181,22 +181,25 @@ def apply_classifications(
 
 def apply_groups(
     groups: dict[str, str],
-    config: VaultConfig | None = None,
+    config: VaultConfig | None = None,  # noqa: ARG001
 ) -> tuple[int, int]:
-    from penny.transactions import list_transactions
+    """Apply transfer groups directly to the database.
 
-    cfg = config or VaultConfig()
-    seq = _append_mutation(
-        cfg,
-        "groups_applied",
-        entity_type="transactions",
-        payload={"groups": groups},
-    )
-    _apply_mutations(cfg, upto_seq=seq)
-    raw = list_transactions(limit=None, neutralize=False, include_hidden=True)
-    grouped = sum(1 for tx in raw if tx.group_id != tx.fingerprint)
-    standalone = sum(1 for tx in raw if tx.group_id == tx.fingerprint)
-    return grouped, standalone
+    Groups are derived/computed data (from transfer rules), not source data,
+    so they are not persisted to the ledger. They are recomputed on replay.
+
+    Args:
+        groups: Mapping of transaction fingerprint to group ID
+        config: Vault config (unused, kept for API compatibility)
+
+    Returns:
+        Tuple of (grouped_count, standalone_count)
+    """
+    from penny.db import transaction
+    from penny.transactions import _apply_groups_direct
+
+    with transaction() as conn:
+        return _apply_groups_direct(conn, groups)
 
 
 def store_transactions(
@@ -243,7 +246,15 @@ def store_transactions(
     return new_count, len(transactions) - new_count
 
 
-def _lookup_account_created_from_row(_seq: int):
+def _lookup_account_created_from_row(_seq: int):  # noqa: ARG001
+    """Lookup the most recently created account.
+
+    Args:
+        _seq: Sequence number (unused, kept for potential future use)
+
+    Returns:
+        The most recently created account, or None if no accounts exist
+    """
     from penny.accounts import get_account
 
     with closing(connect()) as conn:
