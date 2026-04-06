@@ -563,12 +563,42 @@ def transactions_list(
         click.echo("No transactions found.")
         return
 
-    for transaction in transaction_list:
+    # Print header
+    click.echo(
+        f"{'Date':<12} | {'Account':<20} | {'Description':<40} | {'Category':<25} | {'Amount':>12}"
+    )
+    click.echo("-" * 115)
+
+    # Print transactions
+    total_cents = 0
+    for tx in transaction_list:
+        # Build account display (name + subaccount if not giro)
+        account_str = tx.account_name or f"Account #{tx.account_id}"
+        if tx.subaccount_type and tx.subaccount_type != "giro":
+            account_str = f"{account_str}/{tx.subaccount_type}"
+        account_str = account_str[:20]
+
+        # Use raw_buchungstext for description, fallback to payee
+        description = (tx.raw_buchungstext or tx.payee or "")[:40]
+
+        # Category
+        category_str = (tx.category or "-")[:25]
+
+        # Amount with color coding
+        amount_str = f"{tx.amount_cents / 100:>11.2f}"
+
         click.echo(
-            f"{transaction.date.isoformat()} | "
-            f"{transaction.payee[:25]:<25} | {transaction.amount_cents / 100:>10.2f} | "
-            f"{transaction.category or '-'}"
+            f"{tx.date.isoformat():<12} | "
+            f"{account_str:<20} | "
+            f"{description:<40} | "
+            f"{category_str:<25} | "
+            f"{amount_str}"
         )
+        total_cents += tx.amount_cents
+
+    # Print footer with total
+    click.echo("-" * 115)
+    click.echo(f"{'Total:':<99} | {total_cents / 100:>11.2f}")
 
 
 @main.command("report")
@@ -608,6 +638,128 @@ def report(
             )
         )
     )
+
+
+@main.command("pivot")
+@click.option(
+    "--from", "from_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date (inclusive)"
+)
+@click.option(
+    "--to", "to_date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date (inclusive)"
+)
+@click.option(
+    "--account",
+    "-a",
+    "account_ids",
+    multiple=True,
+    type=int,
+    help="Filter by account ID (repeatable)",
+)
+@click.option("--category", help="Filter by category prefix")
+@click.option("--query", "-q", help="Search booking text or payee")
+@click.option(
+    "--tab",
+    type=click.Choice(["expense", "income"]),
+    default="expense",
+    show_default=True,
+    help="Show expenses or income",
+)
+@click.option(
+    "--depth",
+    "-d",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Category depth (1 = top level, 2 = subcategories, etc.)",
+)
+@click.option(
+    "--neutralize/--no-neutralize",
+    default=True,
+    show_default=True,
+    help="Collapse transfer groups to net sums",
+)
+def pivot(
+    from_date: datetime | None,
+    to_date: datetime | None,
+    account_ids: tuple[int, ...],
+    category: str | None,
+    query: str | None,
+    tab: str,
+    depth: int,
+    neutralize: bool,
+):
+    """Show spending by category (pivot table)."""
+    from collections import defaultdict
+
+    from penny.sql import pivot_query
+
+    # Build filter
+    filters = _build_transaction_filter(
+        from_date=from_date,
+        to_date=to_date,
+        account_ids=account_ids,
+        category=category,
+        query=query,
+        tab=tab if not neutralize else None,
+    )
+
+    # Query transactions
+    from penny.db import connect
+
+    conn = connect()
+    cursor = conn.cursor()
+    sql, params = pivot_query(
+        tab=tab,
+        from_date=filters.from_date.isoformat() if filters.from_date else None,
+        to_date=filters.to_date.isoformat() if filters.to_date else None,
+        accounts=",".join(str(aid) for aid in filters.account_ids) if filters.account_ids else None,
+        category=filters.category_prefix,
+        q=filters.search_query,
+        neutralize=neutralize,
+    )
+    rows = cursor.execute(sql, params).fetchall()
+    conn.close()
+
+    if not rows:
+        click.echo(f"No {tab}s found.")
+        return
+
+    # Group by category at specified depth
+    cat_data = defaultdict(lambda: {"total": 0, "count": 0})
+
+    for row in rows:
+        cat = row[0] or "uncategorized"
+        amount = abs(row[1])
+
+        # Extract category at specified depth
+        parts = cat.split("/")
+        cat_key = "/".join(parts[:depth]) if len(parts) >= depth else cat
+
+        cat_data[cat_key]["total"] += amount
+        cat_data[cat_key]["count"] += 1
+
+    # Calculate totals
+    total_cents = sum(c["total"] for c in cat_data.values())
+    total_count = sum(c["count"] for c in cat_data.values())
+
+    # Print header
+    click.echo(f"\n{'Category':<40} | {'Transactions':>13} | {'Total':>15} | {'Share':>8}")
+    click.echo("-" * 85)
+
+    # Print categories sorted by total (descending)
+    for cat_key, data in sorted(cat_data.items(), key=lambda x: x[1]["total"], reverse=True):
+        share = data["total"] / total_cents if total_cents > 0 else 0
+        click.echo(
+            f"{cat_key:<40} | "
+            f"{data['count']:>13} | "
+            f"{data['total'] / 100:>14.2f} | "
+            f"{share * 100:>7.1f}%"
+        )
+
+    # Print footer
+    click.echo("-" * 85)
+    click.echo(f"{'Total':<40} | {total_count:>13} | {total_cents / 100:>14.2f} | {'100.0%':>8}")
+    click.echo()
 
 
 @main.command("apply")
