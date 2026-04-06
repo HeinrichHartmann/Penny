@@ -8,9 +8,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from penny.classify import load_rules_config, run_classification_pass
+from penny.classify import load_rules_config
 from penny.classify.engine import LoadedRulesConfig
-from penny.transactions import apply_classifications, list_transactions
+from penny.classify.pipeline import run_full_classification
+from penny.transactions import list_transactions
 from penny.vault import ensure_rules_snapshot
 from penny.vault.rules import update_rules_and_apply
 
@@ -93,58 +94,49 @@ def _evaluate_rules_path(rules_path: Path, *, persist: bool) -> dict:
     transactions = list_transactions(limit=None, neutralize=False, include_hidden=True)
     log("info", f"Processing {len(transactions)} transactions")
 
-    result = run_classification_pass(transactions, config)
+    try:
+        result = run_full_classification(transactions, config, persist=persist)
+    except Exception as e:
+        log("error", f"Classification failed: {e}", traceback=traceback.format_exc())
+        return {
+            "status": "error",
+            "logs": logs,
+            "stats": None,
+        }
 
-    if persist:
-        try:
-            apply_classifications(result.decisions)
-        except Exception as e:
-            log("error", f"Failed to persist classifications: {e}", traceback=traceback.format_exc())
-            return {
-                "status": "error",
-                "logs": logs,
-                "stats": None,
-            }
-
-    if result.errors:
-        log("warning", f"{len(result.errors)} errors during classification")
-        for err in result.errors[:10]:
-            log("error", f"Error classifying {err.payee}: {err.error}")
+    if result.transfer_groups is not None:
+        log("info", f"Transfer linking: {result.transfer_groups} groups, {result.transfer_linked} linked entries")
 
     log("info", f"Matched: {result.matched_count}, Unmatched: {result.default_count}")
     for category, count in sorted(result.category_counts.items()):
         log("info", f"  {category}: {count}")
 
-    if result.defaulted_transactions:
-        log("warning", "Top unmatched transactions (by amount):")
-        sorted_unmatched = sorted(
-            result.defaulted_transactions,
-            key=lambda t: abs(t.amount_cents),
-            reverse=True,
-        )[:30]
-        for tx in sorted_unmatched:
-            amount_eur = tx.amount_cents / 100
-            log("warning", f"  {amount_eur:>10.2f} EUR | {tx.date} | {tx.payee[:40]}")
-
     elapsed = (datetime.now() - start_time).total_seconds()
     log("info", f"Classification completed in {elapsed:.2f}s")
+
+    stats = {
+        "rules_count": len(config.ruleset.rules),
+        "transactions_count": len(transactions),
+        "matched_count": result.matched_count,
+        "unmatched_count": result.default_count,
+        "categories": [
+            {"category": cat, "count": count}
+            for cat, count in sorted(result.category_counts.items())
+        ],
+        "elapsed_seconds": elapsed,
+    }
+
+    if result.transfer_groups is not None:
+        stats["transfer_groups"] = result.transfer_groups
+        stats["transfer_linked"] = result.transfer_linked
+        stats["transfer_standalone"] = result.transfer_standalone
 
     return {
         "status": "success",
         "started_at": start_time.isoformat(),
         "completed_at": datetime.now().isoformat(),
         "logs": logs,
-        "stats": {
-            "rules_count": len(config.ruleset.rules),
-            "transactions_count": len(transactions),
-            "matched_count": result.matched_count,
-            "unmatched_count": result.default_count,
-            "categories": [
-                {"category": cat, "count": count}
-                for cat, count in sorted(result.category_counts.items())
-            ],
-            "elapsed_seconds": elapsed,
-        },
+        "stats": stats,
     }
 
 
