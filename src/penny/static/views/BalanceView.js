@@ -50,10 +50,10 @@ export const BalanceView = {
         <p style="color: var(--muted);">Loading balance history...</p>
       </div>
 
-      <div v-if="model.valueHistory && model.valueHistory.balance_snapshots && model.valueHistory.balance_snapshots.length > 0" class="panel" style="margin-top: 20px;">
+      <div v-if="model.valueHistory && model.valueHistory.value_points && model.valueHistory.value_points.length > 0" class="panel" style="margin-top: 20px;">
         <div class="txn-header">
           Recorded Balance Snapshots
-          <span class="sub">{{ model.valueHistory.balance_snapshots.length }} snapshots</span>
+          <span class="sub">{{ model.valueHistory.balance_snapshots ? model.valueHistory.balance_snapshots.length : 0 }} snapshots</span>
         </div>
         <table>
           <thead>
@@ -66,6 +66,11 @@ export const BalanceView = {
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!model.valueHistory.balance_snapshots || model.valueHistory.balance_snapshots.length === 0">
+              <td colspan="5" style="text-align: center; color: var(--muted); padding: 20px;">
+                No balance snapshots in selected date range
+              </td>
+            </tr>
             <tr v-for="snapshot in model.valueHistory.balance_snapshots" :key="snapshot.date + snapshot.account_id">
               <td>{{ snapshot.date }}</td>
               <td>Account #{{ snapshot.account_id }}</td>
