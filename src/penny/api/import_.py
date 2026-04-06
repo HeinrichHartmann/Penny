@@ -390,9 +390,12 @@ async def toggle_import_enabled(sequence: int):
     if entry is None:
         raise HTTPException(status_code=404, detail=f"Import entry {sequence} not found")
 
-    # Only allow toggling ingest entries
-    if entry.entry_type != "ingest":
-        raise HTTPException(status_code=400, detail="Only ingest entries can be toggled")
+    # History toggles currently apply to imported CSVs and balance snapshot entries.
+    if entry.entry_type not in {"ingest", "balance"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Only ingest and balance entries can be toggled",
+        )
 
     # Toggle enabled state
     new_enabled = not entry.enabled

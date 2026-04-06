@@ -553,7 +553,7 @@ async def account_value_history(
     all_snapshots = []
 
     for entry in ledger.read_entries():
-        if entry.entry_type == "balance":
+        if entry.entry_type == "balance" and entry.enabled:
             # Balance entries have snapshots list in record
             for snapshot in entry.record.get("snapshots", []):
                 if snapshot["account_id"] in account_ids:
