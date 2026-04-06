@@ -8,7 +8,7 @@ from penny.accounts import add_account, list_accounts
 from penny.api.accounts import update_account
 from penny.db import transaction
 from penny.ingest import read_file_with_encoding
-from penny.transactions import count_transactions, list_transactions
+from penny.transactions import count_transactions
 from penny.vault import (
     IngestRequest,
     VaultConfig,

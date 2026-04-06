@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
-from penny.vault.ledger import LedgerEntry
 from penny.vault.config import VaultConfig
+from penny.vault.ledger import LedgerEntry
 
 if TYPE_CHECKING:
+    from penny.ingest.base import BalanceSnapshot
     from penny.transactions import Transaction
 
 
@@ -27,6 +28,7 @@ class IngestResult:
     transactions_duplicate: int
     transactions_total: int
     sections: dict[str, int]
+    balance_snapshots_stored: int = 0
 
 
 def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> IngestResult:
@@ -62,6 +64,7 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
     init_default_db()
 
     all_transactions: list[Transaction] = []
+    all_balance_snapshots: list[tuple[str, BalanceSnapshot]] = []  # (csv_filename, snapshot)
     parser_name = manifest_data["parser"]
     account = None
     csv_files = manifest_data["csv_files"]
@@ -106,6 +109,11 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
             transactions = parser.parse(csv_filename, content, account_id=account.id)
             all_transactions.extend(transactions)
 
+            # Extract balance snapshots from CSV
+            balance_snapshots = parser.extract_balances(csv_filename, content)
+            for snapshot in balance_snapshots:
+                all_balance_snapshots.append((csv_filename, snapshot))
+
         if account is None:
             raise ValueError("No CSV files in ingest entry")
 
@@ -119,6 +127,14 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
     # Build section counts
     section_counts = Counter(tx.subaccount_type for tx in all_transactions)
 
+    # Store balance snapshots (outside the transaction block to avoid nested DB ops)
+    balance_snapshots_stored = 0
+    if all_balance_snapshots and account is not None:
+        balance_snapshots_stored = _store_balance_snapshots(
+            account_id=account.id,
+            snapshots=all_balance_snapshots,
+        )
+
     return IngestResult(
         account_id=account.id,
         account_bank=account.bank,
@@ -129,7 +145,43 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
         transactions_duplicate=duplicate_count,
         transactions_total=len(all_transactions),
         sections=dict(section_counts),
+        balance_snapshots_stored=balance_snapshots_stored,
     )
+
+
+def _store_balance_snapshots(
+    account_id: int,
+    snapshots: list[tuple[str, BalanceSnapshot]],
+) -> int:
+    """Store balance snapshots extracted from CSV directly to DB.
+
+    Sums all subaccount balances for the same date into a single account balance.
+    Returns number of balance updates applied (one per unique date).
+    """
+    from penny.accounts import update_account_balance
+
+    if not snapshots:
+        return 0
+
+    # Group snapshots by date and sum balances across subaccounts
+    # (bank exports often have giro + visa + tagesgeld sections)
+    date_totals: dict[date, int] = {}
+    for _csv_filename, snapshot in snapshots:
+        if snapshot.snapshot_date not in date_totals:
+            date_totals[snapshot.snapshot_date] = 0
+        date_totals[snapshot.snapshot_date] += snapshot.balance_cents
+
+    # Apply each date's total balance
+    stored = 0
+    for snapshot_date, total_cents in date_totals.items():
+        update_account_balance(
+            account_id,
+            balance_cents=total_cents,
+            balance_date=snapshot_date,
+        )
+        stored += 1
+
+    return stored
 
 
 def apply_entry(entry: LedgerEntry, config: VaultConfig) -> None:
@@ -242,9 +294,7 @@ def _apply_mutation_data(
             return
 
         if mutation_type == "subaccounts_upserted":
-            _upsert_subaccounts_direct(
-                conn, int(entity_id), payload.get("subaccount_types", [])
-            )
+            _upsert_subaccounts_direct(conn, int(entity_id), payload.get("subaccount_types", []))
             return
 
         if mutation_type == "transactions_stored":

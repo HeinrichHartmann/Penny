@@ -9,7 +9,6 @@ from pathlib import Path
 from penny.vault.config import VaultConfig
 from penny.vault.ledger import Ledger
 
-
 BALANCE_FILE_HEADER = "account\tdate\tbalance_cents\tnote\n"
 
 
@@ -243,6 +242,7 @@ def import_balances(
 
         # Apply balance to account (updates cached balance for display)
         from penny.accounts import update_account_balance
+
         update_account_balance(account.id, balance_cents=row.balance_cents, balance_date=row.date)
 
         # Also append to balances.tsv

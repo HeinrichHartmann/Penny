@@ -52,7 +52,7 @@ async def root():
 @app.get("/api/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8000, reload: bool = False):

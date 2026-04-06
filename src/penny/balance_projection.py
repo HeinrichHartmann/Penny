@@ -6,7 +6,7 @@ transactions have been applied.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def normalize_anchors(anchors: Iterable[dict]) -> list[dict]:

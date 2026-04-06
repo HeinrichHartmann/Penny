@@ -48,7 +48,7 @@ A CLI is also available for LLM-assisted workflows such as co-creating and debug
 uv tool install git+https://github.com/HeinrichHartmann/Penny.git
 
 # Install a specific release tag
-uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.1.0
+uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.2.0
 ```
 
 This installs the `penny` command as a standalone CLI tool.

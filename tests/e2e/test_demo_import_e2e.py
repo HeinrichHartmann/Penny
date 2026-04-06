@@ -205,7 +205,7 @@ def test_demo_import_end_to_end():
 
         print(
             f"✓ Report: {len(pivot_data['categories'])} category/categories, "
-            f"total: €{pivot_data['total_cents']/100:.2f}"
+            f"total: €{pivot_data['total_cents'] / 100:.2f}"
         )
 
         february_summary_response = client.get(
@@ -247,7 +247,9 @@ def test_demo_import_end_to_end():
 
         anchor_points = [vp for vp in balance_data["value_points"] if vp.get("is_anchor")]
         assert len(anchor_points) == 4, f"Expected 4 anchor points, got {len(anchor_points)}"
-        assert balance_data.get("inconsistencies"), "Expected demo balance anchors to produce deltas"
+        assert balance_data.get("inconsistencies"), (
+            "Expected demo balance anchors to produce deltas"
+        )
         latest_value_point = balance_data["value_points"][-1]
         assert latest_value_point["date"] == "2024-03-29"
         assert latest_value_point["total_balance"] != account["balance_cents"]

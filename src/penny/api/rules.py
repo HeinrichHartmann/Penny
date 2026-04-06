@@ -105,7 +105,10 @@ def _evaluate_rules_path(rules_path: Path, *, persist: bool) -> dict:
         }
 
     if result.transfer_groups is not None:
-        log("info", f"Transfer linking: {result.transfer_groups} groups, {result.transfer_linked} linked entries")
+        log(
+            "info",
+            f"Transfer linking: {result.transfer_groups} groups, {result.transfer_linked} linked entries",
+        )
 
     log("info", f"Matched: {result.matched_count}, Unmatched: {result.default_count}")
     for category, count in sorted(result.category_counts.items()):

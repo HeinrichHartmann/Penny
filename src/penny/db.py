@@ -8,7 +8,6 @@ from pathlib import Path
 
 from penny.config import default_db_path
 
-
 # Table ownership model:
 # - `transactions` is a projection table. API handlers must not mutate it directly.
 #   It is updated only by vault apply/replay flows and runtime classification passes.

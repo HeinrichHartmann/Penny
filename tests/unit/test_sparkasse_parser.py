@@ -9,6 +9,8 @@ def test_sparkasse_filename_match():
 
     assert bank.filename_pattern.match("20260401-12345678-umsatz-camt52v8.CSV")
     assert bank.filename_pattern.match("20260401-12345678-umsatz-camt52v8.csv")
+    assert bank.filename_pattern.match("20260402-97002927-umsatz-camt52v8(1).CSV")
+    assert bank.filename_pattern.match("20260401-12345678-umsatz-camt52v8(2).csv")
     assert not bank.filename_pattern.match("umsaetze_12345678_20260401-1234.csv")
     assert not bank.filename_pattern.match("other_format.csv")
 

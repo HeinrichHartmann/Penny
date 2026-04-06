@@ -1,6 +1,6 @@
 [project]
 name = "penny"
-version = "0.1.0"
+version = "0.2.0"
 description = "Penny - Personal finance tracking and analysis"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,7 +28,7 @@ packages = ["src/penny"]
 [tool.briefcase]
 project_name = "Penny"
 bundle = "com.hartmann.penny"
-version = "0.1.0"
+version = "0.2.0"
 url = "https://github.com/hhartmann/penny"
 license.text = "MIT"
 author = "Heinrich Hartmann"

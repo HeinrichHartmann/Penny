@@ -1,7 +1,5 @@
 """Tests for simple ledger-based vault storage (ADR-012)."""
 
-from pathlib import Path
-
 import pytest
 
 from penny.vault.ledger import Ledger, LedgerEntry
@@ -21,7 +19,10 @@ class TestLedgerEntry:
         )
 
         line = entry.to_tsv_line()
-        assert line == '0001\tingest\t1\t2024-04-05T10:00:00Z\t{"parser":"sparkasse","csv_files":["file.CSV"]}'
+        assert (
+            line
+            == '0001\tingest\t1\t2024-04-05T10:00:00Z\t{"parser":"sparkasse","csv_files":["file.CSV"]}'
+        )
 
         restored = LedgerEntry.from_tsv_line(line)
         assert restored.sequence == 1
@@ -75,8 +76,14 @@ class TestLedgerEntry:
             timestamp="2024-04-05T10:00:00Z",
             record={"parser": "sparkasse", "csv_files": ["file.CSV"]},
         )
-        assert ingest.get_file_path(tmp_path) == tmp_path / "transactions" / "0001_2024-04-05T10:00:00Z"
-        assert ingest.get_directory(tmp_path) == tmp_path / "transactions" / "0001_2024-04-05T10:00:00Z"
+        assert (
+            ingest.get_file_path(tmp_path)
+            == tmp_path / "transactions" / "0001_2024-04-05T10:00:00Z"
+        )
+        assert (
+            ingest.get_directory(tmp_path)
+            == tmp_path / "transactions" / "0001_2024-04-05T10:00:00Z"
+        )
 
         # Rules entry
         rules = LedgerEntry(
@@ -86,7 +93,10 @@ class TestLedgerEntry:
             timestamp="2024-04-05T10:01:00Z",
             record={"filename": "rules.py"},
         )
-        assert rules.get_file_path(tmp_path) == tmp_path / "rules" / "0002_2024-04-05T10:01:00Z_rules.py"
+        assert (
+            rules.get_file_path(tmp_path)
+            == tmp_path / "rules" / "0002_2024-04-05T10:01:00Z_rules.py"
+        )
 
         # Balance entry
         balance = LedgerEntry(
@@ -96,7 +106,10 @@ class TestLedgerEntry:
             timestamp="2024-04-05T10:02:00Z",
             record={"filename": "balance.tsv"},
         )
-        assert balance.get_file_path(tmp_path) == tmp_path / "balance" / "0003_2024-04-05T10:02:00Z_balance.tsv"
+        assert (
+            balance.get_file_path(tmp_path)
+            == tmp_path / "balance" / "0003_2024-04-05T10:02:00Z_balance.tsv"
+        )
 
 
 class TestLedger:
@@ -140,9 +153,7 @@ class TestLedger:
         ledger.append_entry(
             LedgerEntry(2, "rules", True, "2024-04-05T10:01:00Z", {"filename": "rules.py"})
         )
-        ledger.append_entry(
-            LedgerEntry(3, "balance", False, "2024-04-05T10:02:00Z", {"count": 5})
-        )
+        ledger.append_entry(LedgerEntry(3, "balance", False, "2024-04-05T10:02:00Z", {"count": 5}))
 
         entries = ledger.read_entries()
         assert len(entries) == 3
@@ -207,7 +218,9 @@ class TestLedger:
         """Test history.tsv file format."""
         ledger = Ledger(tmp_path)
 
-        ledger.append_entry(LedgerEntry(1, "ingest", True, "2024-04-05T10:00:00Z", {"test": "data"}))
+        ledger.append_entry(
+            LedgerEntry(1, "ingest", True, "2024-04-05T10:00:00Z", {"test": "data"})
+        )
 
         content = (tmp_path / "history.tsv").read_text()
         lines = content.strip().split("\n")

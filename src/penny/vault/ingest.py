@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from penny.vault.apply import IngestResult, apply_ingest
@@ -16,7 +15,7 @@ if TYPE_CHECKING:
 
 
 # App version - should come from package metadata
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 
 @dataclass
