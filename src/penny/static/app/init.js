@@ -12,9 +12,13 @@ export const initializeAppState = async ({
   meta.min_date = m.min_date;
   meta.max_date = m.max_date;
 
-  yearButtons.value = computeYearButtons(m.min_date, m.max_date);
+  // Only set year buttons and date range if we have data
+  if (m.min_date && m.max_date) {
+    yearButtons.value = computeYearButtons(m.min_date, m.max_date);
+  } else {
+    yearButtons.value = [];
+  }
 
-  // Only set date range if we have data
   if (m.max_date) {
     const defaultRange = computeDefaultDateRange(m.max_date);
     filters.from = initialUrlState.from || defaultRange.from;

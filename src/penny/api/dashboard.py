@@ -98,7 +98,7 @@ async def meta():
     ]
 
     # Get date range from transactions
-    date_range = cursor.execute(
+    tx_date_range = cursor.execute(
         """
         SELECT MIN(t.date), MAX(t.date)
         FROM transactions t
@@ -107,12 +107,26 @@ async def meta():
         """
     ).fetchone()
 
+    # Get date range from balance anchors
+    anchor_date_range = cursor.execute(
+        """
+        SELECT MIN(ba.anchor_date), MAX(ba.anchor_date)
+        FROM balance_anchors ba
+        JOIN accounts a ON a.id = ba.account_id
+        WHERE a.hidden = 0
+        """
+    ).fetchone()
+
     conn.close()
+
+    # Combine date ranges (consider both transactions and anchors)
+    min_dates = [d for d in [tx_date_range[0], anchor_date_range[0]] if d]
+    max_dates = [d for d in [tx_date_range[1], anchor_date_range[1]] if d]
 
     return {
         "accounts": accounts,
-        "min_date": date_range[0],
-        "max_date": date_range[1],
+        "min_date": min(min_dates) if min_dates else None,
+        "max_date": max(max_dates) if max_dates else None,
     }
 
 
@@ -590,24 +604,20 @@ async def account_value_history(
         neutralize=False,  # RAW transactions only
     )
 
-    if not transactions:
-        return {
-            "account_ids": list(account_ids),
-            "balance_snapshots": visible_snapshots,
-            "value_points": [],
-            "inconsistencies": [],
-        }
-
     # Build DataFrame and aggregate to DAILY saldo per account
-    tx_data = [
-        {
-            "date": tx.date.isoformat(),
-            "account_id": tx.account_id,
-            "amount_cents": tx.amount_cents,
-        }
-        for tx in transactions
-    ]
-    df = pd.DataFrame(tx_data)
+    if transactions:
+        tx_data = [
+            {
+                "date": tx.date.isoformat(),
+                "account_id": tx.account_id,
+                "amount_cents": tx.amount_cents,
+            }
+            for tx in transactions
+        ]
+        df = pd.DataFrame(tx_data)
+    else:
+        # No transactions - create empty DataFrame for balance-only accounts
+        df = pd.DataFrame(columns=["date", "account_id", "amount_cents"])
 
     # Group by account and date, sum amounts to get daily saldo
     daily_saldo = df.groupby(["account_id", "date"])["amount_cents"].sum().reset_index()
@@ -630,11 +640,18 @@ async def account_value_history(
             # No anchors - can't compute balances
             continue
 
-        # Get full date range including both transactions AND anchors
+        # Get full date range including transactions, anchors, AND requested range
         acc_df = df[df["account_id"] == acc_id]
         tx_dates = list(acc_df["date"]) if not acc_df.empty else []
         anchor_dates_list = [s["date"] for s in acc_snapshots]
         all_relevant_dates = tx_dates + anchor_dates_list
+
+        # Include requested date range for balance-only accounts
+        # This ensures we can project the balance into the visible range
+        if from_date:
+            all_relevant_dates.append(from_date)
+        if to_date:
+            all_relevant_dates.append(to_date)
 
         if not all_relevant_dates:
             continue

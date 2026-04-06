@@ -141,6 +141,13 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
                 CREATE INDEX IF NOT EXISTS idx_transactions_payee ON transactions(payee);
                 CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id);
+
+                -- Import deduplication: track content hashes to reject duplicate CSVs
+                CREATE TABLE IF NOT EXISTS import_hashes (
+                    content_hash TEXT PRIMARY KEY,
+                    ledger_sequence INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
             conn.execute("UPDATE transactions SET group_id = fingerprint WHERE group_id IS NULL")

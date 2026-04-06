@@ -10,6 +10,7 @@ from penny.vault import (
     ingest_csv,
     replay_vault,
 )
+from penny.vault.ingest import DuplicateImportError
 from penny.vault.ledger import Ledger
 
 pytestmark = pytest.mark.integration
@@ -59,8 +60,8 @@ class TestVaultIngest:
         assert copied_csv.name == f"PI{entry.sequence:04d}_{csv_path.name}"
         assert copied_csv.read_text() == content
 
-    def test_ingest_deduplicates_on_reimport(self, vault_config, fixture_dir):
-        """Re-importing same CSV should create new entry but deduplicate transactions."""
+    def test_ingest_rejects_duplicate_csv(self, vault_config, fixture_dir):
+        """Re-importing same CSV should be rejected at the content level."""
         csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
         content = read_file_with_encoding(csv_path)
 
@@ -71,14 +72,14 @@ class TestVaultIngest:
         assert result1.transactions_new == 3
         assert result1.transactions_duplicate == 0
 
-        # Second import - same file
-        result2 = ingest_csv(request, config=vault_config)
-        assert result2.transactions_new == 0
-        assert result2.transactions_duplicate == 3
+        # Second import - same file should be rejected
+        with pytest.raises(DuplicateImportError) as exc_info:
+            ingest_csv(request, config=vault_config)
+        assert exc_info.value.existing_sequence == 1
 
-        # Should have 2 ledger entries
+        # Should still have only 1 ledger entry
         ledger = Ledger(vault_config.path)
-        assert len(ledger.read_entries()) == 2
+        assert len(ledger.read_entries()) == 1
 
     def test_ingest_sparkasse(self, vault_config, fixture_dir):
         """Test ingesting Sparkasse CAMT V8 format."""
