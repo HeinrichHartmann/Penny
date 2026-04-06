@@ -625,21 +625,25 @@ async def account_value_history(
         acc_saldo = daily_saldo[daily_saldo["account_id"] == acc_id].copy()
         acc_saldo = acc_saldo.set_index("date")["saldo"].to_dict()
 
-        # Get full date range for this account
-        acc_df = df[df["account_id"] == acc_id]
-        if acc_df.empty:
-            continue
-
-        min_date = acc_df["date"].min()
-        max_date = acc_df["date"].max()
-
-        # Create full date range (as series)
-        date_range = pd.date_range(start=min_date, end=max_date, freq="D")
-        date_strs = [d.strftime("%Y-%m-%d") for d in date_range]
-
         if not acc_snapshots:
             # No anchors - can't compute balances
             continue
+
+        # Get full date range including both transactions AND anchors
+        acc_df = df[df["account_id"] == acc_id]
+        tx_dates = list(acc_df["date"]) if not acc_df.empty else []
+        anchor_dates_list = [s["date"] for s in acc_snapshots]
+        all_relevant_dates = tx_dates + anchor_dates_list
+
+        if not all_relevant_dates:
+            continue
+
+        min_date = min(all_relevant_dates)
+        max_date = max(all_relevant_dates)
+
+        # Create full date range (add 1 day for good measure)
+        date_range = pd.date_range(start=min_date, end=max_date, freq="D") + pd.Timedelta(days=1)
+        date_strs = [d.strftime("%Y-%m-%d") for d in date_range]
 
         balances, backward_deltas, _normalized_anchors = build_balance_series(
             date_strs,

@@ -251,7 +251,8 @@ def test_demo_import_end_to_end():
             "Expected demo balance anchors to produce deltas"
         )
         latest_value_point = balance_data["value_points"][-1]
-        assert latest_value_point["date"] == "2024-03-29"
+        # Date range extends 1 day beyond max anchor/transaction date
+        assert latest_value_point["date"] == "2024-03-30"
         assert latest_value_point["total_balance"] != account["balance_cents"]
 
         print(
