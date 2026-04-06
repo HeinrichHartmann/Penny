@@ -42,10 +42,10 @@ from penny.vault import (
     replay_vault,
     save_rules_snapshot,
 )
-from penny.vault.ledger import Ledger
 from penny.vault import (
     ingest_csv as ingest_vault_csv,
 )
+from penny.vault.ledger import Ledger
 
 
 def _load_rules_bundle(rules_file: Path) -> tuple[LoadedRulesConfig, object]:

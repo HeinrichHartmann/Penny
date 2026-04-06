@@ -8,7 +8,7 @@ from penny.ingest import DetectionError
 from penny.runtime_rules import run_stored_rules
 from penny.vault import IngestRequest, ingest_csv
 from penny.vault.config import VaultConfig
-from penny.vault.ledger import Ledger, LedgerEntry
+from penny.vault.ledger import Ledger
 
 router = APIRouter(prefix="/api", tags=["import"])
 
@@ -162,25 +162,31 @@ async def list_demo_files():
     files = []
 
     if demo_csv_path.exists():
-        files.append({
-            "filename": demo_csv_path.name,
-            "type": "csv",
-            "size": demo_csv_path.stat().st_size,
-        })
+        files.append(
+            {
+                "filename": demo_csv_path.name,
+                "type": "csv",
+                "size": demo_csv_path.stat().st_size,
+            }
+        )
 
     if rules_path.exists():
-        files.append({
-            "filename": rules_path.name,
-            "type": "rules",
-            "size": rules_path.stat().st_size,
-        })
+        files.append(
+            {
+                "filename": rules_path.name,
+                "type": "rules",
+                "size": rules_path.stat().st_size,
+            }
+        )
 
     if balance_anchors_path.exists():
-        files.append({
-            "filename": balance_anchors_path.name,
-            "type": "balance_anchors",
-            "size": balance_anchors_path.stat().st_size,
-        })
+        files.append(
+            {
+                "filename": balance_anchors_path.name,
+                "type": "balance_anchors",
+                "size": balance_anchors_path.stat().st_size,
+            }
+        )
 
     return {"files": files}
 
@@ -247,18 +253,20 @@ async def list_imports():
     for entry in ledger.read_entries():
         # Handle rules entries
         if entry.entry_type == "rules":
-            imports.append({
-                "sequence": entry.sequence,
-                "timestamp": entry.timestamp,
-                "filenames": [entry.record.get("filename", "rules.py")],
-                "parser": "rules",
-                "status": "applied",
-                "account_id": None,
-                "account_label": None,
-                "enabled": entry.enabled,
-                "warning": None,
-                "type": "rules",
-            })
+            imports.append(
+                {
+                    "sequence": entry.sequence,
+                    "timestamp": entry.timestamp,
+                    "filenames": [entry.record.get("filename", "rules.py")],
+                    "parser": "rules",
+                    "status": "applied",
+                    "account_id": None,
+                    "account_label": None,
+                    "enabled": entry.enabled,
+                    "warning": None,
+                    "type": "rules",
+                }
+            )
             continue
 
         # Handle balance entries
@@ -291,22 +299,26 @@ async def list_imports():
                 if account_name:
                     account_label = f"{account_name}: {balance_eur:,.2f}€ @ {snap_date}"
                 else:
-                    account_label = f"Account #{snap['account_id']}: {balance_eur:,.2f}€ @ {snap_date}"
+                    account_label = (
+                        f"Account #{snap['account_id']}: {balance_eur:,.2f}€ @ {snap_date}"
+                    )
             else:
                 account_label = f"{len(snapshots)} snapshot(s) for {len(account_ids)} account(s)"
 
-            imports.append({
-                "sequence": entry.sequence,
-                "timestamp": entry.timestamp,
-                "filenames": [entry.record.get("filename", "balance-anchors.tsv")],
-                "parser": "balance_anchors",
-                "status": "applied",
-                "account_id": snapshots[0]["account_id"] if len(snapshots) == 1 else None,
-                "account_label": account_label,
-                "enabled": entry.enabled,
-                "warning": None,
-                "type": "balance_anchors",
-            })
+            imports.append(
+                {
+                    "sequence": entry.sequence,
+                    "timestamp": entry.timestamp,
+                    "filenames": [entry.record.get("filename", "balance-anchors.tsv")],
+                    "parser": "balance_anchors",
+                    "status": "applied",
+                    "account_id": snapshots[0]["account_id"] if len(snapshots) == 1 else None,
+                    "account_label": account_label,
+                    "enabled": entry.enabled,
+                    "warning": None,
+                    "type": "balance_anchors",
+                }
+            )
             continue
 
         # Handle ingest entries
@@ -341,18 +353,20 @@ async def list_imports():
             except Exception:
                 pass
 
-            imports.append({
-                "sequence": entry.sequence,
-                "timestamp": entry.timestamp,
-                "filenames": csv_files,
-                "parser": parser,
-                "status": "applied",
-                "account_id": account_id,
-                "account_label": account_label,
-                "enabled": entry.enabled,
-                "warning": None,
-                "type": "ingest",
-            })
+            imports.append(
+                {
+                    "sequence": entry.sequence,
+                    "timestamp": entry.timestamp,
+                    "filenames": csv_files,
+                    "parser": parser,
+                    "status": "applied",
+                    "account_id": account_id,
+                    "account_label": account_label,
+                    "enabled": entry.enabled,
+                    "warning": None,
+                    "type": "ingest",
+                }
+            )
 
     # Return in reverse chronological order (most recent first)
     return {"imports": list(reversed(imports))}

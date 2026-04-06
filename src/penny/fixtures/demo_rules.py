@@ -2,7 +2,6 @@
 
 from penny.classify import contains, rule
 
-
 # ── Income ────────────────────────────────────────────────────────────────────
 
 
@@ -46,19 +45,16 @@ def insurance(tx):
 @rule("Groceries:Supermarket")
 def supermarket(tx):
     payee_lower = tx.payee.lower()
-    return any(
-        store in payee_lower
-        for store in ["rewe", "edeka", "lidl", "aldi", "kaufland"]
-    ) and tx.amount_cents < 0
+    return (
+        any(store in payee_lower for store in ["rewe", "edeka", "lidl", "aldi", "kaufland"])
+        and tx.amount_cents < 0
+    )
 
 
 @rule("Groceries:Drugstore")
 def drugstore(tx):
     payee_lower = tx.payee.lower()
-    return any(
-        store in payee_lower
-        for store in ["dm", "rossmann"]
-    ) and tx.amount_cents < 0
+    return any(store in payee_lower for store in ["dm", "rossmann"]) and tx.amount_cents < 0
 
 
 # ── Shopping ──────────────────────────────────────────────────────────────────
@@ -67,10 +63,7 @@ def drugstore(tx):
 @rule("Shopping:Online")
 def online_shopping(tx):
     payee_lower = tx.payee.lower()
-    return any(
-        store in payee_lower
-        for store in ["amazon", "otto"]
-    ) and tx.amount_cents < 0
+    return any(store in payee_lower for store in ["amazon", "otto"]) and tx.amount_cents < 0
 
 
 # ── Transportation ────────────────────────────────────────────────────────────
@@ -87,10 +80,7 @@ def fuel(tx):
 @rule("Entertainment:Streaming")
 def streaming(tx):
     payee_lower = tx.payee.lower()
-    return any(
-        service in payee_lower
-        for service in ["spotify", "netflix"]
-    ) and tx.amount_cents < 0
+    return any(service in payee_lower for service in ["spotify", "netflix"]) and tx.amount_cents < 0
 
 
 # ── Health & Fitness ──────────────────────────────────────────────────────────

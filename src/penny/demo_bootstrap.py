@@ -154,13 +154,15 @@ def _add_demo_balance_snapshots(config: VaultConfig, account_id: int) -> None:
 
     balance_records = []
     for snapshot in snapshots:
-        balance_records.append({
-            "account_id": account_id,
-            "account_key": account_key,
-            "snapshot_date": snapshot["date"],
-            "balance_cents": snapshot["balance_cents"],
-            "note": snapshot["note"],
-        })
+        balance_records.append(
+            {
+                "account_id": account_id,
+                "account_key": account_key,
+                "snapshot_date": snapshot["date"],
+                "balance_cents": snapshot["balance_cents"],
+                "note": snapshot["note"],
+            }
+        )
 
         # Also append to balances.tsv
         append_balance_row(

@@ -152,7 +152,11 @@ async def summary(
     cursor = conn.cursor()
 
     sql, params = summary_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        from_date=from_date,
+        to_date=to_date,
+        accounts=accounts,
+        category=category,
+        q=q,
         neutralize=neutralize,
     )
     transactions = cursor.execute(sql, params).fetchall()
@@ -192,7 +196,12 @@ async def tree(
     cursor = conn.cursor()
 
     sql, params = tree_query(
-        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        tab=tab,
+        from_date=from_date,
+        to_date=to_date,
+        accounts=accounts,
+        category=category,
+        q=q,
         neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
@@ -248,7 +257,12 @@ async def pivot(
     cursor = conn.cursor()
 
     sql, params = pivot_query(
-        tab=tab, from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        tab=tab,
+        from_date=from_date,
+        to_date=to_date,
+        accounts=accounts,
+        category=category,
+        q=q,
         neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
@@ -309,7 +323,11 @@ async def cashflow(
     cursor = conn.cursor()
 
     sql, params = cashflow_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        from_date=from_date,
+        to_date=to_date,
+        accounts=accounts,
+        category=category,
+        q=q,
         neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
@@ -374,7 +392,11 @@ async def breakout(
     cursor = conn.cursor()
 
     sql, params = breakout_query(
-        from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q,
+        from_date=from_date,
+        to_date=to_date,
+        accounts=accounts,
+        category=category,
+        q=q,
         neutralize=neutralize,
     )
     rows = cursor.execute(sql, params).fetchall()
@@ -625,10 +647,7 @@ async def account_value_history(
             acc_snapshots,
         )
 
-        inconsistencies.extend(
-            {"account_id": acc_id, **delta}
-            for delta in backward_deltas
-        )
+        inconsistencies.extend({"account_id": acc_id, **delta} for delta in backward_deltas)
         account_balances[acc_id] = balances
 
     # Combine all accounts into total balance per day

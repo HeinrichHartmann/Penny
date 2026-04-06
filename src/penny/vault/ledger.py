@@ -96,7 +96,7 @@ class Ledger:
             return []
 
         entries: list[LedgerEntry] = []
-        with open(self.ledger_path, "r", encoding="utf-8") as f:
+        with open(self.ledger_path, encoding="utf-8") as f:
             header = f.readline()
             if not header.startswith("seq\t"):
                 raise ValueError(f"Invalid ledger header: {header}")

@@ -61,4 +61,7 @@ def test_account_writes_append_mutations(db):
     config = VaultConfig()
     entries = Ledger(config.path).read_entries()
     mutation_entries = [e for e in entries if e.entry_type == "mutation"]
-    assert [e.record["mutation_type"] for e in mutation_entries] == ["account_created", "account_hidden"]
+    assert [e.record["mutation_type"] for e in mutation_entries] == [
+        "account_created",
+        "account_hidden",
+    ]

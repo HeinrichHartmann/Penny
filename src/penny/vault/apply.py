@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
-from penny.vault.ledger import LedgerEntry
 from penny.vault.config import VaultConfig
+from penny.vault.ledger import LedgerEntry
 
 if TYPE_CHECKING:
     from penny.ingest.base import BalanceSnapshot
@@ -64,7 +64,7 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
     init_default_db()
 
     all_transactions: list[Transaction] = []
-    all_balance_snapshots: list[tuple[str, "BalanceSnapshot"]] = []  # (csv_filename, snapshot)
+    all_balance_snapshots: list[tuple[str, BalanceSnapshot]] = []  # (csv_filename, snapshot)
     parser_name = manifest_data["parser"]
     account = None
     csv_files = manifest_data["csv_files"]
@@ -151,7 +151,7 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
 
 def _store_balance_snapshots(
     account_id: int,
-    snapshots: list[tuple[str, "BalanceSnapshot"]],
+    snapshots: list[tuple[str, BalanceSnapshot]],
 ) -> int:
     """Store balance snapshots extracted from CSV directly to DB.
 
@@ -294,9 +294,7 @@ def _apply_mutation_data(
             return
 
         if mutation_type == "subaccounts_upserted":
-            _upsert_subaccounts_direct(
-                conn, int(entity_id), payload.get("subaccount_types", [])
-            )
+            _upsert_subaccounts_direct(conn, int(entity_id), payload.get("subaccount_types", []))
             return
 
         if mutation_type == "transactions_stored":

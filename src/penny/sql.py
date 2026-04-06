@@ -185,7 +185,9 @@ def tree_query(
     where = _where_and(where, _visible_accounts_condition())
 
     if neutralize:
-        having = "HAVING SUM(amount_cents) < 0" if tab == "expense" else "HAVING SUM(amount_cents) > 0"
+        having = (
+            "HAVING SUM(amount_cents) < 0" if tab == "expense" else "HAVING SUM(amount_cents) > 0"
+        )
         sql = f"""
             SELECT MAX(category) as category, MAX(payee) as payee, SUM(amount_cents) as amount_cents
             FROM transactions{where}
@@ -225,7 +227,9 @@ def pivot_query(
     where = _where_and(where, _visible_accounts_condition())
 
     if neutralize:
-        having = "HAVING SUM(amount_cents) < 0" if tab == "expense" else "HAVING SUM(amount_cents) > 0"
+        having = (
+            "HAVING SUM(amount_cents) < 0" if tab == "expense" else "HAVING SUM(amount_cents) > 0"
+        )
         sql = f"""
             SELECT MAX(category) as category, SUM(amount_cents) as amount_cents
             FROM transactions{where}
