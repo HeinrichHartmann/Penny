@@ -158,6 +158,7 @@ result = replay_vault(config)
 | **009** | Transfer Neutralization | Union-Find grouping with user predicate |
 | **010** | Portable Event-Log Storage | Vault as source of truth, SQLite as projection |
 | **011** | Layered Architecture | Flat modules (accounts.py, transactions.py) |
+| **014** | Predicate Language for Filtering and Rules | SQL-like `WHERE` subset as stable user-facing predicate language |
 
 ## Environment Variables
 
