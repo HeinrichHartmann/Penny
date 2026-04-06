@@ -6,7 +6,7 @@ import csv
 import re
 from datetime import datetime
 
-from penny.ingest.base import BankModule, DetectionResult
+from penny.ingest.base import BalanceSnapshot, BankModule, DetectionResult
 from penny.ingest.formats.buchungstext import extract_memo, extract_payee, extract_reference
 from penny.ingest.formats.utils import parse_german_amount, parse_german_date
 from penny.transactions import Transaction, generate_fingerprint
@@ -83,6 +83,60 @@ class ComdirectBank(BankModule):
                 if transaction is not None:
                     transactions.append(transaction)
         return transactions
+
+    def extract_balances(self, filename: str, content: str) -> list[BalanceSnapshot]:
+        """Extract balance snapshots from Comdirect CSV.
+
+        Comdirect CSVs have "Neuer Kontostand" (current balance) at the start
+        of each section. We extract these as balance snapshots.
+        """
+        # Extract date from filename: umsaetze_{account}_{YYYYMMDD}-{HHMM}.csv
+        date_match = re.search(r"_(\d{8})-\d{4}", filename)
+        if not date_match:
+            return []
+
+        snapshot_date = datetime.strptime(date_match.group(1), "%Y%m%d").date()
+
+        balances: list[BalanceSnapshot] = []
+
+        for section_header, section_content in self._split_sections(content):
+            subaccount = self._detect_subaccount(section_header)
+
+            # Look for "Neuer Kontostand" line in section content
+            for line in section_content.split("\n"):
+                if '"Neuer Kontostand"' in line:
+                    balance = self._parse_balance_line(line)
+                    if balance is not None:
+                        balances.append(
+                            BalanceSnapshot(
+                                subaccount_type=subaccount,
+                                balance_cents=balance,
+                                snapshot_date=snapshot_date,
+                                note=f"Extracted from {filename}",
+                            )
+                        )
+                    break  # Only take the first "Neuer Kontostand" per section
+
+        return balances
+
+    def _parse_balance_line(self, line: str) -> int | None:
+        """Parse balance from 'Neuer Kontostand' line.
+
+        Format: "Neuer Kontostand";"16,94 EUR";
+        Returns balance in cents, or None if parsing fails.
+        """
+        try:
+            reader = csv.reader([line], delimiter=";")
+            cells = next(reader)
+            if len(cells) >= 2:
+                # Format: "16,94 EUR" or "-123,45 EUR"
+                balance_str = cells[1].strip()
+                # Remove currency suffix
+                balance_str = re.sub(r"\s*EUR\s*$", "", balance_str, flags=re.IGNORECASE)
+                return parse_german_amount(balance_str)
+        except Exception:
+            pass
+        return None
 
     def _split_sections(self, content: str) -> list[tuple[str, str]]:
         sections: list[tuple[str, str]] = []

@@ -14,8 +14,8 @@ class SparkasseBank(BankModule):
 
     name = "Sparkasse"
     bank = "sparkasse"
-    filename_pattern = re.compile(r"^\d{8}-\d+-umsatz-camt52v8\.CSV$", re.IGNORECASE)
-    expected_filename_hint = "YYYYMMDD-ACCOUNTNUMBER-umsatz-camt52v8.CSV"
+    filename_pattern = re.compile(r"^\d{8}-\d+-umsatz-camt52v8(?:\(\d+\))?\.CSV$", re.IGNORECASE)
+    expected_filename_hint = "YYYYMMDD-ACCOUNTNUMBER-umsatz-camt52v8.CSV (or ...camt52v8(1).CSV)"
 
     def __init__(self) -> None:
         self._parser = CamtV8Parser()

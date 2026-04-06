@@ -42,3 +42,23 @@ def test_match_file_uses_explicit_parser_type(fixture_dir):
     parser = match_file(csv_path.name, content, csv_type="comdirect")
 
     assert parser.bank == "comdirect"
+
+
+def test_comdirect_extract_balances(fixture_dir):
+    """Test that balance snapshots are extracted from 'Neuer Kontostand' rows."""
+    csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
+    parser = ComdirectBank()
+    content = read_file_with_encoding(csv_path)
+
+    balances = parser.extract_balances(csv_path.name, content)
+
+    # The fixture has "Neuer Kontostand" only for giro (16,94 EUR)
+    # (visa section only has "Alter Kontostand", not "Neuer Kontostand")
+    assert len(balances) == 1
+
+    # Check giro balance
+    giro_balance = balances[0]
+    assert giro_balance.subaccount_type == "giro"
+    assert giro_balance.balance_cents == 1694  # 16,94 EUR
+    assert giro_balance.snapshot_date.isoformat() == "2026-03-31"
+    assert "umsaetze_9788862492_20260331-1354.csv" in giro_balance.note

@@ -1,6 +1,6 @@
 """CSV ingestion - bank detection and format parsing."""
 
-from penny.ingest.base import BankModule, DetectionResult
+from penny.ingest.base import BalanceSnapshot, BankModule, DetectionResult
 from penny.ingest.detection import (
     DetectionError,
     get_banks,
@@ -10,6 +10,7 @@ from penny.ingest.detection import (
 )
 
 __all__ = [
+    "BalanceSnapshot",
     "BankModule",
     "DetectionError",
     "DetectionResult",

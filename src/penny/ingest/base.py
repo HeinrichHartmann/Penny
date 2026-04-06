@@ -5,10 +5,24 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import date
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from penny.transactions import Transaction
+
+
+@dataclass
+class BalanceSnapshot:
+    """Balance snapshot extracted from CSV.
+
+    These are embedded in bank exports (e.g., "Neuer Kontostand" in Comdirect).
+    """
+
+    subaccount_type: str  # e.g., "giro", "visa"
+    balance_cents: int
+    snapshot_date: date
+    note: str = ""
 
 
 @dataclass
@@ -57,3 +71,11 @@ class BankModule(ABC):
     @abstractmethod
     def parse(self, filename: str, content: str, account_id: int) -> list[Transaction]:
         """Parse transactions."""
+
+    def extract_balances(self, filename: str, content: str) -> list[BalanceSnapshot]:
+        """Extract balance snapshots from CSV.
+
+        Override in subclasses that have embedded balance info.
+        Returns empty list by default.
+        """
+        return []
