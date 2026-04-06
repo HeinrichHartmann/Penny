@@ -59,8 +59,6 @@ class Account:
     iban: str | None = None
     holder: str | None = None
     notes: str | None = None
-    balance_cents: int | None = None
-    balance_date: date | None = None
     subaccounts: dict[str, Subaccount] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -91,8 +89,6 @@ def _hydrate_account(conn, row) -> Account:
         iban=row["iban"],
         holder=row["holder"],
         notes=row["notes"],
-        balance_cents=row["balance_cents"],
-        balance_date=date.fromisoformat(row["balance_date"]) if row["balance_date"] else None,
         subaccounts={
             item["type"]: Subaccount(type=item["type"], display_name=item["display_name"])
             for item in subaccount_rows
@@ -116,8 +112,6 @@ def create_account(
     iban: str | None = None,
     holder: str | None = None,
     notes: str | None = None,
-    balance_cents: int | None = None,
-    balance_date: date | None = None,
     subaccounts: dict[str, Subaccount] | None = None,
 ) -> Account:
     """Create and persist an account via the vault."""
@@ -130,8 +124,6 @@ def create_account(
         iban=iban,
         holder=holder,
         notes=notes,
-        balance_cents=balance_cents,
-        balance_date=balance_date,
         subaccounts=subaccounts,
     )
 
@@ -145,8 +137,6 @@ def _create_account_direct(
     iban: str | None = None,
     holder: str | None = None,
     notes: str | None = None,
-    balance_cents: int | None = None,
-    balance_date: date | None = None,
     subaccounts: dict[str, Subaccount] | None = None,
     created_at: str | None = None,
     updated_at: str | None = None,
@@ -163,8 +153,6 @@ def _create_account_direct(
             iban,
             holder,
             notes,
-            balance_cents,
-            balance_date.isoformat() if balance_date else None,
             created_at,
             updated_at,
         ),
@@ -285,26 +273,6 @@ def _update_account_metadata_direct(
         return None
 
     return _get_account_in_conn(conn, account_id, include_hidden=True)
-
-
-def update_account_balance(
-    account_id: int,
-    *,
-    balance_cents: int,
-    balance_date: date,
-) -> Account | None:
-    """Update account balance snapshot and return the refreshed account."""
-    with closing(connect()) as conn:
-        cursor = conn.execute(
-            "UPDATE accounts SET balance_cents = ?, balance_date = ?, updated_at = ? WHERE id = ?",
-            (balance_cents, balance_date.isoformat(), datetime.now().isoformat(), account_id),
-        )
-        conn.commit()
-
-    if cursor.rowcount == 0:
-        return None
-
-    return get_account(account_id, include_hidden=True)
 
 
 def find_account_by_bank_account_number(
@@ -433,3 +401,94 @@ def reconcile_account(detection: DetectionResult) -> Account:
         bank_account_number=detection.bank_account_number,
         subaccounts=subaccounts,
     )
+
+
+# =============================================================================
+# BALANCE ANCHORS
+# =============================================================================
+
+
+def upsert_balance_anchor(
+    account_id: int,
+    anchor_date: date,
+    balance_cents: int,
+    *,
+    note: str | None = None,
+    source: str | None = None,
+    ledger_sequence: int | None = None,
+) -> None:
+    """Store or update a balance anchor for an account."""
+    from penny.sql import upsert_balance_anchor_sql
+
+    with closing(connect()) as conn:
+        conn.execute(
+            upsert_balance_anchor_sql(),
+            (
+                account_id,
+                anchor_date.isoformat(),
+                balance_cents,
+                note,
+                source,
+                ledger_sequence,
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+
+
+def _upsert_balance_anchor_direct(
+    conn: sqlite3.Connection,
+    account_id: int,
+    anchor_date: date,
+    balance_cents: int,
+    *,
+    note: str | None = None,
+    source: str | None = None,
+    ledger_sequence: int | None = None,
+    created_at: str | None = None,
+) -> None:
+    """Store or update a balance anchor directly (within a transaction)."""
+    from penny.sql import upsert_balance_anchor_sql
+
+    conn.execute(
+        upsert_balance_anchor_sql(),
+        (
+            account_id,
+            anchor_date.isoformat(),
+            balance_cents,
+            note,
+            source,
+            ledger_sequence,
+            created_at or datetime.now().isoformat(),
+        ),
+    )
+
+
+def list_balance_anchors(account_id: int | None = None) -> list[dict]:
+    """List balance anchors, optionally filtered by account."""
+    from penny.sql import list_balance_anchors_sql
+
+    sql, params = list_balance_anchors_sql(account_id)
+    with closing(connect()) as conn:
+        rows = conn.execute(sql, params).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "account_id": row["account_id"],
+                "date": row["anchor_date"],
+                "balance_cents": row["balance_cents"],
+                "note": row["note"],
+                "source": row["source"],
+            }
+            for row in rows
+        ]
+
+
+def count_balance_anchors_by_account() -> dict[int, int]:
+    """Return count of balance anchors per account."""
+    from penny.sql import count_balance_anchors_sql
+
+    sql, params = count_balance_anchors_sql()
+    with closing(connect()) as conn:
+        rows = conn.execute(sql, params).fetchall()
+        return {row["account_id"]: row["count"] for row in rows}

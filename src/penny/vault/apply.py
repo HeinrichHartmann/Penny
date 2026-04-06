@@ -132,6 +132,7 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
         balance_snapshots_stored = _store_balance_snapshots(
             account_id=account.id,
             snapshots=all_balance_snapshots,
+            ledger_sequence=entry.sequence,
         )
 
     return IngestResult(
@@ -151,13 +152,14 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
 def _store_balance_snapshots(
     account_id: int,
     snapshots: list[tuple[str, BalanceSnapshot]],
+    ledger_sequence: int,
 ) -> int:
-    """Store balance snapshots extracted from CSV directly to DB.
+    """Store balance snapshots extracted from CSV to balance_anchors table.
 
     Sums all subaccount balances for the same date into a single account balance.
-    Returns number of balance updates applied (one per unique date).
+    Returns number of balance anchors stored (one per unique date).
     """
-    from penny.accounts import update_account_balance
+    from penny.accounts import upsert_balance_anchor
 
     if not snapshots:
         return 0
@@ -170,13 +172,15 @@ def _store_balance_snapshots(
             date_totals[snapshot.snapshot_date] = 0
         date_totals[snapshot.snapshot_date] += snapshot.balance_cents
 
-    # Apply each date's total balance
+    # Store each date's total balance as an anchor
     stored = 0
     for snapshot_date, total_cents in date_totals.items():
-        update_account_balance(
+        upsert_balance_anchor(
             account_id,
+            anchor_date=snapshot_date,
             balance_cents=total_cents,
-            balance_date=snapshot_date,
+            source="csv",
+            ledger_sequence=ledger_sequence,
         )
         stored += 1
 
@@ -202,17 +206,21 @@ def apply_entry(entry: LedgerEntry, config: VaultConfig) -> None:
 
 
 def _apply_balance(entry: LedgerEntry, config: VaultConfig) -> None:
-    """Apply balance entry."""
-    from penny.accounts import update_account_balance
+    """Apply balance entry to balance_anchors table."""
+    from penny.accounts import upsert_balance_anchor
 
+    _ = config  # unused but required by interface
     record = entry.record
     # Balance entries have a list of snapshots
     for snapshot in record.get("snapshots", []):
         snapshot_date = date.fromisoformat(snapshot["snapshot_date"])
-        update_account_balance(
+        upsert_balance_anchor(
             snapshot["account_id"],
+            anchor_date=snapshot_date,
             balance_cents=snapshot["balance_cents"],
-            balance_date=snapshot_date,
+            note=snapshot.get("note"),
+            source="tsv_import",
+            ledger_sequence=entry.sequence,
         )
 
 
@@ -264,10 +272,6 @@ def _apply_mutation_data(
                 iban=payload.get("iban"),
                 holder=payload.get("holder"),
                 notes=payload.get("notes"),
-                balance_cents=payload.get("balance_cents"),
-                balance_date=date.fromisoformat(payload["balance_date"])
-                if payload.get("balance_date")
-                else None,
                 subaccounts={
                     item["type"]: Subaccount(
                         type=item["type"], display_name=item.get("display_name")

@@ -240,10 +240,16 @@ def import_balances(
         )
         ledger.append_entry(entry)
 
-        # Apply balance to account (updates cached balance for display)
-        from penny.accounts import update_account_balance
+        # Apply balance to balance_anchors table
+        from penny.accounts import upsert_balance_anchor
 
-        update_account_balance(account.id, balance_cents=row.balance_cents, balance_date=row.date)
+        upsert_balance_anchor(
+            account.id,
+            anchor_date=row.date,
+            balance_cents=row.balance_cents,
+            note=row.note,
+            source="tsv_import",
+        )
 
         # Also append to balances.tsv
         append_balance_row(row, config)

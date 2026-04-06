@@ -72,12 +72,29 @@ class Database:
                     iban TEXT,
                     holder TEXT,
                     notes TEXT,
-                    balance_cents INTEGER,
-                    balance_date TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     hidden INTEGER DEFAULT 0
                 );
+
+                -- Balance anchors: known balance values at specific dates.
+                -- Populated from CSV extraction and TSV imports.
+                -- Used for balance projection in charts.
+                CREATE TABLE IF NOT EXISTS balance_anchors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL REFERENCES accounts(id),
+                    anchor_date TEXT NOT NULL,
+                    balance_cents INTEGER NOT NULL,
+                    note TEXT,
+                    source TEXT,
+                    ledger_sequence INTEGER,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(account_id, anchor_date)
+                );
+                CREATE INDEX IF NOT EXISTS idx_balance_anchors_account
+                    ON balance_anchors(account_id);
+                CREATE INDEX IF NOT EXISTS idx_balance_anchors_sequence
+                    ON balance_anchors(ledger_sequence);
 
                 -- Vault-owned structural tables. These are updated through vault apply flows.
                 CREATE TABLE IF NOT EXISTS account_identifiers (

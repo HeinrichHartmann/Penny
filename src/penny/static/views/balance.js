@@ -93,6 +93,7 @@ export const createBalanceViewState = ({
     const dates = valueHistory.value.dates || [];
     const accountColumns = valueHistory.value.account_columns || {};
     const accountNames = valueHistory.value.account_names || {};
+    const todayIdx = valueHistory.value.today_idx;
 
     if (valuePoints.length === 0) {
       balanceChart.clear();
@@ -331,6 +332,28 @@ export const createBalanceViewState = ({
       });
     }
 
+    // Add future overlay (grey area from today onwards)
+    if (todayIdx !== null && todayIdx !== undefined && dates[todayIdx]) {
+      const futureDate = dates[todayIdx];
+      const lastDate = dates[dates.length - 1];
+      // Add as a separate series with markArea for the future region
+      series.push({
+        name: '_future_overlay',
+        type: 'line',
+        data: [],
+        markArea: {
+          silent: true,
+          itemStyle: {
+            color: 'rgba(128, 128, 128, 0.15)',
+          },
+          data: [[
+            { xAxis: futureDate },
+            { xAxis: nextDayTimestamp(lastDate) },
+          ]],
+        },
+      });
+    }
+
     const yAxis = [
       {
         type: 'value',
@@ -402,7 +425,7 @@ export const createBalanceViewState = ({
           },
         },
         legend: {
-          data: series.map(s => s.name),
+          data: series.filter(s => !s.name.startsWith('_')).map(s => s.name),
           top: 6,
         },
         dataZoom: [

@@ -26,8 +26,6 @@ from penny.sql import (
     tree_query,
 )
 from penny.transactions import TransactionFilter, list_transactions
-from penny.vault.config import VaultConfig
-from penny.vault.ledger import Ledger
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -545,25 +543,28 @@ async def account_value_history(
             "inconsistencies": [],
         }
 
-    # Get all balance snapshots for these accounts (from vault ledger)
-    config = VaultConfig()
-    if not config.is_initialized():
-        config.initialize()
-    ledger = Ledger(config.path)
-    all_snapshots = []
+    # Get all balance anchors for these accounts from balance_anchors table
+    conn = connect()
+    placeholders = ",".join("?" * len(account_ids))
+    rows = conn.execute(
+        f"""
+        SELECT account_id, anchor_date, balance_cents
+        FROM balance_anchors
+        WHERE account_id IN ({placeholders})
+        ORDER BY account_id, anchor_date
+        """,
+        list(account_ids),
+    ).fetchall()
+    conn.close()
 
-    for entry in ledger.read_entries():
-        if entry.entry_type == "balance" and entry.enabled:
-            # Balance entries have snapshots list in record
-            for snapshot in entry.record.get("snapshots", []):
-                if snapshot["account_id"] in account_ids:
-                    all_snapshots.append(
-                        {
-                            "account_id": snapshot["account_id"],
-                            "date": snapshot["snapshot_date"],
-                            "balance_cents": snapshot["balance_cents"],
-                        }
-                    )
+    all_snapshots = [
+        {
+            "account_id": row["account_id"],
+            "date": row["anchor_date"],
+            "balance_cents": row["balance_cents"],
+        }
+        for row in rows
+    ]
 
     # Sort snapshots by account and date
     all_snapshots.sort(key=lambda x: (x["account_id"], x["date"]))
@@ -692,6 +693,27 @@ async def account_value_history(
         # Also filter all_dates for column data
         all_dates = [d for d in all_dates if from_date_str <= d <= to_date_str]
 
+        # Extend to to_date for forward extrapolation (date-picker-first)
+        # If user selects "2026", show full year with flat line for future months
+        if to_date_str and all_dates and to_date_str > all_dates[-1]:
+            last_date = pd.Timestamp(all_dates[-1])
+            end_date = pd.Timestamp(to_date_str)
+            extra_dates = pd.date_range(
+                start=last_date + pd.Timedelta(days=1), end=end_date, freq="D"
+            )
+            # Carry forward the last known total balance for extrapolated dates
+            last_total = value_points[-1]["total_balance"] if value_points else 0
+            for d in extra_dates:
+                date_str = d.strftime("%Y-%m-%d")
+                all_dates.append(date_str)
+                value_points.append(
+                    {
+                        "date": date_str,
+                        "total_balance": last_total,
+                        "is_anchor": False,
+                    }
+                )
+
     # Build column-wise account balance arrays (for stacked chart)
     # Each account gets an array of balances aligned with all_dates
     # For dates beyond the account's transaction range, carry forward the last known balance
@@ -719,6 +741,16 @@ async def account_value_history(
             account_names[acc_id] = f"Account #{acc_id}"
     conn.close()
 
+    # Find today's index in the dates array for future overlay
+    from datetime import date
+
+    today_str = date.today().isoformat()
+    today_idx = None
+    for i, d in enumerate(all_dates):
+        if d > today_str:
+            today_idx = i
+            break
+
     return {
         "account_ids": list(account_ids),
         "balance_snapshots": visible_snapshots,
@@ -728,4 +760,6 @@ async def account_value_history(
         "dates": all_dates,
         "account_columns": {str(k): v for k, v in account_columns.items()},
         "account_names": {str(k): v for k, v in account_names.items()},
+        # Index where future starts (dates[today_idx] > today), null if no future dates
+        "today_idx": today_idx,
     }
