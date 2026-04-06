@@ -326,9 +326,10 @@ async def list_imports():
             parser = entry.record.get("parser", "unknown")
             csv_files = entry.record.get("csv_files", [])
 
-            # Get account info if available
+            # Get account info
             account_label = None
             account_id = None
+            balance_info = None
 
             try:
                 from penny.api.helpers import get_db
@@ -345,11 +346,28 @@ async def list_imports():
                     """,
                     (parser,),
                 ).fetchone()
-                conn.close()
 
                 if row:
                     account_id = row[0]
                     account_label = row[1] or f"{row[2]} #{row[0]}"
+
+                # Get balance anchors extracted by THIS specific import (by ledger_sequence)
+                from penny.sql import get_balance_anchors_by_sequence_sql
+
+                balance_rows = cursor.execute(
+                    get_balance_anchors_by_sequence_sql(),
+                    (entry.sequence,),
+                ).fetchall()
+                if balance_rows:
+                    # Sum all balances extracted from this import
+                    # SQL returns: id, account_id, anchor_date, balance_cents, note, source, ledger_sequence, created_at
+                    total_cents = sum(r[3] for r in balance_rows)  # balance_cents
+                    balance_eur = total_cents / 100
+                    # Use the date from the first anchor (all should be same date for a CSV)
+                    anchor_date = balance_rows[0][2]  # anchor_date
+                    balance_info = f"Balance: {balance_eur:,.2f}€ @ {anchor_date}"
+
+                conn.close()
             except Exception:
                 pass
 
@@ -362,6 +380,7 @@ async def list_imports():
                     "status": "applied",
                     "account_id": account_id,
                     "account_label": account_label,
+                    "balance_info": balance_info,
                     "enabled": entry.enabled,
                     "warning": None,
                     "type": "ingest",
@@ -376,9 +395,11 @@ async def list_imports():
 async def toggle_import_enabled(sequence: int):
     """Toggle the enabled state of an import entry.
 
-    This modifies the enabled flag in history.tsv.
-    Changes take effect on next DB rebuild.
+    This modifies the enabled flag in history.tsv and updates balance_anchors.
     """
+    from penny.db import connect
+    from penny.sql import delete_balance_anchors_by_sequence_sql
+
     config = VaultConfig()
     if not config.is_initialized():
         raise HTTPException(status_code=404, detail="Vault not initialized")
@@ -402,6 +423,25 @@ async def toggle_import_enabled(sequence: int):
 
     # Update in ledger (atomic write)
     ledger.update_enabled(sequence, new_enabled)
+
+    # Update balance_anchors table immediately
+    conn = connect()
+    if new_enabled:
+        # Re-apply balance anchors from this entry
+        from penny.vault.apply import _apply_balance, apply_ingest
+
+        if entry.entry_type == "balance":
+            _apply_balance(entry, config)
+        elif entry.entry_type == "ingest":
+            # For ingest entries, we need to re-extract and store balances
+            # This is handled by apply_ingest, but we need a lighter approach
+            # Just replay the balance extraction part
+            apply_ingest(entry, config)
+    else:
+        # Delete balance anchors associated with this entry
+        conn.execute(delete_balance_anchors_by_sequence_sql(), (sequence,))
+        conn.commit()
+    conn.close()
 
     return {"sequence": sequence, "enabled": new_enabled}
 

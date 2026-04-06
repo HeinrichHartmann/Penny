@@ -7,9 +7,10 @@ from pydantic import BaseModel
 
 from penny.accounts import (
     Account,
+    count_balance_anchors_by_account,
     soft_delete_account,
-    update_account_balance,
     update_account_metadata,
+    upsert_balance_anchor,
 )
 from penny.accounts import (
     get_account as get_account_by_id,
@@ -34,27 +35,41 @@ class BalanceSnapshotRequest(BaseModel):
 
 
 def _load_balance_snapshot_counts() -> dict[int, int]:
-    """Return enabled balance snapshot counts per account from the vault ledger."""
-    config = VaultConfig()
-    if not config.is_initialized():
-        return {}
+    """Return balance anchor counts per account from balance_anchors table."""
+    return count_balance_anchors_by_account()
 
-    counts: dict[int, int] = {}
-    for entry in Ledger(config.path).read_entries():
-        if entry.entry_type != "balance" or not entry.enabled:
-            continue
-        for snapshot in entry.record.get("snapshots", []):
-            account_id = snapshot.get("account_id")
-            if account_id is None:
-                continue
-            counts[account_id] = counts.get(account_id, 0) + 1
-    return counts
+
+def _get_latest_balance_anchor(account_id: int) -> dict | None:
+    """Get the latest balance anchor for an account."""
+    from penny.sql import get_latest_balance_anchor_sql
+
+    conn = get_db()
+    row = conn.execute(get_latest_balance_anchor_sql(), (account_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "balance_cents": row["balance_cents"],
+        "anchor_date": row["anchor_date"],
+    }
+
+
+def _get_last_transaction_date(account_id: int) -> str | None:
+    """Get the date of the most recent transaction for an account."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT MAX(date) FROM transactions WHERE account_id = ?", (account_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
 
 
 def _account_to_dict(
     account: Account,
     transaction_count: int = 0,
     balance_snapshot_count: int = 0,
+    latest_balance: dict | None = None,
+    last_transaction_date: str | None = None,
 ) -> dict:
     """Convert Account model to JSON-serializable dict."""
     return {
@@ -64,11 +79,12 @@ def _account_to_dict(
         "iban": account.iban,
         "holder": account.holder,
         "notes": account.notes,
-        "balance_cents": account.balance_cents,
-        "balance_date": account.balance_date.isoformat() if account.balance_date else None,
+        "balance_cents": latest_balance["balance_cents"] if latest_balance else None,
+        "balance_date": latest_balance["anchor_date"] if latest_balance else None,
         "balance_snapshot_count": balance_snapshot_count,
         "subaccounts": list(account.subaccounts.keys()),
         "transaction_count": transaction_count,
+        "last_transaction_date": last_transaction_date,
         "label": account.display_name or f"{account.bank} #{account.id}",
         "hidden": account.hidden,
     }
@@ -80,27 +96,32 @@ async def list_accounts(include_hidden: bool = Query(False)):
     accounts = list_all_accounts(include_hidden=include_hidden)
     balance_snapshot_counts = _load_balance_snapshot_counts()
 
-    # Get transaction counts per account
+    # Get transaction counts and last transaction dates per account
     conn = get_db()
     cursor = conn.cursor()
-    counts = {
-        row[0]: row[1]
+    tx_stats = {
+        row[0]: {"count": row[1], "last_date": row[2]}
         for row in cursor.execute(
-            "SELECT account_id, COUNT(*) FROM transactions GROUP BY account_id"
+            "SELECT account_id, COUNT(*), MAX(date) FROM transactions GROUP BY account_id"
         ).fetchall()
     }
     conn.close()
 
-    return {
-        "accounts": [
+    result = []
+    for account in accounts:
+        stats = tx_stats.get(account.id, {"count": 0, "last_date": None})
+        latest_balance = _get_latest_balance_anchor(account.id)
+        result.append(
             _account_to_dict(
                 account,
-                counts.get(account.id, 0),
-                balance_snapshot_counts.get(account.id, 0),
+                transaction_count=stats["count"],
+                balance_snapshot_count=balance_snapshot_counts.get(account.id, 0),
+                latest_balance=latest_balance,
+                last_transaction_date=stats["last_date"],
             )
-            for account in accounts
-        ]
-    }
+        )
+
+    return {"accounts": result}
 
 
 @router.get("/{account_id}")
@@ -111,16 +132,26 @@ async def get_account(account_id: int):
     if account is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
-    # Get transaction count
+    # Get transaction count and last date
     conn = get_db()
     cursor = conn.cursor()
-    count = cursor.execute(
-        "SELECT COUNT(*) FROM transactions WHERE account_id = ?", (account_id,)
-    ).fetchone()[0]
+    row = cursor.execute(
+        "SELECT COUNT(*), MAX(date) FROM transactions WHERE account_id = ?", (account_id,)
+    ).fetchone()
     conn.close()
+    tx_count = row[0] if row else 0
+    last_tx_date = row[1] if row else None
 
     balance_snapshot_counts = _load_balance_snapshot_counts()
-    return _account_to_dict(account, count, balance_snapshot_counts.get(account_id, 0))
+    latest_balance = _get_latest_balance_anchor(account_id)
+
+    return _account_to_dict(
+        account,
+        transaction_count=tx_count,
+        balance_snapshot_count=balance_snapshot_counts.get(account_id, 0),
+        latest_balance=latest_balance,
+        last_transaction_date=last_tx_date,
+    )
 
 
 @router.patch("/{account_id}")
@@ -229,11 +260,14 @@ async def record_balance_snapshot(account_id: int, request: BalanceSnapshotReque
         config,
     )
 
-    # Also update SQLite accounts table (cached balance for quick display)
-    update_account_balance(
+    # Store in balance_anchors table
+    upsert_balance_anchor(
         account_id,
+        anchor_date=snapshot_date,
         balance_cents=request.balance_cents,
-        balance_date=snapshot_date,
+        note=request.note,
+        source="manual",
+        ledger_sequence=sequence,
     )
 
     # Return updated account

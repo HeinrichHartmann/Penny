@@ -215,7 +215,10 @@ export const ImportView = {
                 </td>
                 <td style="padding: 12px 8px; color: var(--muted); font-size: 0.85rem;">
                   <template v-if="imp.type === 'ingest'">
-                    {{ imp.parser }} → {{ imp.account_label || 'Unknown' }}
+                    <div>
+                      {{ imp.parser }} → {{ imp.account_label || 'Unknown' }}
+                      <span v-if="imp.balance_info" style="color: var(--accent); margin-left: 8px;">({{ imp.balance_info }})</span>
+                    </div>
                   </template>
                   <template v-else-if="imp.type === 'balance_anchors'">
                     {{ formatBalanceDetails(imp) }}

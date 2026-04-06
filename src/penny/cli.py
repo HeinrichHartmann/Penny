@@ -19,10 +19,10 @@ from penny.classify import run_classification_pass
 from penny.classify.engine import _ACTIVE_COLLECTOR, LoadedRulesConfig, RuleCollector, _load_module
 from penny.db import init_db, init_default_db
 from penny.ingest import (
+    CsvSource,
     DetectionError,
     get_supported_csv_types,
-    match_file,
-    read_file_with_encoding,
+    match_source,
 )
 from penny.reports import generate_report_text
 from penny.runtime_rules import run_stored_rules
@@ -417,15 +417,14 @@ def log_list():
 @click.option("--dry-run", is_flag=True, help="Parse but do not persist accounts or transactions")
 def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
     """Import transactions from a CSV file."""
-
-    content = read_file_with_encoding(csv_file)
+    source = CsvSource.from_path(csv_file)
 
     try:
-        parser = match_file(csv_file.name, content, csv_type=csv_type)
+        parser = match_source(source, csv_type=csv_type)
     except DetectionError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    detection = parser.detect(csv_file.name, content)
+    detection = parser.detect(source)
     existing_account = find_account_by_bank_account_number(
         detection.bank, detection.bank_account_number, include_hidden=False
     )
@@ -445,7 +444,7 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             else f"[new] ({detection.bank} {detection.bank_account_number})"
         )
 
-    parsed_transactions = parser.parse(csv_file.name, content, account_id=account_id)
+    parsed_transactions = parser.parse(source, account_id=account_id)
     section_counts = Counter(transaction.subaccount_type for transaction in parsed_transactions)
     sections_text = (
         ", ".join(f"{section} ({count})" for section, count in sorted(section_counts.items()))
@@ -466,8 +465,8 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
 
     result = ingest_vault_csv(
         IngestRequest(
-            filename=csv_file.name,
-            content=csv_file.read_bytes(),
+            filename=source.filename,
+            content=source.raw_bytes,
             csv_type=csv_type,
         )
     )

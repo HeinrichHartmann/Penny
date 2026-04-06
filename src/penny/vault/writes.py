@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from penny.db import connect
@@ -61,8 +61,6 @@ def create_account(
     iban: str | None = None,
     holder: str | None = None,
     notes: str | None = None,
-    balance_cents: int | None = None,
-    balance_date: date | None = None,
     subaccounts: dict[str, Subaccount] | None = None,
     config: VaultConfig | None = None,
 ) -> Account:
@@ -79,8 +77,6 @@ def create_account(
             "iban": iban,
             "holder": holder,
             "notes": notes,
-            "balance_cents": balance_cents,
-            "balance_date": balance_date.isoformat() if balance_date else None,
             "subaccounts": [
                 {"type": subaccount.type, "display_name": subaccount.display_name}
                 for subaccount in (subaccounts or {}).values()

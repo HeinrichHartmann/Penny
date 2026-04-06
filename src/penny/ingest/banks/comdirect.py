@@ -6,7 +6,7 @@ import csv
 import re
 from datetime import datetime
 
-from penny.ingest.base import BalanceSnapshot, BankModule, DetectionResult
+from penny.ingest.base import BalanceSnapshot, BankModule, CsvSource, DetectionResult
 from penny.ingest.formats.buchungstext import extract_memo, extract_payee, extract_reference
 from penny.ingest.formats.utils import parse_german_amount, parse_german_date
 from penny.transactions import Transaction, generate_fingerprint
@@ -36,13 +36,13 @@ class ComdirectBank(BankModule):
             marker in content for markers in self.SECTION_PATTERNS.values() for marker in markers
         )
 
-    def match(self, filename: str, content: str) -> bool:
-        return bool(self.filename_pattern.match(filename)) and self.content_signature_matches(
-            content
-        )
+    def match(self, source: CsvSource) -> bool:
+        return bool(
+            self.filename_pattern.match(source.filename)
+        ) and self.content_signature_matches(source.text)
 
-    def detect(self, filename: str, content: str) -> DetectionResult:
-        match = self.filename_pattern.match(filename)
+    def detect(self, source: CsvSource) -> DetectionResult:
+        match = self.filename_pattern.match(source.filename)
         if match is None:
             raise ValueError(
                 f"Filename does not match expected Comdirect format: {self.expected_filename_hint}"
@@ -51,7 +51,7 @@ class ComdirectBank(BankModule):
         subaccounts = [
             subtype
             for subtype, patterns in self.SECTION_PATTERNS.items()
-            if any(pattern in content for pattern in patterns)
+            if any(pattern in source.text for pattern in patterns)
         ]
 
         return DetectionResult(
@@ -62,15 +62,15 @@ class ComdirectBank(BankModule):
             confidence=1.0,
         )
 
-    def parse(self, filename: str, content: str, account_id: int) -> list[Transaction]:
+    def parse(self, source: CsvSource, account_id: int) -> list[Transaction]:
         """Parse Comdirect transactions."""
-        if not self.filename_pattern.match(filename):
+        if not self.filename_pattern.match(source.filename):
             raise ValueError(
                 f"Filename does not match expected Comdirect format: {self.expected_filename_hint}"
             )
 
         transactions: list[Transaction] = []
-        for section_header, section_content in self._split_sections(content):
+        for section_header, section_content in self._split_sections(source.text):
             subaccount = self._detect_subaccount(section_header)
             rows = self._read_section_rows(section_content)
             header = self._find_header_row(rows)
@@ -84,14 +84,14 @@ class ComdirectBank(BankModule):
                     transactions.append(transaction)
         return transactions
 
-    def extract_balances(self, filename: str, content: str) -> list[BalanceSnapshot]:
+    def extract_balances(self, source: CsvSource) -> list[BalanceSnapshot]:
         """Extract balance snapshots from Comdirect CSV.
 
         Comdirect CSVs have "Neuer Kontostand" (current balance) at the start
         of each section. We extract these as balance snapshots.
         """
         # Extract date from filename: umsaetze_{account}_{YYYYMMDD}-{HHMM}.csv
-        date_match = re.search(r"_(\d{8})-\d{4}", filename)
+        date_match = re.search(r"_(\d{8})-\d{4}", source.filename)
         if not date_match:
             return []
 
@@ -99,7 +99,7 @@ class ComdirectBank(BankModule):
 
         balances: list[BalanceSnapshot] = []
 
-        for section_header, section_content in self._split_sections(content):
+        for section_header, section_content in self._split_sections(source.text):
             subaccount = self._detect_subaccount(section_header)
 
             # Look for "Neuer Kontostand" line in section content
@@ -112,7 +112,7 @@ class ComdirectBank(BankModule):
                                 subaccount_type=subaccount,
                                 balance_cents=balance,
                                 snapshot_date=snapshot_date,
-                                note=f"Extracted from {filename}",
+                                note=f"Extracted from {source.filename}",
                             )
                         )
                     break  # Only take the first "Neuer Kontostand" per section

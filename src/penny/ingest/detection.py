@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from penny.ingest.banks import get_banks
-from penny.ingest.base import BankModule
+from penny.ingest.base import BankModule, CsvSource
 from penny.ingest.formats.utils import read_file_with_encoding as _read_file
 
 
@@ -34,14 +34,14 @@ def get_bank_by_type(csv_type: str) -> BankModule:
     raise DetectionError(f"Unsupported csv type: {csv_type}. Supported types: {supported}")
 
 
-def _validate_bank_match(bank: BankModule, filename: str, content: str) -> BankModule:
+def _validate_bank_match(bank: BankModule, source: CsvSource) -> BankModule:
     """Validate that the bank can handle this file."""
-    if bank.match(filename, content):
+    if bank.match(source):
         return bank
 
     content_signature_matches = getattr(bank, "content_signature_matches", None)
-    if callable(content_signature_matches) and content_signature_matches(content):
-        if not bank.filename_pattern.match(filename):
+    if callable(content_signature_matches) and content_signature_matches(source.text):
+        if not bank.filename_pattern.match(source.filename):
             expected = getattr(bank, "expected_filename_hint", bank.filename_pattern.pattern)
             raise DetectionError(
                 f"Filename does not match expected export format. Expected: {expected}"
@@ -50,26 +50,31 @@ def _validate_bank_match(bank: BankModule, filename: str, content: str) -> BankM
     raise DetectionError(f"File does not match selected parser: {bank.bank}")
 
 
-def match_file(filename: str, content: str, csv_type: str | None = None) -> BankModule:
-    """Return the bank module for a file or raise a detection error."""
+def match_source(source: CsvSource, csv_type: str | None = None) -> BankModule:
+    """Return the bank module for a CSV source or raise a detection error."""
     if csv_type:
-        return _validate_bank_match(get_bank_by_type(csv_type), filename, content)
+        return _validate_bank_match(get_bank_by_type(csv_type), source)
 
     banks = get_banks()
 
     # Try exact match (filename + content)
     for bank in banks:
-        if bank.match(filename, content):
+        if bank.match(source):
             return bank
 
     # Try content-only match and suggest filename fix
     for bank in banks:
         content_signature_matches = getattr(bank, "content_signature_matches", None)
-        if callable(content_signature_matches) and content_signature_matches(content):
-            if not bank.filename_pattern.match(filename):
+        if callable(content_signature_matches) and content_signature_matches(source.text):
+            if not bank.filename_pattern.match(source.filename):
                 expected = getattr(bank, "expected_filename_hint", bank.filename_pattern.pattern)
                 raise DetectionError(
                     f"Filename does not match expected export format. Expected: {expected}"
                 )
 
-    raise DetectionError(f"Unknown file format: {filename}")
+    raise DetectionError(f"Unknown file format: {source.filename}")
+
+
+def match_file(filename: str, content: str, csv_type: str | None = None) -> BankModule:
+    """Backward-compatible wrapper for in-memory filename/content detection."""
+    return match_source(CsvSource.from_content(filename, content), csv_type=csv_type)

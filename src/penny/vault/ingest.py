@@ -47,7 +47,7 @@ def ingest_csv(
     Returns:
         IngestResult with account and transaction details
     """
-    from penny.ingest import DetectionError, match_file
+    from penny.ingest import CsvSource, DetectionError, match_source
 
     if config is None:
         config = VaultConfig()
@@ -58,20 +58,11 @@ def ingest_csv(
 
     ledger = Ledger(config.path)
 
-    # Decode content if bytes
-    if isinstance(request.content, bytes):
-        try:
-            content_str = request.content.decode("utf-8")
-        except UnicodeDecodeError:
-            content_str = request.content.decode("cp1252")
-        content_bytes = request.content
-    else:
-        content_str = request.content
-        content_bytes = request.content.encode("utf-8")
+    source = CsvSource.from_content(request.filename, request.content)
 
     # Detect parser first (fail fast if unknown format)
     try:
-        parser = match_file(request.filename, content_str, csv_type=request.csv_type)
+        parser = match_source(source, csv_type=request.csv_type)
     except DetectionError:
         raise
 
@@ -84,9 +75,9 @@ def ingest_csv(
     tx_dir.mkdir(parents=True, exist_ok=True)
 
     # Write CSV file with PI prefix (e.g., PI0001_original.csv)
-    prefixed_filename = f"PI{sequence:04d}_{request.filename}"
+    prefixed_filename = f"PI{sequence:04d}_{source.filename}"
     csv_path = tx_dir / prefixed_filename
-    csv_path.write_bytes(content_bytes)
+    csv_path.write_bytes(source.raw_bytes)
 
     # Create ledger entry (record contains all manifest data)
     entry = LedgerEntry(
@@ -95,7 +86,7 @@ def ingest_csv(
         enabled=True,
         timestamp=timestamp,
         record={
-            "csv_files": [request.filename],
+            "csv_files": [source.filename],
             "parser": parser.bank,
             "parser_version": f"{parser.bank}@1",
             "app_version": APP_VERSION,
@@ -124,7 +115,7 @@ def ingest_csv_files(
     Returns:
         IngestResult with combined account and transaction details
     """
-    from penny.ingest import match_file
+    from penny.ingest import CsvSource, match_source
 
     if not files:
         raise ValueError("No files to ingest")
@@ -144,26 +135,17 @@ def ingest_csv_files(
     filenames = []
 
     for filename, content in files:
-        # Decode if needed
-        if isinstance(content, bytes):
-            try:
-                content_str = content.decode("utf-8")
-            except UnicodeDecodeError:
-                content_str = content.decode("cp1252")
-            content_bytes = content
-        else:
-            content_str = content
-            content_bytes = content.encode("utf-8")
+        source = CsvSource.from_content(filename, content)
 
         # Detect parser (all files should match same parser)
-        file_parser = match_file(filename, content_str)
+        file_parser = match_source(source)
         if parser is None:
             parser = file_parser
         elif parser.bank != file_parser.bank:
             raise ValueError(f"Mixed file formats: {parser.bank} vs {file_parser.bank}")
 
-        content_dict[filename] = content_bytes
-        filenames.append(filename)
+        content_dict[source.filename] = source.raw_bytes
+        filenames.append(source.filename)
 
     if parser is None:
         raise ValueError("No files to ingest")

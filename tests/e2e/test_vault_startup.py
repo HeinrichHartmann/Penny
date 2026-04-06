@@ -72,13 +72,11 @@ def test_bootstrap_clears_projection_drift(fresh_runtime, fixture_dir):
             """
             INSERT INTO accounts (
                 bank, display_name, iban, holder, notes,
-                balance_cents, balance_date, created_at, updated_at, hidden
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                created_at, updated_at, hidden
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 "manual",
-                None,
-                None,
                 None,
                 None,
                 None,

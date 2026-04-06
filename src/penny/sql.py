@@ -511,8 +511,8 @@ def insert_account_sql() -> str:
     return """
         INSERT INTO accounts (
             bank, display_name, iban, holder, notes,
-            balance_cents, balance_date, created_at, updated_at, hidden
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            created_at, updated_at, hidden
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
     """
 
 
@@ -600,3 +600,81 @@ def get_subaccounts_sql() -> str:
         WHERE account_id = ?
         ORDER BY type
     """
+
+
+# =============================================================================
+# BALANCE ANCHOR QUERIES
+# =============================================================================
+
+
+def upsert_balance_anchor_sql() -> str:
+    """SQL for upserting a balance anchor (one per account per date)."""
+    return """
+        INSERT INTO balance_anchors (account_id, anchor_date, balance_cents, note, source, ledger_sequence, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(account_id, anchor_date) DO UPDATE SET
+            balance_cents = excluded.balance_cents,
+            note = excluded.note,
+            source = excluded.source,
+            ledger_sequence = excluded.ledger_sequence
+    """
+
+
+def list_balance_anchors_sql(account_id: int | None = None) -> tuple[str, list]:
+    """SQL for listing balance anchors."""
+    params: list = []
+    sql = """
+        SELECT id, account_id, anchor_date, balance_cents, note, source, created_at
+        FROM balance_anchors
+    """
+    if account_id is not None:
+        sql += " WHERE account_id = ?"
+        params.append(account_id)
+    sql += " ORDER BY anchor_date"
+    return sql, params
+
+
+def count_balance_anchors_sql(account_id: int | None = None) -> tuple[str, list]:
+    """SQL for counting balance anchors per account."""
+    params: list = []
+    if account_id is not None:
+        sql = "SELECT COUNT(*) FROM balance_anchors WHERE account_id = ?"
+        params.append(account_id)
+    else:
+        sql = """
+            SELECT account_id, COUNT(*) as count
+            FROM balance_anchors
+            GROUP BY account_id
+        """
+    return sql, params
+
+
+def get_latest_balance_anchor_sql() -> str:
+    """SQL for getting the latest balance anchor for an account."""
+    return """
+        SELECT id, account_id, anchor_date, balance_cents, note, source, created_at
+        FROM balance_anchors
+        WHERE account_id = ?
+        ORDER BY anchor_date DESC
+        LIMIT 1
+    """
+
+
+def delete_balance_anchor_sql() -> str:
+    """SQL for deleting a balance anchor."""
+    return "DELETE FROM balance_anchors WHERE account_id = ? AND anchor_date = ?"
+
+
+def get_balance_anchors_by_sequence_sql() -> str:
+    """SQL for getting balance anchors created by a specific ledger entry."""
+    return """
+        SELECT id, account_id, anchor_date, balance_cents, note, source, ledger_sequence, created_at
+        FROM balance_anchors
+        WHERE ledger_sequence = ?
+        ORDER BY anchor_date
+    """
+
+
+def delete_balance_anchors_by_sequence_sql() -> str:
+    """SQL for deleting balance anchors created by a specific ledger entry."""
+    return "DELETE FROM balance_anchors WHERE ledger_sequence = ?"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from penny.ingest.base import BankModule, DetectionResult
+from penny.ingest.base import BankModule, CsvSource, DetectionResult
 from penny.ingest.formats.camt_v8 import CamtV8Parser
 from penny.transactions import Transaction
 
@@ -24,24 +24,24 @@ class SparkasseBank(BankModule):
         """Return True when the file content looks like CAMT V8."""
         return '"Auftragskonto"' in content and '"Buchungstag"' in content
 
-    def match(self, filename: str, content: str) -> bool:
-        if not self.filename_pattern.match(filename):
+    def match(self, source: CsvSource) -> bool:
+        if not self.filename_pattern.match(source.filename):
             return False
-        return self.content_signature_matches(content)
+        return self.content_signature_matches(source.text)
 
-    def detect(self, filename: str, content: str) -> DetectionResult:
-        match = self.filename_pattern.match(filename)
+    def detect(self, source: CsvSource) -> DetectionResult:
+        match = self.filename_pattern.match(source.filename)
         if match is None:
             raise ValueError(
                 f"Filename does not match expected Sparkasse format: {self.expected_filename_hint}"
             )
 
         # Extract account number from filename: YYYYMMDD-ACCOUNTNUM-umsatz-camt52v8.CSV
-        parts = filename.split("-")
+        parts = source.filename.split("-")
         account_number = parts[1] if len(parts) >= 2 else None
 
         # Extract IBAN from content
-        iban = self._parser.extract_iban(content)
+        iban = self._parser.extract_iban(source.text)
 
         return DetectionResult(
             parser_name=self.name,
@@ -52,6 +52,6 @@ class SparkasseBank(BankModule):
             confidence=1.0,
         )
 
-    def parse(self, filename: str, content: str, account_id: int) -> list[Transaction]:
+    def parse(self, source: CsvSource, account_id: int) -> list[Transaction]:
         """Parse Sparkasse CAMT V8 transactions."""
-        return self._parser.parse(content, account_id)
+        return self._parser.parse(source.text, account_id)

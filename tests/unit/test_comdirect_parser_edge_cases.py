@@ -1,3 +1,4 @@
+from penny.ingest import CsvSource
 from penny.ingest.banks.comdirect import ComdirectBank
 
 
@@ -16,7 +17,10 @@ def test_parse_skips_empty_section_without_header():
         '"Keine Umsätze vorhanden.";\n'
     )
 
-    transactions = parser.parse("umsaetze_1234567890_20260331-1351.csv", content, account_id=1)
+    transactions = parser.parse(
+        CsvSource.from_content("umsaetze_1234567890_20260331-1351.csv", content),
+        account_id=1,
+    )
 
     assert len(transactions) == 1
     assert transactions[0].payee == "AMAZON PAYMENTS EUROPE S.C.A."
@@ -33,7 +37,10 @@ def test_parse_merges_split_visa_rows_marked_as_new():
         '"DB FERNVERKEHR AG FRANKFURT 000";"-5,00";\n'
     )
 
-    transactions = parser.parse("umsaetze_1234567890_20260331-1351.csv", content, account_id=1)
+    transactions = parser.parse(
+        CsvSource.from_content("umsaetze_1234567890_20260331-1351.csv", content),
+        account_id=1,
+    )
 
     assert len(transactions) == 1
     assert transactions[0].date.isoformat() == "2025-01-23"
