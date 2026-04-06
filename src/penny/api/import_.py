@@ -8,6 +8,7 @@ from penny.ingest import DetectionError
 from penny.runtime_rules import run_stored_rules
 from penny.vault import IngestRequest, ingest_csv
 from penny.vault.config import VaultConfig
+from penny.vault.ingest import DuplicateImportError
 from penny.vault.ledger import Ledger
 
 router = APIRouter(prefix="/api", tags=["import"])
@@ -54,6 +55,11 @@ async def _import_csv(filename: str, content_bytes: bytes):
 
     try:
         result = ingest_csv(request)
+    except DuplicateImportError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Duplicate: This CSV was already imported (entry #{e.existing_sequence})",
+        ) from e
     except DetectionError as e:
         raise HTTPException(
             status_code=400,

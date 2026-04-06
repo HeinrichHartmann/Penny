@@ -35,7 +35,8 @@ def test_import_creates_transactions_and_account(fixture_dir):
     assert count_transactions() == 3
 
 
-def test_reimport_deduplicates(fixture_dir):
+def test_reimport_rejects_duplicate_csv(fixture_dir):
+    """Importing the exact same CSV twice is rejected at the content level."""
     runner = CliRunner()
     csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
 
@@ -43,9 +44,8 @@ def test_reimport_deduplicates(fixture_dir):
     assert first.exit_code == 0
 
     second = runner.invoke(main, ["import", str(csv_path)])
-    assert second.exit_code == 0
-    assert "New: 0 transactions" in second.output
-    assert "Duplicates: 3 (skipped)" in second.output
+    assert second.exit_code == 1
+    assert "Duplicate" in second.output or "already imported" in second.output
 
 
 def test_import_dry_run_does_not_persist(fixture_dir):

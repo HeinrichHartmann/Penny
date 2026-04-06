@@ -678,3 +678,23 @@ def get_balance_anchors_by_sequence_sql() -> str:
 def delete_balance_anchors_by_sequence_sql() -> str:
     """SQL for deleting balance anchors created by a specific ledger entry."""
     return "DELETE FROM balance_anchors WHERE ledger_sequence = ?"
+
+
+# =============================================================================
+# IMPORT HASH DEDUPLICATION
+# =============================================================================
+
+
+def check_import_hash_sql() -> str:
+    """SQL for checking if a content hash already exists."""
+    return "SELECT ledger_sequence FROM import_hashes WHERE content_hash = ?"
+
+
+def insert_import_hash_sql() -> str:
+    """SQL for inserting a new content hash."""
+    return "INSERT INTO import_hashes (content_hash, ledger_sequence, created_at) VALUES (?, ?, ?)"
+
+
+def delete_import_hash_by_sequence_sql() -> str:
+    """SQL for deleting import hash when entry is disabled/deleted."""
+    return "DELETE FROM import_hashes WHERE ledger_sequence = ?"

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from penny.db import connect
+from penny.sql import check_import_hash_sql, insert_import_hash_sql
 from penny.vault.apply import IngestResult, apply_ingest
 from penny.vault.config import VaultConfig
 from penny.vault.ledger import Ledger, LedgerEntry
@@ -16,6 +19,41 @@ if TYPE_CHECKING:
 
 # App version - should come from package metadata
 APP_VERSION = "0.2.0"
+
+
+class DuplicateImportError(Exception):
+    """Raised when attempting to import a CSV that has already been imported."""
+
+    def __init__(self, content_hash: str, existing_sequence: int):
+        self.content_hash = content_hash
+        self.existing_sequence = existing_sequence
+        super().__init__(f"Duplicate CSV: content already imported in entry #{existing_sequence}")
+
+
+def _compute_content_hash(content: bytes) -> str:
+    """Compute SHA256 hash of content."""
+    return hashlib.sha256(content).hexdigest()
+
+
+def _check_duplicate_import(content_hash: str) -> int | None:
+    """Check if content hash already exists. Returns existing sequence or None."""
+    conn = connect()
+    try:
+        row = conn.execute(check_import_hash_sql(), (content_hash,)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def _store_import_hash(content_hash: str, sequence: int) -> None:
+    """Store content hash for deduplication."""
+    conn = connect()
+    try:
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute(insert_import_hash_sql(), (content_hash, sequence, timestamp))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @dataclass
@@ -60,6 +98,12 @@ def ingest_csv(
 
     source = CsvSource.from_content(request.filename, request.content)
 
+    # Check for duplicate import
+    content_hash = _compute_content_hash(source.raw_bytes)
+    existing_sequence = _check_duplicate_import(content_hash)
+    if existing_sequence is not None:
+        raise DuplicateImportError(content_hash, existing_sequence)
+
     # Detect parser first (fail fast if unknown format)
     try:
         parser = match_source(source, csv_type=request.csv_type)
@@ -95,6 +139,9 @@ def ingest_csv(
 
     # Append to history.tsv
     ledger.append_entry(entry)
+
+    # Store content hash for deduplication
+    _store_import_hash(content_hash, sequence)
 
     # Apply the entry (parse and store)
     result = apply_ingest(entry, config)
@@ -150,6 +197,13 @@ def ingest_csv_files(
     if parser is None:
         raise ValueError("No files to ingest")
 
+    # Check for duplicate import (combined hash of all files)
+    combined_content = b"".join(content_dict[f] for f in sorted(content_dict.keys()))
+    content_hash = _compute_content_hash(combined_content)
+    existing_sequence = _check_duplicate_import(content_hash)
+    if existing_sequence is not None:
+        raise DuplicateImportError(content_hash, existing_sequence)
+
     # Get sequence and timestamp
     sequence = ledger.next_sequence()
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -180,6 +234,9 @@ def ingest_csv_files(
 
     # Append to history.tsv
     ledger.append_entry(entry)
+
+    # Store content hash for deduplication
+    _store_import_hash(content_hash, sequence)
 
     # Apply the entry
     result = apply_ingest(entry, config)

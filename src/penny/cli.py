@@ -45,6 +45,7 @@ from penny.vault import (
 from penny.vault import (
     ingest_csv as ingest_vault_csv,
 )
+from penny.vault.ingest import DuplicateImportError
 from penny.vault.ledger import Ledger
 
 
@@ -463,13 +464,18 @@ def import_csv(csv_file: Path, csv_type: str | None, dry_run: bool):
             )
         return
 
-    result = ingest_vault_csv(
-        IngestRequest(
-            filename=source.filename,
-            content=source.raw_bytes,
-            csv_type=csv_type,
+    try:
+        result = ingest_vault_csv(
+            IngestRequest(
+                filename=source.filename,
+                content=source.raw_bytes,
+                csv_type=csv_type,
+            )
         )
-    )
+    except DuplicateImportError as exc:
+        raise click.ClickException(
+            f"Duplicate: This CSV was already imported (entry #{exc.existing_sequence})"
+        ) from exc
 
     try:
         run_stored_rules(ensure_rules=True, include_hidden=True)
