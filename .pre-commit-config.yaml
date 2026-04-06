@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: lint
+        name: lint
+        entry: make lint
+        language: system
+        pass_filenames: false
+      - id: test-no-ui
+        name: test-no-ui
+        entry: make test-no-ui
+        language: system
+        pass_filenames: false

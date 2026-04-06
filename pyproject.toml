@@ -53,6 +53,7 @@ requires = []
 [dependency-groups]
 dev = [
     "briefcase>=0.3.21",
+    "pre-commit>=4.5.1",
     "pytest>=8.0",
     "ruff>=0.4.0",
 ]

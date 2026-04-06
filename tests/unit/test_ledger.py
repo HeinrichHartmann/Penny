@@ -78,7 +78,10 @@ class TestLedgerEntry:
         )
         assert ingest.get_directory(tmp_path) == tmp_path / "transactions"
         assert ingest.get_file_path(tmp_path) == tmp_path / "transactions"
-        assert ingest.get_csv_path(tmp_path, "file.CSV") == tmp_path / "transactions" / "PI0001_file.CSV"
+        assert (
+            ingest.get_csv_path(tmp_path, "file.CSV")
+            == tmp_path / "transactions" / "PI0001_file.CSV"
+        )
 
         # Rules entry
         rules = LedgerEntry(

@@ -7,6 +7,7 @@ Personal finance app with event-sourced vault architecture.
 ```bash
 make test          # Run tests (must pass before PR)
 make lint          # Check code style
+make hooks-install # Install repo pre-commit hooks
 make dev           # Run app in dev mode
 ```
 

@@ -93,6 +93,9 @@ direnv allow
 
 # Install development dependencies
 make dev-install
+
+# Install the repo's git pre-commit hook
+make hooks-install
 ```
 
 ### Run in Development

@@ -1,4 +1,4 @@
-.PHONY: dev serve serve-api serve-fresh dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install sync test test-no-ui test-ui lint lint-fix format frontend-install frontend-build frontend-dev
+.PHONY: dev serve serve-api serve-fresh dev-web web-open web-open-dev app app-open build release release-dry-run clean install dev-install python-dev-install hooks-install sync test test-no-ui test-ui lint lint-fix format frontend-install frontend-build frontend-dev
 
 # Development - run Toga GUI locally
 dev: sync frontend-build
@@ -56,13 +56,20 @@ web-open-dev:
 sync:
 	uv sync
 
+# Install Python development dependencies
+python-dev-install:
+	uv sync --group dev
+
 # Install the standalone Penny CLI tool from this checkout
 install:
 	uv tool install --reinstall --force .
 
 # Install development dependencies including briefcase
-dev-install: frontend-install
-	uv sync --group dev
+dev-install: frontend-install python-dev-install
+
+# Install git pre-commit hooks for repo checks
+hooks-install: python-dev-install
+	uv run pre-commit install
 
 # Build macOS app (alias for build)
 app: build
@@ -114,7 +121,7 @@ test-ui: dev-install frontend-build
 	npm run test:ui
 
 # Run Python tests only
-test-no-ui: dev-install
+test-no-ui: python-dev-install
 	uv run python -m pytest tests/ -v
 
 # Run tests
@@ -123,18 +130,18 @@ test: dev-install frontend-build
 	npm run test:ui
 
 # Lint code (check only)
-lint: dev-install
-	uv run ruff check src/penny tests
-	uv run ruff format --check src/penny tests
+lint: python-dev-install
+	uv run ruff check --exclude tests/ui/.playwright src/penny tests
+	uv run ruff format --check --exclude tests/ui/.playwright src/penny tests
 
 # Lint and fix auto-fixable issues
-lint-fix: dev-install
-	uv run ruff check --fix src/penny tests
-	uv run ruff format src/penny tests
+lint-fix: python-dev-install
+	uv run ruff check --fix --exclude tests/ui/.playwright src/penny tests
+	uv run ruff format --exclude tests/ui/.playwright src/penny tests
 
 # Format code
-format: dev-install
-	uv run ruff format src/penny tests
+format: python-dev-install
+	uv run ruff format --exclude tests/ui/.playwright src/penny tests
 
 # Show help
 help:
@@ -147,6 +154,8 @@ help:
 	@echo "  make dev-web   - Alias for make serve"
 	@echo "  make install   - Install the standalone penny CLI tool from this checkout"
 	@echo "  make dev-install - Install development dependencies for working on the repo"
+	@echo "  make python-dev-install - Install Python-only development dependencies"
+	@echo "  make hooks-install - Install the git pre-commit hook"
 	@echo "  make frontend-build - Build bundled frontend assets"
 	@echo "  make frontend-dev   - Run Vite dev server on http://127.0.0.1:8000"
 	@echo "  make web-open  - Open browser to http://127.0.0.1:8000"
