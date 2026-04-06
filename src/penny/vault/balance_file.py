@@ -213,8 +213,13 @@ def import_balances(
 
         account = find_account_by_bank_account_number(bank, account_number, include_hidden=True)
         if account is None:
-            errors.append(f"{row.account}: Account not found")
-            continue
+            # Auto-create account for balance-only imports
+            from penny.accounts import create_account
+
+            account = create_account(
+                bank=bank,
+                bank_account_numbers=[account_number],
+            )
 
         # Create ledger entry
         sequence = ledger.next_sequence()
@@ -249,6 +254,7 @@ def import_balances(
             balance_cents=row.balance_cents,
             note=row.note,
             source="tsv_import",
+            ledger_sequence=sequence,
         )
 
         # Also append to balances.tsv
