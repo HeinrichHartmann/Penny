@@ -178,20 +178,31 @@ def build_balance_series(
 
     The balance series uses backward projection for dates <= latest anchor,
     and forward projection for dates > latest anchor.
+
+    When date_strs is empty (no transactions), returns balances for anchor dates only.
     """
     normalized_anchors = find_effective_anchors(anchors)
     if not normalized_anchors:
         return {}, [], []
 
+    # Include anchor dates in projection (needed for balance-only accounts)
+    anchor_dates = [a["date"] for a in normalized_anchors]
+    projection_dates = sorted(set(date_strs) | set(anchor_dates))
+
+    # Determine which dates to include in output:
+    # - If we have transaction dates, only include those (original behavior)
+    # - If no transaction dates, include anchor dates (balance-only accounts)
+    output_dates = date_strs if date_strs else anchor_dates
+
     backward_balances, deltas = project_backward_with_inconsistencies(
-        date_strs,
+        projection_dates,
         saldo_by_date,
         normalized_anchors,
     )
 
     latest_anchor = normalized_anchors[-1]
     forward_balances = project_forward_from_latest_anchor(
-        date_strs,
+        projection_dates,
         saldo_by_date,
         latest_anchor,
     )
@@ -199,7 +210,7 @@ def build_balance_series(
     # Combine: backward for dates <= latest anchor, forward for dates after
     latest_anchor_date = latest_anchor["date"]
     balances = {}
-    for date_str in date_strs:
+    for date_str in output_dates:
         if date_str <= latest_anchor_date:
             if date_str in backward_balances:
                 balances[date_str] = backward_balances[date_str]
