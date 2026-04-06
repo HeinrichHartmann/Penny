@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +12,27 @@ from penny.vault.config import VaultConfig
 
 def _timestamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _current_rules_path() -> Path:
+    return Path.home() / "Penny" / "rules.py"
+
+
+def _write_current_rules_copy(content: str) -> Path:
+    """Atomically refresh the flattened current rules.py mirror."""
+    path = _current_rules_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".rules.py.tmp.", text=True)
+    try:
+        with open(tmp_fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        Path(tmp_path).replace(path)
+    except Exception:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+    return path
 
 
 def default_rules_template() -> str:
@@ -69,5 +91,6 @@ def save_rules_snapshot(content: str, config: VaultConfig | None = None) -> Path
         record={"filename": filename},
     )
     ledger.append_entry(entry)
+    _write_current_rules_copy(content)
 
     return path

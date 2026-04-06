@@ -138,3 +138,16 @@ class TestRulesStore:
         assert len(entries) == 1
         assert entries[0].entry_type == "rules"
         assert path.name == entries[0].record["filename"]
+
+    def test_save_rules_snapshot_updates_current_rules_copy(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+
+        config = VaultConfig(tmp_path / "vault")
+        save_rules_snapshot("DEFAULT_CATEGORY = 'x'\n", config)
+        save_rules_snapshot("DEFAULT_CATEGORY = 'y'\n", config)
+
+        current_rules_path = home / "Penny" / "rules.py"
+        assert current_rules_path.exists()
+        assert current_rules_path.read_text(encoding="utf-8") == "DEFAULT_CATEGORY = 'y'\n"
+        assert list(current_rules_path.parent.glob(".rules.py.tmp.*")) == []
