@@ -99,6 +99,32 @@ class TestVaultIngest:
         assert entries[0].entry_type == "ingest"
         assert entries[0].record["parser"] == "sparkasse"
 
+    def test_ingest_normalizes_prefixed_uploaded_filename(self, vault_config, fixture_dir):
+        """PI-prefixed vault filenames should be normalized before parser detection and storage."""
+        csv_path = fixture_dir / "umsaetze_9788862492_20260331-1354.csv"
+        prefixed_name = f"PI01231231_{csv_path.name}"
+
+        request = IngestRequest(
+            filename=prefixed_name,
+            content=csv_path.read_bytes(),
+        )
+
+        result = ingest_csv(request, config=vault_config)
+
+        assert result.account_bank == "comdirect"
+        assert result.transactions_total == 3
+
+        ledger = Ledger(vault_config.path)
+        entries = ledger.read_entries()
+        assert len(entries) == 1
+
+        entry = entries[0]
+        assert entry.record["csv_files"] == [csv_path.name]
+
+        copied_csv = entry.get_csv_path(vault_config.path, csv_path.name)
+        assert copied_csv.exists()
+        assert copied_csv.name == f"PI{entry.sequence:04d}_{csv_path.name}"
+
 
 class TestVaultReplay:
     @pytest.fixture

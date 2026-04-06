@@ -45,7 +45,7 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
         _upsert_subaccounts_direct,
     )
     from penny.db import init_default_db, transaction
-    from penny.ingest import match_file, read_file_with_encoding
+    from penny.ingest import CsvSource, match_source
     from penny.transactions import _store_transactions_direct
 
     if config is None:
@@ -68,14 +68,15 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
 
     with transaction() as conn:
         for csv_filename in csv_files:
-            # CSV files stored with PI prefix, but we use original filename for parsing
-            csv_path = entry.get_csv_path(config.path, csv_filename)
-            content = read_file_with_encoding(csv_path)
+            source = CsvSource.from_path(
+                entry.get_csv_path(config.path, csv_filename),
+                filename=csv_filename,
+            )
 
-            parser = match_file(csv_filename, content, csv_type=manifest_data["parser"])
+            parser = match_source(source, csv_type=manifest_data["parser"])
             parser_name = parser.name
 
-            detection = parser.detect(csv_filename, content)
+            detection = parser.detect(source)
             if not detection.bank_account_number:
                 raise ValueError("Cannot reconcile account without a bank account number")
 
@@ -104,13 +105,13 @@ def apply_ingest(entry: LedgerEntry, config: VaultConfig | None = None) -> Inges
                 if refreshed is not None:
                     account = refreshed
 
-            transactions = parser.parse(csv_filename, content, account_id=account.id)
+            transactions = parser.parse(source, account_id=account.id)
             all_transactions.extend(transactions)
 
             # Extract balance snapshots from CSV
-            balance_snapshots = parser.extract_balances(csv_filename, content)
+            balance_snapshots = parser.extract_balances(source)
             for snapshot in balance_snapshots:
-                all_balance_snapshots.append((csv_filename, snapshot))
+                all_balance_snapshots.append((source.filename, snapshot))
 
         if account is None:
             raise ValueError("No CSV files in ingest entry")

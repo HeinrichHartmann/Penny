@@ -1,6 +1,12 @@
 import pytest
 
-from penny.ingest import DetectionError, match_file, read_file_with_encoding
+from penny.ingest import (
+    CsvSource,
+    DetectionError,
+    match_file,
+    match_source,
+    read_file_with_encoding,
+)
 from penny.ingest.banks.sparkasse import SparkasseBank
 
 
@@ -18,11 +24,11 @@ def test_sparkasse_filename_match():
 def test_sparkasse_detection(fixture_dir):
     csv_path = fixture_dir / "20260401-12345678-umsatz-camt52v8.CSV"
     bank = SparkasseBank()
-    content = read_file_with_encoding(csv_path)
+    source = CsvSource.from_path(csv_path)
 
-    assert bank.match(csv_path.name, content)
+    assert bank.match(source)
 
-    result = bank.detect(csv_path.name, content)
+    result = bank.detect(source)
     assert result.bank == "sparkasse"
     assert result.bank_account_number == "12345678"
     assert result.iban == "DE89370400440532013000"
@@ -32,9 +38,9 @@ def test_sparkasse_detection(fixture_dir):
 def test_sparkasse_parse(fixture_dir):
     csv_path = fixture_dir / "20260401-12345678-umsatz-camt52v8.CSV"
     bank = SparkasseBank()
-    content = read_file_with_encoding(csv_path)
+    source = CsvSource.from_path(csv_path)
 
-    transactions = bank.parse(csv_path.name, content, account_id=1)
+    transactions = bank.parse(source, account_id=1)
 
     assert len(transactions) == 3
 
@@ -77,3 +83,15 @@ def test_match_file_rejects_renamed_sparkasse_export(fixture_dir):
         match_file("renamed.csv", content)
 
     assert "YYYYMMDD-ACCOUNTNUMBER-umsatz-camt52v8.CSV" in str(exc.value)
+
+
+def test_match_source_accepts_prefixed_sparkasse_filename(fixture_dir):
+    csv_path = fixture_dir / "20260401-12345678-umsatz-camt52v8.CSV"
+    source = CsvSource.from_content(f"PI01231231_{csv_path.name}", csv_path.read_bytes())
+
+    parser = match_source(source)
+    result = parser.detect(source)
+
+    assert source.filename == csv_path.name
+    assert parser.bank == "sparkasse"
+    assert result.bank_account_number == "12345678"
