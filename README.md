@@ -1,140 +1,126 @@
 # Penny
 
-Penny is a local-first personal finance tool built on original bank records.
+Local-first personal finance built on your bank's original records.
 
-Drop your bank's CSV exports unchanged, and Penny preserves them, parses them, normalizes them, and builds trustworthy reports on top. The CLI enables LLM-assisted co-creation of classification rules.
+Download your bank's CSV exports, drop them into Penny unchanged, and get trustworthy financial reports. All data stays on your machine. No cloud sync, no credential sharing, no black boxes.
 
-## Features
-
-- **Privacy-first** - All data stays local, no cloud sync, no credential sharing
-- **Artifact-first import** - Drop original CSV exports unchanged; Penny archives and parses them
-- **Rebuildable state** - Database can be rebuilt from archived imports at any time
-- **Multi-account consolidation** - All accounts in one view, across banks, over years
-- **Automatic deduplication** - Safe handling of overlapping imports
-- **Transfer linking** - Link matching debits/credits into transfer groups
-- **Balance anchors** - Record known balance points for reconciliation
-- **Python classification rules** - Categorize transactions with ordered rules, co-created with LLM assistance
-
-Supported banks: Comdirect, Sparkasse.
+<p align="center">
+  <img src="docs/screenshots/report-expense.png" width="80%" alt="Penny - Expense Report" />
+</p>
 
 ## Install
 
-### macOS Desktop App
+**Desktop App:** Download the latest DMG from [GitHub Releases](https://github.com/HeinrichHartmann/Penny/releases).
 
-Download the latest DMG from [GitHub Releases](https://github.com/HeinrichHartmann/Penny/releases).
+**CLI:** `uv tool install git+https://github.com/HeinrichHartmann/Penny.git`
 
-### CLI
+The CLI enables LLM-assisted workflows for power users. The desktop app is the primary interface.
 
-The CLI shares state with the desktop app and enables LLM-assisted workflows.
+## How It Works
+
+Penny is built around a simple workflow:
+
+1. **Download** your bank's official CSV exports (monthly, quarterly, or whenever you want to review)
+2. **Drop** them into Penny unchanged—no manual cleanup, no preprocessing
+3. **Archive** - Penny preserves the original files as your source of truth
+4. **Classify** - Apply Python rules to categorize transactions (co-create rules with Claude or other LLMs)
+5. **Review** - Explore consolidated accounts, transactions, and reports across all your banks
+
+The database is a derived projection—you can rebuild it from your archived imports at any time. This means you have a complete, auditable financial archive that's not locked into any vendor's format.
+
+## Views
+
+<p align="center">
+  <img src="docs/screenshots/import.png" width="45%" alt="Import" />
+  <img src="docs/screenshots/accounts.png" width="45%" alt="Accounts" />
+</p>
+<p align="center">
+  <em>Import bank CSVs unchanged</em> · <em>Manage accounts and balance anchors</em>
+</p>
+
+**Import** is your entry point. Drag and drop CSV files from any supported bank. Penny detects the format, parses it, and archives the original file. The import history shows what you've loaded and when.
+
+**Accounts** shows all your accounts across banks in one place. Record manual balance snapshots to create anchors—ground-truth reference points that help you verify transaction history is complete.
+
+<p align="center">
+  <img src="docs/screenshots/rules.png" width="45%" alt="Rules" />
+  <img src="docs/screenshots/transactions.png" width="45%" alt="Transactions" />
+</p>
+<p align="center">
+  <em>Python classification rules</em> · <em>Filter and search transactions</em>
+</p>
+
+**Rules** are how you categorize transactions. Write Python rules that match transaction descriptions and assign categories. The rules editor shows match statistics and lets you test changes interactively. Co-create rules with LLMs by exporting unclassified transactions as Markdown and asking your LLM to write rules.
+
+**Transactions** gives you a consolidated, filterable view of everything across all accounts. Search by description, filter by date range or category, and track how your money moves.
+
+<p align="center">
+  <img src="docs/screenshots/report-cashflow.png" width="45%" alt="Cash Flow" />
+  <img src="docs/screenshots/balance.png" width="45%" alt="Balance" />
+</p>
+<p align="center">
+  <em>Cash flow Sankey diagram</em> · <em>Balance history with anchors</em>
+</p>
+
+**Reports** visualize your financial picture. See spending breakdowns by category with treemaps and pivot tables, cash flow with Sankey diagrams, and income summaries. Filter by date range and account.
+
+**Balance** shows account balance history over time, with recorded balance anchors displayed as reference points. This helps you verify that your transaction history is complete and accurate.
+
+## Features
+
+### Privacy-First
+All data stays on your machine. Penny never syncs to the cloud, never asks for bank credentials, and never sends your financial data anywhere. You control the files, the database, and the archive.
+
+### Artifact-First Import
+Drop your bank's official CSV exports unchanged. Penny archives the original files and parses them into a normalized database. If parsing logic improves, rebuild from the originals—your source of truth never changes.
+
+### Rebuildable State
+The SQLite database is a derived projection, not the source of truth. Archive imports are the foundation. Rebuild the database at any time with `penny db rebuild` and see exactly how your financial state is constructed.
+
+### Multi-Account Consolidation
+Import CSVs from multiple banks and accounts. Penny normalizes them into a unified view. See all your transactions and balances in one place, spanning accounts and years.
+
+### LLM-Assisted Classification
+Classification rules are Python code. Co-create them with Claude Code or other LLMs. Export unclassified transactions as Markdown, ask your LLM to suggest rules, and drop the result into Penny.
+
+### Transfer Linking
+Penny automatically links matching debit/credit pairs across accounts into transfer groups, so internal transfers don't inflate your spending reports.
+
+**Supported banks:** Comdirect, Sparkasse (more via community contributions).
+
+## CLI
+
+The CLI shares state with the desktop app and is designed for LLM-assisted workflows.
 
 ```bash
-# Install from GitHub
-uv tool install git+https://github.com/HeinrichHartmann/Penny.git
-
-# Or install a specific version
-uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.3.0
-```
-
-## UI
-
-The desktop app provides these views:
-
-| View | Description |
-|------|-------------|
-| **Import** | Drag-and-drop interface for original bank records (CSV exports, rules.py, balance anchors). Shows import history with file types and timestamps. Supports database rebuild from archived imports. |
-| **Accounts** | Overview of all accounts with metadata, transaction counts, balance snapshots, and current balance. Manage account settings, record manual balance anchors, or archive accounts. |
-| **Rules** | View and edit classification rules (Python). Run classification and see match statistics. Rules can be co-created with LLM assistance via the CLI. |
-| **Transactions** | Filterable list of all transactions with year/month navigation, date range selection, search, and category filtering. Shows date, account, description, assigned category, and amount. |
-| **Report** | Multi-view financial analysis: **Expense** shows a treemap of spending by category with a pivot table breakdown. **Income** summarizes income sources. **Cash Flow** displays a Sankey diagram of money flowing between categories. **Breakout** provides detailed category analysis. |
-| **Balance** | Account balance history chart over time. Shows recorded balance snapshots (anchors) that serve as ground-truth reference points for balance reconstruction. |
-
-### Gallery
-
-<p align="center">
-  <img src="docs/screenshots/import.png" width="45%" alt="Import view" />
-  <img src="docs/screenshots/accounts.png" width="45%" alt="Accounts view" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/rules.png" width="45%" alt="Rules view" />
-  <img src="docs/screenshots/transactions.png" width="45%" alt="Transactions view" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/report-expense.png" width="45%" alt="Report - Expense view" />
-  <img src="docs/screenshots/report-cashflow.png" width="45%" alt="Report - Cash Flow view" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/balance.png" width="45%" alt="Balance view" />
-</p>
-
-## CLI Reference
-
-### Import & Archive
-
-```bash
-# Import a bank CSV (parser auto-detected or explicit)
+# Import CSVs and apply rules
 penny import ~/Downloads/umsaetze.csv
-penny import ~/Downloads/export.csv --csv-type sparkasse
-
-# Apply classification rules
 penny apply rules.py -v
 
-# Import rules into the vault
-penny import-rules rules.py
-```
-
-### Viewing Data
-
-```bash
-# List accounts
-penny accounts list
-
-# List recent transactions
+# View transactions and generate reports
 penny transactions list --limit 20
-penny transactions list --from 2024-01-01 --to 2024-03-31
-penny transactions list --category "food" --account 1
-penny transactions list -q "REWE"
+penny report 2024
 
-# Pivot table by category
-penny pivot --from 2024-01-01 --to 2024-12-31 -d 2
-penny pivot --tab income
-```
-
-### Reports
-
-```bash
-# Comprehensive financial report
-penny report 2024              # Full year
-penny report 2024-03           # Single month
-penny report 2024 -a Shared    # Filter by account
-```
-
-### Vault & Database
-
-```bash
-# Check vault status
-penny vault status
-
-# Rebuild database from archived imports
-penny db rebuild
-
-# View import history
+# Inspect the vault and rebuild
 penny log list
+penny db rebuild
 ```
 
-### Server
+Full CLI documentation: [docs/CLI.md](docs/CLI.md)
 
-```bash
-# Start the web server (used by desktop app)
-penny serve
-```
+## Why Penny?
 
-## Status
+Most personal finance tools require you to share bank credentials with third-party services or manually enter transactions. Penny is different:
 
-Current focus:
-- Trustworthy ingestion of official bank artifacts
-- Reproducible imports with full archive
-- Rule-based categorization via Python
-- Transfer group linking
-- Iterative LLM-assisted workflows
+- **No credential sharing** - You download CSVs yourself, Penny never touches your bank login
+- **No cloud lock-in** - Your data lives in local files you control
+- **No SaaS dependency** - The app runs entirely on your machine
+- **Full audit trail** - Every number traces back to original bank records
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for build and contribution instructions.
+Penny is for people who want financial clarity without giving up control of their data.
+
+---
+
+**Status:** Penny is in active development. Current focus is trustworthy import workflows, rule-based categorization, and transfer linking.
+
+[Development](DEVELOPMENT.md) · [Product Vision](PRODUCT.md)
