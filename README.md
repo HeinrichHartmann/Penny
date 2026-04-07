@@ -1,160 +1,140 @@
 # Penny
 
-Penny is a local-first personal finance tool with a desktop UI for humans and a CLI for LLM-assisted collaboration.
+Penny is a local-first personal finance tool built on original bank records.
 
-It is built for collaborative iteration: import transactions, classify them with rules, link transfers, and inspect the result in a local dashboard.
-
-## Current Status
-
-Penny is pre-alpha.
-
-Current focus:
-- local desktop usage
-- reproducible imports
-- rule-based categorization
-- transfer grouping
-- iterative workflows on your own data
+Drop your bank's CSV exports unchanged, and Penny preserves them, parses them, normalizes them, and builds trustworthy reports on top. The CLI enables LLM-assisted co-creation of classification rules.
 
 ## Features
 
-- Import CSV exports from supported banks
-- Reconcile imports against existing accounts
-- Categorize transactions with ordered Python rules
-- Apply a default category to unmatched transactions
-- Link transfer entries into transfer groups
-- Inspect transactions, categories, and reports in the desktop UI
-- Use the CLI for LLM-assisted co-creation and debugging of rules and grouping logic
+- **Privacy-first** - All data stays local, no cloud sync, no credential sharing
+- **Artifact-first import** - Drop original CSV exports unchanged; Penny archives and parses them
+- **Rebuildable state** - Database can be rebuilt from archived imports at any time
+- **Multi-account consolidation** - All accounts in one view, across banks, over years
+- **Automatic deduplication** - Safe handling of overlapping imports
+- **Transfer linking** - Link matching debits/credits into transfer groups
+- **Balance anchors** - Record known balance points for reconciliation
+- **Python classification rules** - Categorize transactions with ordered rules, co-created with LLM assistance
+
+Supported banks: Comdirect, Sparkasse.
 
 ## Install
 
 ### macOS Desktop App
 
-For normal human use, install Penny from the latest DMG on GitHub Releases.
+Download the latest DMG from [GitHub Releases](https://github.com/HeinrichHartmann/Penny/releases).
 
-Current caveat:
-- release builds are not notarized yet
-- the DMG is still ad-hoc signed
-- treat the desktop build as experimental for now
+### CLI
 
-### CLI for LLM Collaboration
-
-A CLI is also available for LLM-assisted workflows such as co-creating and debugging:
-- classification rules
-- import behavior
-- transfer grouping
+The CLI shares state with the desktop app and enables LLM-assisted workflows.
 
 ```bash
-# Install the latest CLI directly from GitHub
+# Install from GitHub
 uv tool install git+https://github.com/HeinrichHartmann/Penny.git
 
-# Install a specific release tag
-uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.2.0
+# Or install a specific version
+uv tool install git+https://github.com/HeinrichHartmann/Penny.git@v0.3.0
 ```
 
-This installs the `penny` command as a standalone CLI tool.
+## UI
 
-From a local checkout, install the CLI tool with:
+The desktop app provides these views:
+
+| View | Description |
+|------|-------------|
+| **Import** | Drag-and-drop interface for original bank records (CSV exports, rules.py, balance anchors). Shows import history with file types and timestamps. Supports database rebuild from archived imports. |
+| **Accounts** | Overview of all accounts with metadata, transaction counts, balance snapshots, and current balance. Manage account settings, record manual balance anchors, or archive accounts. |
+| **Rules** | View and edit classification rules (Python). Run classification and see match statistics. Rules can be co-created with LLM assistance via the CLI. |
+| **Transactions** | Filterable list of all transactions with year/month navigation, date range selection, search, and category filtering. Shows date, account, description, assigned category, and amount. |
+| **Report** | Multi-view financial analysis: **Expense** shows a treemap of spending by category with a pivot table breakdown. **Income** summarizes income sources. **Cash Flow** displays a Sankey diagram of money flowing between categories. **Breakout** provides detailed category analysis. |
+| **Balance** | Account balance history chart over time. Shows recorded balance snapshots (anchors) that serve as ground-truth reference points for balance reconstruction. |
+
+### Gallery
+
+<p align="center">
+  <img src="docs/screenshots/import.png" width="45%" alt="Import view" />
+  <img src="docs/screenshots/accounts.png" width="45%" alt="Accounts view" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/rules.png" width="45%" alt="Rules view" />
+  <img src="docs/screenshots/transactions.png" width="45%" alt="Transactions view" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/report-expense.png" width="45%" alt="Report - Expense view" />
+  <img src="docs/screenshots/report-cashflow.png" width="45%" alt="Report - Cash Flow view" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/balance.png" width="45%" alt="Balance view" />
+</p>
+
+## CLI Reference
+
+### Import & Archive
 
 ```bash
-make install
-```
+# Import a bank CSV (parser auto-detected or explicit)
+penny import ~/Downloads/umsaetze.csv
+penny import ~/Downloads/export.csv --csv-type sparkasse
 
-Common CLI commands:
-
-```bash
-# Start the backend server
-penny serve
-
-# Import a CSV into the local vault + projection
-penny import path/to/export.csv
-
-# Apply classification and transfer-grouping rules
+# Apply classification rules
 penny apply rules.py -v
 
-# Inspect archived imports and rebuild/drop the projection DB
-penny log list
+# Import rules into the vault
+penny import-rules rules.py
+```
+
+### Viewing Data
+
+```bash
+# List accounts
+penny accounts list
+
+# List recent transactions
+penny transactions list --limit 20
+penny transactions list --from 2024-01-01 --to 2024-03-31
+penny transactions list --category "food" --account 1
+penny transactions list -q "REWE"
+
+# Pivot table by category
+penny pivot --from 2024-01-01 --to 2024-12-31 -d 2
+penny pivot --tab income
+```
+
+### Reports
+
+```bash
+# Comprehensive financial report
+penny report 2024              # Full year
+penny report 2024-03           # Single month
+penny report 2024 -a Shared    # Filter by account
+```
+
+### Vault & Database
+
+```bash
+# Check vault status
+penny vault status
+
+# Rebuild database from archived imports
 penny db rebuild
-penny db drop
+
+# View import history
+penny log list
 ```
 
-## Development
-
-### Prerequisites
-
-- [Nix](https://nixos.org/download.html) with flakes enabled
-- [direnv](https://direnv.net/) (optional but recommended)
-
-### Setup
+### Server
 
 ```bash
-# Enter development environment
-direnv allow
-# or: nix develop
-
-# Install development dependencies
-make dev-install
-
-# Install the repo's git pre-commit hook
-make hooks-install
-```
-
-### Run in Development
-
-```bash
-# Run full app (GUI + server)
-make dev
-
-# Run just the web server
-make serve
-
-# Open browser to dev server
-make web-open
-
-# Run just the API server via the installed CLI
+# Start the web server (used by desktop app)
 penny serve
 ```
 
-### Build Distributable
+## Status
 
-```bash
-# Build macOS .app and .dmg
-make app
+Current focus:
+- Trustworthy ingestion of official bank artifacts
+- Reproducible imports with full archive
+- Rule-based categorization via Python
+- Transfer group linking
+- Iterative LLM-assisted workflows
 
-# Open the built app
-make app-open
-```
-
-Output will be in `dist/`.
-
-### Tests
-
-The suite is being organized around two modes:
-- `tests/unit/` for single-process tests with an in-memory database
-- `tests/e2e/` for CLI, API, startup, replay, and file-backed runtime tests
-
-The detailed policy lives in [tests/testing_strategy.md](/Users/hhartmann/Projects/Finance/src/Penny/tests/testing_strategy.md).
-
-Common commands:
-
-```bash
-uv run python -m pytest tests/unit -q
-uv run python -m pytest tests/e2e -q
-uv run python -m pytest tests -q
-```
-
-### Publish a GitHub Release
-
-```bash
-# Authenticate GitHub CLI once
-gh auth login
-
-# Build the DMG and publish/update the GitHub Release for the current version
-make release
-
-# Validate the release inputs without publishing anything
-make release-dry-run
-```
-
-`make release` publishes the `dist/Penny-<version>.dmg` artifact and a matching `.sha256`
-checksum to the GitHub Release for tag `v<version>`. The current `HEAD` must already be
-pushed to the branch upstream.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for build and contribution instructions.
