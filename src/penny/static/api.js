@@ -296,6 +296,7 @@ export const createApi = ({
   pivot,
   cashflow,
   breakout,
+  activity,
   transactions,
   reportText,
   ensureCategoryColors,
@@ -310,6 +311,7 @@ export const createApi = ({
     pivot: 0,
     cashflow: 0,
     breakout: 0,
+    activity: 0,
     report: 0,
     transactions: 0,
   };
@@ -436,6 +438,22 @@ export const createApi = ({
     transactions.value = data;
   };
 
+  const loadActivity = async () => {
+    const requestId = beginRequest('activity');
+    const catParam = selectedCategory.value
+      ? `&category=${encodeURIComponent(selectedCategory.value)}`
+      : '';
+    const qParam = searchQuery.value
+      ? `&q=${encodeURIComponent(searchQuery.value)}`
+      : '';
+    const data = await fetchJson(
+      `/api/activity?${catParam}${qParam}`,
+      filters
+    );
+    if (!isCurrentRequest('activity', requestId)) return;
+    activity.value = data;
+  };
+
   const loadAll = async () => {
     if (!filters.from || !filters.to) return;
     const loads = [loadSummary()];
@@ -445,6 +463,8 @@ export const createApi = ({
       loads.push(loadBreakout());
     } else if (tab.value === 'report') {
       loads.push(loadReport());
+    } else if (tab.value === 'activity') {
+      loads.push(loadActivity());
     } else {
       loads.push(loadTree());
       loads.push(loadPivot());
@@ -459,6 +479,7 @@ export const createApi = ({
     loadCashflow,
     loadBreakout,
     loadReport,
+    loadActivity,
     loadTransactions,
     loadAll,
   };

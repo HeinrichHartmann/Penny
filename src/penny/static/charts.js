@@ -50,6 +50,7 @@ export const createChartManager = ({
   let treemapChart = null;
   let sankeyChart = null;
   let breakoutChart = null;
+  let breakoutHoveredSeries = null;
 
   const renderTreemap = () => {
     if (!treemapEl.value || !tree.value) return;
@@ -156,6 +157,12 @@ export const createChartManager = ({
         if (!params.seriesName) return;
         onCategorySelect(params.seriesName);
       });
+      breakoutChart.on('mouseover', (params) => {
+        breakoutHoveredSeries = params.seriesName || null;
+      });
+      breakoutChart.on('mouseout', () => {
+        breakoutHoveredSeries = null;
+      });
     }
 
     const periods = breakout.value.periods || [];
@@ -192,7 +199,17 @@ export const createChartManager = ({
         tooltip: {
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
-          valueFormatter: (value) => formatCurrency(Math.abs(value)),
+          formatter: (params) => {
+            const visible = params.filter((p) => p.value !== 0);
+            return visible
+              .map((p) => {
+                const label = p.seriesName === breakoutHoveredSeries
+                  ? `<b>${p.marker}${p.seriesName}: ${formatCurrency(Math.abs(p.value))}</b>`
+                  : `${p.marker}${p.seriesName}: ${formatCurrency(Math.abs(p.value))}`;
+                return label;
+              })
+              .join('<br/>');
+          },
         },
         xAxis: {
           type: 'category',

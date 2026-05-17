@@ -57,7 +57,11 @@ def run_full_classification(
 
     # Extract transfer settings from rules module
     module: ModuleType | None = getattr(config, "module", None)
-    transfer_prefix = getattr(module, "TRANSFER_PREFIX", "transfer/") if module else "transfer/"
+    # Support TRANSFER_PREFIXES (list) or TRANSFER_PREFIX (str)
+    if module and hasattr(module, "TRANSFER_PREFIXES"):
+        transfer_prefix = module.TRANSFER_PREFIXES
+    else:
+        transfer_prefix = getattr(module, "TRANSFER_PREFIX", "transfer/") if module else "transfer/"
     transfer_window = getattr(module, "TRANSFER_WINDOW_DAYS", 10) if module else 10
     transfer_predicate = getattr(module, "in_same_transfer_group", None) if module else None
 
