@@ -96,6 +96,7 @@ createApp({
     const pivot = ref(null);
     const cashflow = ref(null);
     const breakout = ref(null);
+    const activity = ref(null);
     const breakoutGranularityMode = ref(initialUrlState.breakoutGranularityMode || 'auto');
     const breakoutShowIncome = ref(initialUrlState.breakoutShowIncome !== 'false');
     const breakoutShowExpenses = ref(initialUrlState.breakoutShowExpenses !== 'false');
@@ -202,6 +203,7 @@ createApp({
       pivot,
       cashflow,
       breakout,
+      activity,
       transactions,
       reportText,
       ensureCategoryColors: updateCategoryColors,
@@ -218,6 +220,7 @@ createApp({
       loadCashflow,
       loadBreakout,
       loadReport,
+      loadActivity,
       loadTransactions,
       loadAll,
     } = api;
@@ -549,6 +552,7 @@ createApp({
       },
       breakoutNet,
       breakoutNetByPeriod,
+      activity,
       reportText,
       copyReport,
       copyLabel,

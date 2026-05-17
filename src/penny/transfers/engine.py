@@ -85,7 +85,7 @@ def generate_group_id(fingerprints: list[str]) -> str:
 def link_transfers(
     entries: list[Transaction],
     predicate: Callable[[Transaction, Transaction], bool],
-    prefix: str = "transfer/",
+    prefix: str | list[str] = "transfer/",
     window_days: int = 10,
 ) -> LinkingResult:
     """Link entries into transfer groups.
@@ -93,14 +93,17 @@ def link_transfers(
     Args:
         entries: All entries to consider
         predicate: User-defined function (a, b) -> bool
-        prefix: Category prefix to filter on (default: "transfer/")
+        prefix: Category prefix(es) to filter on (default: "transfer/")
         window_days: Maximum days apart for entries to be compared
 
     Returns:
         LinkingResult with group assignments and statistics
     """
-    # 1. Pre-filter by category prefix
-    transfers = [e for e in entries if e.category and e.category.startswith(prefix)]
+    # 1. Pre-filter by category prefix(es)
+    prefixes = [prefix] if isinstance(prefix, str) else prefix
+    transfers = [
+        e for e in entries if e.category and any(e.category.startswith(p) for p in prefixes)
+    ]
 
     # 2. Sort by date
     transfers.sort(key=lambda e: e.date)

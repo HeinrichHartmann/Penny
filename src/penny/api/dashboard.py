@@ -460,6 +460,78 @@ async def breakout(
     }
 
 
+@router.get("/activity")
+async def activity(
+    from_date: str = Query(None, alias="from"),
+    to_date: str = Query(None, alias="to"),
+    accounts: str = Query(None),
+    neutralize: bool = Query(True),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
+):
+    """Return daily spending totals for the activity heatmap."""
+    conn = connect()
+    params: list = []
+    conditions = []
+
+    if from_date:
+        conditions.append("date >= ?")
+        params.append(from_date)
+    if to_date:
+        conditions.append("date <= ?")
+        params.append(to_date)
+    if accounts is not None:
+        account_list = [a for a in accounts.split(",") if a]
+        if account_list:
+            placeholders = ",".join("?" * len(account_list))
+            conditions.append(f"account_id IN ({placeholders})")
+            params.extend(int(a) for a in account_list)
+        else:
+            conditions.append("1 = 0")
+    if category:
+        conditions.append("category LIKE ?")
+        params.append(f"{category}%")
+    if q:
+        conditions.append("(raw_buchungstext LIKE ? OR payee LIKE ?)")
+        params.append(f"%{q}%")
+        params.append(f"%{q}%")
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    if neutralize:
+        # Group by group_id first to net out transfers, then aggregate by date
+        sql = f"""
+            SELECT date,
+                   SUM(CASE WHEN net > 0 THEN net ELSE 0 END),
+                   SUM(CASE WHEN net < 0 THEN ABS(net) ELSE 0 END)
+            FROM (
+                SELECT date, SUM(amount_cents) as net
+                FROM transactions {where}
+                GROUP BY group_id
+                HAVING SUM(amount_cents) != 0
+            )
+            GROUP BY date ORDER BY date
+        """
+    else:
+        sql = f"""
+            SELECT date,
+                   SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END),
+                   SUM(CASE WHEN amount_cents < 0 THEN ABS(amount_cents) ELSE 0 END)
+            FROM transactions {where}
+            GROUP BY date ORDER BY date
+        """
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    daily_income = {row[0]: row[1] for row in rows if row[1]}
+    daily_expense = {row[0]: row[2] for row in rows if row[2]}
+    return {
+        "daily_income": daily_income,
+        "daily_expense": daily_expense,
+        "from": from_date,
+        "to": to_date,
+    }
+
+
 @router.get("/report", response_class=PlainTextResponse)
 async def report(
     from_date: str = Query(None, alias="from"),

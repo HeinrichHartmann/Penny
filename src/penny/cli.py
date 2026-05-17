@@ -63,10 +63,14 @@ def _load_rules_bundle(rules_file: Path) -> tuple[LoadedRulesConfig, object]:
         _ACTIVE_COLLECTOR.reset(token)
 
 
-def _extract_transfer_settings(module: object) -> tuple[str, int, object | None]:
+def _extract_transfer_settings(module: object) -> tuple[str | list[str], int, object | None]:
     """Read optional transfer-linking hooks from the rules module."""
+    if hasattr(module, "TRANSFER_PREFIXES"):
+        prefix = module.TRANSFER_PREFIXES
+    else:
+        prefix = getattr(module, "TRANSFER_PREFIX", "transfer/")
     return (
-        getattr(module, "TRANSFER_PREFIX", "transfer/"),
+        prefix,
         getattr(module, "TRANSFER_WINDOW_DAYS", 10),
         getattr(module, "in_same_transfer_group", None),
     )
