@@ -886,22 +886,13 @@ tbody tr:hover {
 
 /* ── Breakout Chart ────────────────────────────────────────────────────────── */
 
-.breakout-header {
+.breakout-selector {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 12px;
   margin-bottom: 10px;
   flex-wrap: wrap;
-}
-
-.breakout-middle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-left: auto;
-  margin-right: auto;
 }
 
 .breakout-net {

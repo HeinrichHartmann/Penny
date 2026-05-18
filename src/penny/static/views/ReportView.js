@@ -1,6 +1,7 @@
+import { ref } from 'vue/dist/vue.esm-bundler.js';
+import { BreakoutSelector } from '../components/BreakoutSelector.js';
 import { SelectorHeader } from '../components/SelectorHeader.js';
 import { TransactionsList } from './TransactionsList.js';
-import { breakoutGranularityLabel } from '../utils/date.js';
 import { formatCompactSigned, formatCurrency } from '../utils/format.js';
 
 // ── Activity heatmap helpers ──────────────────────────────────────────────────
@@ -78,6 +79,7 @@ function monthLabelCols(year) {
 export const ReportView = {
   name: 'ReportView',
   components: {
+    BreakoutSelector,
     SelectorHeader,
     TransactionsList,
   },
@@ -86,17 +88,19 @@ export const ReportView = {
     transactionsModel: { type: Object, required: false },
   },
   setup() {
+    const heatmapRowSort = ref('alpha'); // 'alpha' | 'total'
     return {
-      breakoutGranularityLabel,
       formatCompactSigned,
       formatCurrency,
       buildYearGrid,
       activityColor,
+      activityLevel,
       monthLabelCols,
       DAY_LABELS,
       EXPENSE_COLORS,
       INCOME_COLORS,
       ACTIVITY_LEGEND,
+      heatmapRowSort,
     };
   },
   template: `
@@ -129,10 +133,10 @@ export const ReportView = {
 
       <div class="tabs">
         <div class="tab-group">
-          <button v-for="t in ['expense', 'income', 'cashflow', 'breakout', 'activity']" :key="t"
+          <button v-for="t in ['expense', 'income', 'cashflow', 'breakout', 'activity', 'heatmap']" :key="t"
             @click="model.setTab(t)" :data-tab="t"
             :class="['tab-btn', model.tab === t ? 'active' : '']">
-            {{ {expense:'Expense', income:'Income', cashflow:'Cash Flow', breakout:'Breakout', activity:'Activity'}[t] }}
+            {{ {expense:'Expense', income:'Income', cashflow:'Cash Flow', breakout:'Breakout', activity:'Activity', heatmap:'Activity Breakout'}[t] }}
           </button>
         </div>
         <div class="tab-group">
@@ -149,44 +153,14 @@ export const ReportView = {
         </div>
 
         <div v-if="model.tab === 'breakout'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
-          <div class="breakout-header">
-            <div class="txn-header" style="margin:0;">
-              {{ breakoutGranularityLabel(model.breakoutGranularity) }} Breakout
-              <span class="sub" v-if="model.breakout">
-                - inflows {{ formatCurrency(model.breakout.income_total) }}, outflows {{ formatCurrency(model.breakout.expense_total) }}
-              </span>
-            </div>
-            <div class="breakout-middle">
-              <div class="check-group">
-                <label>
-                  <input type="checkbox" :checked="model.breakoutShowIncome" @change="model.setBreakoutShowIncome($event.target.checked)">
-                  Income
-                </label>
-                <label>
-                  <input type="checkbox" :checked="model.breakoutShowExpenses" @change="model.setBreakoutShowExpenses($event.target.checked)">
-                  Expenses
-                </label>
-              </div>
-            </div>
-            <div class="btn-group wrap">
-              <button @click="model.setBreakoutGranularityMode('auto')"
-                :class="['shortcut-btn', model.breakoutGranularityMode === 'auto' ? 'active' : '']">
-                Auto
-              </button>
-              <button @click="model.setBreakoutGranularityMode('month')"
-                :class="['shortcut-btn', model.breakoutGranularityMode === 'month' ? 'active' : '']">
-                Month
-              </button>
-              <button @click="model.setBreakoutGranularityMode('week')"
-                :class="['shortcut-btn', model.breakoutGranularityMode === 'week' ? 'active' : '']">
-                Week
-              </button>
-              <button @click="model.setBreakoutGranularityMode('day')"
-                :class="['shortcut-btn', model.breakoutGranularityMode === 'day' ? 'active' : '']">
-                Day
-              </button>
-            </div>
-          </div>
+          <breakout-selector
+            :state="{ granularityMode: model.breakoutGranularityMode, showIncome: model.breakoutShowIncome, showExpenses: model.breakoutShowExpenses }"
+            :actions="{ setGranularityMode: model.setBreakoutGranularityMode, setShowIncome: model.setBreakoutShowIncome, setShowExpenses: model.setBreakoutShowExpenses }"
+          >
+            <span v-if="model.breakout" class="sub" style="margin-right:auto;">
+              inflows {{ formatCurrency(model.breakout.income_total) }}, outflows {{ formatCurrency(model.breakout.expense_total) }}
+            </span>
+          </breakout-selector>
           <div :ref="model.setBreakoutEl" style="width:100%; height:520px;"></div>
           <div v-if="model.breakout && model.breakoutNetByPeriod.length" class="breakout-net-caption">Balance</div>
           <div v-if="model.breakout && model.breakoutNetByPeriod.length" class="breakout-net-row"
@@ -284,11 +258,113 @@ export const ReportView = {
           Loading...
         </div>
 
+        <div v-if="model.tab === 'heatmap'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
+          <breakout-selector
+            :state="{ granularityMode: model.reportGranularityMode, showIncome: model.reportShowIncome, showExpenses: model.reportShowExpenses }"
+            :actions="{ setGranularityMode: model.setReportGranularityMode, setShowIncome: model.setReportShowIncome, setShowExpenses: model.setReportShowExpenses }"
+          >
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="sub">Depth</span>
+              <div class="btn-group">
+                <button v-for="d in ['1','2','*']" :key="d"
+                  @click="model.setReportDepth(d)"
+                  :class="['shortcut-btn', model.reportDepth === d ? 'active' : '']">
+                  {{ d }}
+                </button>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="sub">Sort</span>
+              <div class="btn-group">
+                <button @click="heatmapRowSort = 'alpha'"
+                  :class="['shortcut-btn', heatmapRowSort === 'alpha' ? 'active' : '']">A-Z</button>
+                <button @click="heatmapRowSort = 'total'"
+                  :class="['shortcut-btn', heatmapRowSort === 'total' ? 'active' : '']">Total</button>
+              </div>
+            </div>
+          </breakout-selector>
+          <div v-if="!model.heatmap" style="padding:20px; color:var(--muted);">Loading...</div>
+          <template v-else>
+            <template v-for="type in (() => {
+              const t = [];
+              if (model.reportShowExpenses) t.push('expense');
+              if (model.reportShowIncome) t.push('income');
+              return t;
+            })()" :key="type">
+              <div style="margin-bottom:24px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                  <div class="txn-header" style="margin:0; text-transform:capitalize;">{{ type === 'expense' ? 'Expenses' : 'Income' }}</div>
+                  <div style="display:flex; align-items:center; gap:6px; font-size:0.7rem; color:var(--muted);">
+                    <span>Less</span>
+                    <div v-for="item in ACTIVITY_LEGEND" :key="item.label" style="display:flex; align-items:center; gap:2px;">
+                      <div :style="{
+                        width:'11px', height:'11px', borderRadius:'2px',
+                        background: type === 'income' ? INCOME_COLORS[item.level] : EXPENSE_COLORS[item.level],
+                        outline: '1px solid rgba(27,31,35,0.06)',
+                        outlineOffset: '-1px',
+                      }"></div>
+                      <span>{{ item.label }}</span>
+                    </div>
+                    <span>More</span>
+                  </div>
+                </div>
+                <div style="overflow-x:auto;">
+                  <div style="display:grid; gap:2px;"
+                    :style="{ gridTemplateColumns: '160px repeat(' + (model.heatmap[type] ? model.heatmap.periods.length : 0) + ', 13px)' }">
+                    <!-- Header row -->
+                    <div></div>
+                    <div v-for="(label, i) in model.heatmap.labels" :key="i"
+                      style="width:13px; font-size:0.65rem; color:var(--muted); writing-mode:vertical-lr; transform:rotate(180deg); padding-bottom:4px; white-space:nowrap; text-align:right; height:60px;">
+                      {{ label }}
+                    </div>
+                    <!-- Data rows -->
+                    <template v-for="cat in (() => {
+                      const cats = model.heatmap[type] ? [...model.heatmap[type].categories] : [];
+                      if (heatmapRowSort === 'total') cats.sort((a, b) => b.values.reduce((s,v)=>s+v,0) - a.values.reduce((s,v)=>s+v,0));
+                      return cats;
+                    })()" :key="cat.name">
+                      <div style="width:160px; font-size:0.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:8px; line-height:13px; height:13px; display:flex; align-items:center;">
+                        <span class="cat-dot" :style="{ background: model.categoryColor(cat.name) || 'var(--muted)' }"></span>
+                        {{ cat.name }}
+                      </div>
+                      <div v-for="(period, pi) in model.heatmap.periods" :key="period"
+                        :title="cat.name + ' / ' + model.heatmap.labels[pi] + ': ' + formatCurrency(cat.values[pi] || 0)"
+                        :style="{
+                          width: '13px',
+                          height: '13px',
+                          borderRadius: '2px',
+                          outline: '1px solid rgba(27,31,35,0.06)',
+                          outlineOffset: '-1px',
+                          background: (type === 'income' ? INCOME_COLORS : EXPENSE_COLORS)[activityLevel(cat.values[pi] || 0)],
+                        }">
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </template>
+        </div>
+
         <div v-if="model.tab === 'report'" class="panel" style="margin-bottom:20px; border-radius:0 6px 6px 6px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <span class="txn-header" style="margin:0">Text Report</span>
-            <button class="copy-btn" @click="model.copyReport">{{ model.copyLabel }}</button>
-          </div>
+          <breakout-selector
+            :state="{ granularityMode: model.reportGranularityMode, showIncome: model.reportShowIncome, showExpenses: model.reportShowExpenses }"
+            :actions="{ setGranularityMode: model.setReportGranularityMode, setShowIncome: model.setReportShowIncome, setShowExpenses: model.setReportShowExpenses }"
+          >
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="sub">Depth</span>
+              <div class="btn-group">
+                <button v-for="d in ['1','2','*']" :key="d"
+                  @click="model.setReportDepth(d)"
+                  :class="['shortcut-btn', model.reportDepth === d ? 'active' : '']">
+                  {{ d }}
+                </button>
+              </div>
+            </div>
+            <template #right>
+              <button class="copy-btn" @click="model.copyReport">{{ model.copyLabel }}</button>
+            </template>
+          </breakout-selector>
           <pre class="report-text">{{ model.reportText || 'Loading...' }}</pre>
         </div>
       </div>

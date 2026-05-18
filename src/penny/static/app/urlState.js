@@ -13,6 +13,10 @@ export const readUrlState = () => {
     breakoutGranularityMode: params.get('breakoutGranularityMode'),
     breakoutShowIncome: params.get('breakoutShowIncome'),
     breakoutShowExpenses: params.get('breakoutShowExpenses'),
+    reportGranularityMode: params.get('reportGranularityMode'),
+    reportDepth: params.get('reportDepth'),
+    reportShowIncome: params.get('reportShowIncome'),
+    reportShowExpenses: params.get('reportShowExpenses'),
     transactionPage: params.get('transactionPage'),
   };
 };
@@ -27,6 +31,10 @@ export const syncUrlState = ({
   breakoutGranularityMode,
   breakoutShowIncome,
   breakoutShowExpenses,
+  reportGranularityMode,
+  reportDepth,
+  reportShowIncome,
+  reportShowExpenses,
   currentTransactionPage,
 }) => {
   const params = new URLSearchParams();
@@ -49,6 +57,10 @@ export const syncUrlState = ({
   params.set('breakoutGranularityMode', breakoutGranularityMode);
   params.set('breakoutShowIncome', String(breakoutShowIncome));
   params.set('breakoutShowExpenses', String(breakoutShowExpenses));
+  params.set('reportGranularityMode', reportGranularityMode);
+  params.set('reportDepth', reportDepth);
+  params.set('reportShowIncome', String(reportShowIncome));
+  params.set('reportShowExpenses', String(reportShowExpenses));
   params.set('transactionPage', String(currentTransactionPage));
 
   const query = params.toString();

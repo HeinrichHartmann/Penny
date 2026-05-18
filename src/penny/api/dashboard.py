@@ -16,7 +16,7 @@ from penny.api.helpers import (
 )
 from penny.balance_projection import build_balance_series
 from penny.db import connect
-from penny.reports import generate_report_text
+from penny.reports import generate_pivot_text, generate_report_text
 from penny.sql import (
     breakout_query,
     cashflow_query,
@@ -532,19 +532,94 @@ async def activity(
     }
 
 
+@router.get("/heatmap")
+async def heatmap(
+    from_date: str = Query(None, alias="from"),
+    to_date: str = Query(None, alias="to"),
+    accounts: str = Query(None),
+    neutralize: bool = Query(True),
+    category: str | None = Query(None),
+    q: str | None = Query(None),
+    granularity: str = Query("month"),
+    depth: str = Query("1"),
+):
+    """Return heatmap data: category × period for expenses and income."""
+    conn = connect()
+    cursor = conn.cursor()
+    sql, params = breakout_query(
+        from_date=from_date,
+        to_date=to_date,
+        accounts=accounts,
+        category=category,
+        q=q,
+        neutralize=neutralize,
+    )
+    rows = cursor.execute(sql, params).fetchall()
+    conn.close()
+
+    depth_int = None if depth == "*" else int(depth)
+    expense_totals: dict = defaultdict(lambda: defaultdict(int))
+    income_totals: dict = defaultdict(lambda: defaultdict(int))
+    periods: set = set()
+
+    for row in rows:
+        amount = row[2]
+        key = period_key(row[0], granularity)
+        cat = row[1] or "uncategorized"
+        if depth_int is not None:
+            cat = "/".join(cat.split("/")[:depth_int])
+        periods.add(key)
+        if amount < 0:
+            expense_totals[cat][key] += abs(amount)
+        elif amount > 0:
+            income_totals[cat][key] += amount
+
+    ordered_periods = sort_period_keys(list(periods), granularity)
+    labels = [period_label(k, granularity) for k in ordered_periods]
+
+    def build_section(totals_dict: dict) -> dict:
+        cats = [
+            {"name": name, "values": [totals_dict[name].get(k, 0) for k in ordered_periods]}
+            for name in sorted(totals_dict.keys())
+        ]
+        global_max = max((v for c in cats for v in c["values"]), default=0)
+        return {"categories": cats, "global_max": global_max}
+
+    return {
+        "periods": ordered_periods,
+        "labels": labels,
+        "expense": build_section(expense_totals),
+        "income": build_section(income_totals),
+    }
+
+
 @router.get("/report", response_class=PlainTextResponse)
 async def report(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
     accounts: str = Query(None),
+    neutralize: bool = Query(True),
     category: str | None = Query(None),
     q: str | None = Query(None),
+    granularity: str = Query("month"),
+    depth: str = Query("1"),
+    show_expenses: bool = Query(True),
+    show_income: bool = Query(False),
 ):
     """Return plain text financial report."""
     filters = _build_transaction_filter(
         from_date=from_date, to_date=to_date, accounts=accounts, category=category, q=q
     )
-    return generate_report_text(filters)
+    report_text = generate_report_text(filters, neutralize=neutralize)
+    pivot_text = generate_pivot_text(
+        filters,
+        granularity=granularity,
+        depth=depth,
+        show_expenses=show_expenses,
+        show_income=show_income,
+        neutralize=neutralize,
+    )
+    return report_text + pivot_text
 
 
 @router.get("/transactions")

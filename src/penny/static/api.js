@@ -291,6 +291,11 @@ export const createApi = ({
   searchQuery,
   pivotDepth,
   breakoutGranularity,
+  reportGranularity,
+  reportDepth,
+  reportShowIncome,
+  reportShowExpenses,
+  heatmap,
   summary,
   tree,
   pivot,
@@ -313,6 +318,7 @@ export const createApi = ({
     breakout: 0,
     activity: 0,
     report: 0,
+    heatmap: 0,
     transactions: 0,
   };
 
@@ -412,7 +418,11 @@ export const createApi = ({
     const qParam = searchQuery.value
       ? `&q=${encodeURIComponent(searchQuery.value)}`
       : '';
-    const resp = await fetch(`/api/report?${qs}${catParam}${qParam}`);
+    const granularityParam = `&granularity=${encodeURIComponent(reportGranularity.value)}`;
+    const depthParam = `&depth=${encodeURIComponent(reportDepth.value)}`;
+    const showExpensesParam = `&show_expenses=${reportShowExpenses.value}`;
+    const showIncomeParam = `&show_income=${reportShowIncome.value}`;
+    const resp = await fetch(`/api/report?${qs}${catParam}${qParam}${granularityParam}${depthParam}${showExpensesParam}${showIncomeParam}`);
     const text = await resp.text();
     if (!isCurrentRequest('report', requestId)) return;
     reportText.value = text;
@@ -436,6 +446,24 @@ export const createApi = ({
     );
     if (!isCurrentRequest('transactions', requestId)) return;
     transactions.value = data;
+  };
+
+  const loadHeatmap = async () => {
+    const requestId = beginRequest('heatmap');
+    const catParam = selectedCategory.value
+      ? `&category=${encodeURIComponent(selectedCategory.value)}`
+      : '';
+    const qParam = searchQuery.value
+      ? `&q=${encodeURIComponent(searchQuery.value)}`
+      : '';
+    const granularityParam = `&granularity=${encodeURIComponent(reportGranularity.value)}`;
+    const depthParam = `&depth=${encodeURIComponent(reportDepth.value)}`;
+    const data = await fetchJson(
+      `/api/heatmap?${catParam}${qParam}${granularityParam}${depthParam}`,
+      filters
+    );
+    if (!isCurrentRequest('heatmap', requestId)) return;
+    heatmap.value = data;
   };
 
   const loadActivity = async () => {
@@ -463,6 +491,8 @@ export const createApi = ({
       loads.push(loadBreakout());
     } else if (tab.value === 'report') {
       loads.push(loadReport());
+    } else if (tab.value === 'heatmap') {
+      loads.push(loadHeatmap());
     } else if (tab.value === 'activity') {
       loads.push(loadActivity());
     } else {
@@ -479,6 +509,7 @@ export const createApi = ({
     loadCashflow,
     loadBreakout,
     loadReport,
+    loadHeatmap,
     loadActivity,
     loadTransactions,
     loadAll,

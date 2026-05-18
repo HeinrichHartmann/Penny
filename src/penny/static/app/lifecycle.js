@@ -16,6 +16,8 @@ export const setupAppLifecycle = ({
   renderBreakout,
   loadPivot,
   loadBreakout,
+  loadReport,
+  loadHeatmap,
   syncUrl,
   view,
   tab,
@@ -25,6 +27,10 @@ export const setupAppLifecycle = ({
   breakoutGranularityMode,
   breakoutShowIncome,
   breakoutShowExpenses,
+  reportGranularityMode,
+  reportDepth,
+  reportShowIncome,
+  reportShowExpenses,
   currentTransactionPage,
 }) => {
   // ADR-013: app.js is the only frontend REST boundary. Root watchers reload
@@ -69,6 +75,10 @@ export const setupAppLifecycle = ({
       breakoutGranularityMode.value,
       breakoutShowIncome.value,
       breakoutShowExpenses.value,
+      reportGranularityMode.value,
+      reportDepth.value,
+      reportShowIncome.value,
+      reportShowExpenses.value,
       currentTransactionPage.value,
     ],
     syncUrl
@@ -82,6 +92,12 @@ export const setupAppLifecycle = ({
   watch(breakoutGranularityMode, () => {
     if (isHydrating() || view.value !== 'report') return;
     if (tab.value === 'breakout') loadBreakout();
+  });
+
+  watch([reportGranularityMode, reportDepth, reportShowIncome, reportShowExpenses], () => {
+    if (isHydrating() || view.value !== 'report') return;
+    if (tab.value === 'report') loadReport();
+    else if (tab.value === 'heatmap') loadHeatmap();
   });
 
   watch([breakoutShowIncome, breakoutShowExpenses], () => {

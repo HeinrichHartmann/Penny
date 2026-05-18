@@ -97,10 +97,15 @@ createApp({
     const cashflow = ref(null);
     const breakout = ref(null);
     const activity = ref(null);
+    const heatmap = ref(null);
     const breakoutGranularityMode = ref(initialUrlState.breakoutGranularityMode || 'auto');
     const breakoutShowIncome = ref(initialUrlState.breakoutShowIncome !== 'false');
     const breakoutShowExpenses = ref(initialUrlState.breakoutShowExpenses !== 'false');
     const pivotDepth = ref(initialUrlState.pivotDepth || '1');
+    const reportGranularityMode = ref(initialUrlState.reportGranularityMode || 'auto');
+    const reportDepth = ref(initialUrlState.reportDepth || '1');
+    const reportShowIncome = ref(initialUrlState.reportShowIncome === 'true');
+    const reportShowExpenses = ref(initialUrlState.reportShowExpenses !== 'false');
     const transactions = ref(null);
     const balanceValueHistory = ref(null);
     const balanceLoading = ref(false);
@@ -166,6 +171,10 @@ createApp({
       computeBreakoutGranularity(breakoutGranularityMode.value)
     );
 
+    const reportGranularity = computed(() =>
+      computeBreakoutGranularity(reportGranularityMode.value)
+    );
+
     // ── Color Helper ─────────────────────────────────────────────────────────
     const getCategoryColor = (cat) => categoryColor(cat, categoryColorMap);
 
@@ -198,6 +207,11 @@ createApp({
       searchQuery,
       pivotDepth,
       breakoutGranularity,
+      reportGranularity,
+      reportDepth,
+      reportShowIncome,
+      reportShowExpenses,
+      heatmap,
       summary,
       tree,
       pivot,
@@ -220,6 +234,7 @@ createApp({
       loadCashflow,
       loadBreakout,
       loadReport,
+      loadHeatmap,
       loadActivity,
       loadTransactions,
       loadAll,
@@ -380,6 +395,7 @@ createApp({
       pivot.value = null;
       cashflow.value = null;
       breakout.value = null;
+      heatmap.value = null;
       transactions.value = null;
       reportText.value = '';
       balanceViewState?.resetValueHistory();
@@ -563,6 +579,24 @@ createApp({
       setPivotDepth: (value) => {
         pivotDepth.value = value;
       },
+      reportGranularity,
+      reportGranularityMode,
+      setReportGranularityMode: (value) => {
+        reportGranularityMode.value = value;
+      },
+      reportDepth,
+      setReportDepth: (value) => {
+        reportDepth.value = value;
+      },
+      reportShowIncome,
+      setReportShowIncome: (value) => {
+        reportShowIncome.value = value;
+      },
+      reportShowExpenses,
+      setReportShowExpenses: (value) => {
+        reportShowExpenses.value = value;
+      },
+      heatmap,
       applyCategorySelection,
       selectedMatchesCategory,
       categoryColor: getCategoryColor,
@@ -754,6 +788,10 @@ createApp({
         breakoutGranularityMode: breakoutGranularityMode.value,
         breakoutShowIncome: breakoutShowIncome.value,
         breakoutShowExpenses: breakoutShowExpenses.value,
+        reportGranularityMode: reportGranularityMode.value,
+        reportDepth: reportDepth.value,
+        reportShowIncome: String(reportShowIncome.value),
+        reportShowExpenses: String(reportShowExpenses.value),
         currentTransactionPage: currentTransactionPage.value,
       });
     };
@@ -778,6 +816,8 @@ createApp({
       renderBreakout,
       loadPivot,
       loadBreakout,
+      loadReport,
+      loadHeatmap,
       syncUrl,
       view,
       tab,
@@ -787,6 +827,10 @@ createApp({
       breakoutGranularityMode,
       breakoutShowIncome,
       breakoutShowExpenses,
+      reportGranularityMode,
+      reportDepth,
+      reportShowIncome,
+      reportShowExpenses,
       currentTransactionPage,
     });
 
