@@ -281,6 +281,60 @@ def db():
 
 
 @main.group()
+def rules():
+    """Manage classification rules."""
+
+
+@rules.command("show")
+def rules_show():
+    """Print the active rules file to stdout."""
+    config = VaultConfig()
+    path = latest_rules_path(config)
+    if path is None:
+        raise click.ClickException("No rules file found in vault.")
+    click.echo(path.read_text(encoding="utf-8"), nl=False)
+
+
+@rules.command("export")
+@click.argument("path", required=False, default="rules.py", type=click.Path(path_type=Path))
+def rules_export(path: Path):
+    """Copy the active rules file to a local path for editing.
+
+    Defaults to ./rules.py in the current directory.
+    """
+    config = VaultConfig()
+    source = latest_rules_path(config)
+    if source is None:
+        raise click.ClickException("No rules file found in vault.")
+
+    import shutil
+
+    shutil.copy2(source, path)
+    click.echo(f"Exported to: {path}")
+
+
+@rules.command("import")
+@click.argument("rules_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def rules_import(rules_file: Path):
+    """Import a rules file into the vault as the new active rules.
+
+    Validates the file, saves a versioned snapshot, and applies classification.
+    """
+    content = rules_file.read_text(encoding="utf-8")
+
+    try:
+        config, _module = _load_rules_bundle(rules_file)
+        click.echo(f"Validated: {len(config.ruleset.rules)} rules loaded")
+        click.echo(f"Default category: {config.default_category}")
+    except Exception as exc:
+        raise click.ClickException(f"Invalid rules file: {exc}") from exc
+
+    saved_path = save_rules_snapshot(content)
+    click.echo(f"Saved to: {saved_path}")
+    click.echo("Rules imported successfully.")
+
+
+@main.group()
 def log():
     """Inspect archived ingest log entries."""
 
