@@ -10,8 +10,12 @@ from penny.transactions import (
     list_transactions,
     store_transactions,
 )
-from penny.vault import VaultConfig, ensure_vault_initialized
-from penny.vault.ledger import Ledger
+from penny.vault import (
+    VaultConfig,
+    ensure_vault_initialized,
+    latest_rules_path,
+    save_rules_snapshot,
+)
 
 
 def _make_tx(account_id: int, payee: str, amount_cents: int, **kwargs) -> Transaction:
@@ -35,7 +39,13 @@ def _make_tx(account_id: int, payee: str, amount_cents: int, **kwargs) -> Transa
 
 
 def _seed_data():
-    """Create an account with a few transactions."""
+    """Create an account with a few transactions and a base rules file."""
+    config = VaultConfig()
+    ensure_vault_initialized(config)
+    save_rules_snapshot(
+        "from penny.classify import rule\n\nDEFAULT_CATEGORY = 'uncategorized'\n",
+        config,
+    )
     acc = add_account("testbank", display_name="HartmannIT")
     txs = [
         _make_tx(acc.id, "STRIPE", 70000),
@@ -122,9 +132,7 @@ def test_classify_sets_category():
     assert matched[0].category == "signals/venue"
 
 
-def test_classify_persists_to_vault_ledger():
-    config = VaultConfig()
-    ensure_vault_initialized(config)
+def test_classify_appends_to_rules_file():
     _acc, txs = _seed_data()
     venue_tx = txs[1]
 
@@ -132,15 +140,13 @@ def test_classify_persists_to_vault_ledger():
     result = runner.invoke(main, ["classify", venue_tx.fingerprint, "signals/venue"])
     assert result.exit_code == 0
 
-    # Check ledger has the mutation
-    ledger = Ledger(config.path)
-    entries = ledger.read_entries()
-    mutations = [e for e in entries if e.entry_type == "mutation"]
-    assert len(mutations) >= 1
-    last = mutations[-1]
-    assert last.record["mutation_type"] == "classification"
-    assert last.record["entity_id"] == venue_tx.fingerprint
-    assert last.record["payload"]["category"] == "signals/venue"
+    # Check the latest rules snapshot contains the fingerprint rule
+    config = VaultConfig()
+    rules_path = latest_rules_path(config)
+    assert rules_path is not None
+    content = rules_path.read_text()
+    assert venue_tx.fingerprint in content
+    assert "signals/venue" in content
 
 
 def test_classify_unknown_fingerprint():

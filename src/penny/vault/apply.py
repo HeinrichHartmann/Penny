@@ -340,11 +340,4 @@ def _apply_mutation_data(
         if mutation_type == "rules_updated":
             return
 
-        if mutation_type == "classification":
-            conn.execute(
-                "UPDATE transactions SET category = ? WHERE fingerprint = ?",
-                (payload.get("category", "uncategorized"), entity_id),
-            )
-            return
-
         raise ValueError(f"Unknown mutation type: {mutation_type}")

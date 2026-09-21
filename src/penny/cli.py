@@ -1138,7 +1138,8 @@ def import_rules(rules_file: Path):
 def classify(fingerprint: str, category: str):
     """Classify a transaction by fingerprint.
 
-    Sets the category for a specific transaction, persisted as a vault mutation.
+    Appends a fingerprint rule to the active rules file and saves a new
+    vault snapshot. The classification survives re-imports and rule re-runs.
 
     Examples:
       penny classify abc123def signals/venue
@@ -1152,54 +1153,42 @@ def classify(fingerprint: str, category: str):
         "SELECT fingerprint, payee, amount_cents, date, category FROM transactions WHERE fingerprint = ?",
         (fingerprint,),
     ).fetchone()
-    conn.close()
 
     if row is None:
+        conn.close()
         raise click.ClickException(f"Transaction not found: {fingerprint}")
 
     # Show what we're classifying
     old_category = row["category"] or "uncategorized"
+    comment = f"{row['payee'][:40]} {row['date']} {row['amount_cents'] / 100:,.2f}"
     click.echo(
         f"{row['date']} | {row['payee'][:40]:<40} | {row['amount_cents'] / 100:>10.2f} | "
         f"{old_category} -> {category}"
     )
 
-    # Persist as vault mutation
+    # Append rule to active rules file and save snapshot
     config = VaultConfig()
-    _classify_transaction(config, fingerprint, category)
-    click.echo("Classified.")
+    rules_path = latest_rules_path(config)
+    if rules_path is None:
+        raise click.ClickException("No rules file found in vault.")
 
-
-def _classify_transaction(config: VaultConfig, fingerprint: str, category: str) -> None:
-    """Write classification mutation to vault and apply to DB."""
-    from penny.db import connect
-    from penny.vault.ledger import Ledger, LedgerEntry
-    from penny.vault.mutations import _now_iso
-
-    ledger = Ledger(config.path)
-    seq = ledger.next_sequence()
-    entry = LedgerEntry(
-        sequence=seq,
-        entry_type="mutation",
-        enabled=True,
-        timestamp=_now_iso(),
-        record={
-            "mutation_type": "classification",
-            "entity_type": "transaction",
-            "entity_id": fingerprint,
-            "payload": {"category": category},
-        },
+    content = rules_path.read_text(encoding="utf-8")
+    rule_line = (
+        f'\n\n@rule("{category}")\n'
+        f"def _fp_{fingerprint[:12]}(tx):  # {comment}\n"
+        f'    return tx.fingerprint == "{fingerprint}"\n'
     )
-    ledger.append_entry(entry)
+    content += rule_line
+    save_rules_snapshot(content)
 
-    # Apply directly to DB
-    conn = connect()
+    # Apply to DB immediately
     conn.execute(
         "UPDATE transactions SET category = ? WHERE fingerprint = ?",
         (category, fingerprint),
     )
     conn.commit()
     conn.close()
+    click.echo("Classified.")
 
 
 if __name__ == "__main__":
