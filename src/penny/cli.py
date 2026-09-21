@@ -83,6 +83,27 @@ def _format_account_row(account) -> str:
     return f"{account.id:<3} {account.bank:<12} {name:<20} {iban:<24} {status}"
 
 
+def _resolve_account_ids(account_args: tuple[str, ...]) -> tuple[int, ...]:
+    """Resolve account arguments to IDs, accepting both IDs and names."""
+    if not account_args:
+        return ()
+    resolved: list[int] = []
+    all_accounts = list_accounts(include_hidden=False)
+    name_lookup = {acc.display_name.casefold(): acc.id for acc in all_accounts if acc.display_name}
+    for arg in account_args:
+        try:
+            resolved.append(int(arg))
+        except ValueError:
+            match = name_lookup.get(arg.casefold())
+            if match is None:
+                available = ", ".join(acc.display_name for acc in all_accounts if acc.display_name)
+                raise click.ClickException(
+                    f"Unknown account '{arg}'. Available: {available}"
+                ) from None
+            resolved.append(match)
+    return tuple(resolved)
+
+
 def _build_transaction_filter(
     *,
     from_date: datetime | None = None,
@@ -577,12 +598,12 @@ def serve(host: str, port: int):
 @click.option(
     "--account",
     "-a",
-    "account_ids",
+    "account_args",
     multiple=True,
-    type=int,
-    help="Filter by account ID (repeatable)",
+    help="Filter by account name or ID (repeatable)",
 )
 @click.option("--category", help="Filter by category prefix")
+@click.option("--uncategorized", is_flag=True, help="Show only uncategorized transactions")
 @click.option("--query", "-q", help="Search booking text or payee")
 @click.option("--tab", type=click.Choice(["expense", "income"]), help="Filter by amount sign")
 @click.option(
@@ -592,17 +613,23 @@ def serve(host: str, port: int):
     help="Collapse transfer groups to net sums",
 )
 @click.option("--limit", "-n", type=int, help="Number of transactions to show")
+@click.option("-v", "--verbose", is_flag=True, help="Show fingerprints")
 def transactions_list(
     from_date: datetime | None,
     to_date: datetime | None,
-    account_ids: tuple[int, ...],
+    account_args: tuple[str, ...],
     category: str | None,
+    uncategorized: bool,
     query: str | None,
     tab: str | None,
     neutralize: bool,
     limit: int | None,
+    verbose: bool,
 ):
     """List recent transactions."""
+    account_ids = _resolve_account_ids(account_args)
+    if uncategorized:
+        category = "uncategorized"
 
     transaction_list = list_transactions(
         filters=_build_transaction_filter(
@@ -621,10 +648,18 @@ def transactions_list(
         return
 
     # Print header
-    click.echo(
-        f"{'Date':<12} | {'Account':<20} | {'Description':<40} | {'Category':<25} | {'Amount':>12}"
-    )
-    click.echo("-" * 115)
+    if verbose:
+        click.echo(
+            f"{'Fingerprint':<18} | {'Date':<12} | {'Account':<20} | "
+            f"{'Description':<40} | {'Category':<25} | {'Amount':>12}"
+        )
+        click.echo("-" * 137)
+    else:
+        click.echo(
+            f"{'Date':<12} | {'Account':<20} | {'Description':<40} | "
+            f"{'Category':<25} | {'Amount':>12}"
+        )
+        click.echo("-" * 115)
 
     # Print transactions
     total_cents = 0
@@ -641,21 +676,35 @@ def transactions_list(
         # Category
         category_str = (tx.category or "-")[:25]
 
-        # Amount with color coding
+        # Amount
         amount_str = f"{tx.amount_cents / 100:>11.2f}"
 
-        click.echo(
-            f"{tx.date.isoformat():<12} | "
-            f"{account_str:<20} | "
-            f"{description:<40} | "
-            f"{category_str:<25} | "
-            f"{amount_str}"
-        )
+        if verbose:
+            click.echo(
+                f"{tx.fingerprint:<18} | "
+                f"{tx.date.isoformat():<12} | "
+                f"{account_str:<20} | "
+                f"{description:<40} | "
+                f"{category_str:<25} | "
+                f"{amount_str}"
+            )
+        else:
+            click.echo(
+                f"{tx.date.isoformat():<12} | "
+                f"{account_str:<20} | "
+                f"{description:<40} | "
+                f"{category_str:<25} | "
+                f"{amount_str}"
+            )
         total_cents += tx.amount_cents
 
     # Print footer with total
-    click.echo("-" * 115)
-    click.echo(f"{'Total:':<99} | {total_cents / 100:>11.2f}")
+    if verbose:
+        click.echo("-" * 137)
+        click.echo(f"{'Total:':<121} | {total_cents / 100:>11.2f}")
+    else:
+        click.echo("-" * 115)
+        click.echo(f"{'Total:':<99} | {total_cents / 100:>11.2f}")
 
 
 @main.command("report")
@@ -1081,6 +1130,65 @@ def import_rules(rules_file: Path):
     saved_path = save_rules_snapshot(content)
     click.echo(f"Saved to: {saved_path}")
     click.echo("Rules imported successfully.")
+
+
+@main.command("classify")
+@click.argument("fingerprint")
+@click.argument("category")
+def classify(fingerprint: str, category: str):
+    """Classify a transaction by fingerprint.
+
+    Appends a fingerprint rule to the active rules file and saves a new
+    vault snapshot. The classification survives re-imports and rule re-runs.
+
+    Examples:
+      penny classify abc123def signals/venue
+      penny classify abc123def signals/production
+    """
+    from penny.db import connect
+
+    # Validate fingerprint exists
+    conn = connect()
+    row = conn.execute(
+        "SELECT fingerprint, payee, amount_cents, date, category FROM transactions WHERE fingerprint = ?",
+        (fingerprint,),
+    ).fetchone()
+
+    if row is None:
+        conn.close()
+        raise click.ClickException(f"Transaction not found: {fingerprint}")
+
+    # Show what we're classifying
+    old_category = row["category"] or "uncategorized"
+    comment = f"{row['payee'][:40]} {row['date']} {row['amount_cents'] / 100:,.2f}"
+    click.echo(
+        f"{row['date']} | {row['payee'][:40]:<40} | {row['amount_cents'] / 100:>10.2f} | "
+        f"{old_category} -> {category}"
+    )
+
+    # Append rule to active rules file and save snapshot
+    config = VaultConfig()
+    rules_path = latest_rules_path(config)
+    if rules_path is None:
+        raise click.ClickException("No rules file found in vault.")
+
+    content = rules_path.read_text(encoding="utf-8")
+    rule_line = (
+        f'\n\n@rule("{category}")\n'
+        f"def _fp_{fingerprint[:12]}(tx):  # {comment}\n"
+        f'    return tx.fingerprint == "{fingerprint}"\n'
+    )
+    content += rule_line
+    save_rules_snapshot(content)
+
+    # Apply to DB immediately
+    conn.execute(
+        "UPDATE transactions SET category = ? WHERE fingerprint = ?",
+        (category, fingerprint),
+    )
+    conn.commit()
+    conn.close()
+    click.echo("Classified.")
 
 
 if __name__ == "__main__":
